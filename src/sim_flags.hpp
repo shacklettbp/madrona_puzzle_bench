@@ -7,7 +7,6 @@ namespace madEscape {
 enum class SimFlags : uint32_t {
     Default                = 0,
     UseFixedWorld          = 1 << 0,
-    StartInDiscoveredRooms = 1 << 1,
     UseComplexLevel        = 1 << 2,
 };
 

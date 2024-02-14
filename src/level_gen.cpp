@@ -18,12 +18,12 @@ enum class RoomType : uint32_t {
 
 static inline float randInRangeCentered(Engine &ctx, float range)
 {
-    return ctx.data().rng.rand() * range - range / 2.f;
+    return ctx.data().rng.sampleUniform() * range - range / 2.f;
 }
 
 static inline float randBetween(Engine &ctx, float min, float max)
 {
-    return ctx.data().rng.rand() * (max - min) + min;
+    return ctx.data().rng.sampleUniform() * (max - min) + min;
 }
 
 // Initialize the basic components needed for physics rigid body entities
@@ -205,75 +205,53 @@ static void resetPersistentEntities(Engine &ctx)
         }
     }
 
-    const int32_t numRooms = ctx.singleton<RoomCount>().count;
-     auto second_rng = RNG::make(ctx.data().curEpisodeIdx);
-     // VISHNU MOD: RETRIEVE PROGRESS SO FAR
-     //printf("About to access illegally\n");
-     GlobalProgress& progress = ctx.singleton<GlobalProgress>();
-     //printf("About to access illegally %f \n", *(progress.progressPtr));
-     // VISHNU MOD: what if we place them in any room we want
-     float max_room = 0.999 + (int)(fmax(0.f, fmin(float(numRooms), (*(progress.progressPtr)) / consts::roomLength))); 
-     int rand_room = ((int)(second_rng.rand() * max_room));
-     for (CountT i = 0; i < consts::numAgents; i++) {
-         Entity agent_entity = ctx.data().agents[i];
-         registerRigidBodyEntity(ctx, agent_entity, SimObject::Agent);
+    for (CountT i = 0; i < consts::numAgents; i++) {
+        Entity agent_entity = ctx.data().agents[i];
+        registerRigidBodyEntity(ctx, agent_entity, SimObject::Agent);
 
-         // VISHNU MOD: LOG PROGRESS SO FAR
-         *(progress.progressPtr) = fmax(*(progress.progressPtr), ctx.get<Position>(agent_entity)[1]);
+        // Place the agents near the starting wall
+        Vector3 pos {
+            randInRangeCentered(ctx, 
+                consts::worldWidth / 2.f - 2.5f * consts::agentRadius),
+            randBetween(ctx, consts::agentRadius * 1.1f,  2.f),
+            0.f,
+        };
 
-         // Place the agents near the starting wall
-         Vector3 pos {
-             randInRangeCentered(ctx, 
-                 consts::worldWidth / 2.f - 2.5f * consts::agentRadius),
-             randBetween(ctx, consts::agentRadius * 1.1f,  2.f),
-             0.f,
-         };
-
-        if ((ctx.data().simFlags & SimFlags::StartInDiscoveredRooms) ==
-                SimFlags::StartInDiscoveredRooms) {
-            pos[1] += consts::roomLength * rand_room;
-            if (rand_room > 0) {
-               float range = consts::worldWidth / 2.f - 2.5f * consts::agentRadius;
-               float x_pos = second_rng.rand() * range - range / 2.f;
-               pos[0] = x_pos;
-            }
+        if (i % 2 == 0) {
+           pos.x += 2.f;
+        } else {
+           pos.x -= 2.f;
         }
 
-         if (i % 2 == 0) {
-            pos.x += 2.f;
-         } else {
-            pos.x -= 2.f;
-         }
+        ctx.get<Position>(agent_entity) = pos;
+        ctx.get<Rotation>(agent_entity) = Quat::angleAxis(
+            randInRangeCentered(ctx, math::pi / 4.f),
+            math::up);
 
-         ctx.get<Position>(agent_entity) = pos;
-         ctx.get<Rotation>(agent_entity) = Quat::angleAxis(
-             randInRangeCentered(ctx, math::pi / 4.f),
-             math::up);
+        auto &grab_state = ctx.get<GrabState>(agent_entity);
+        if (grab_state.constraintEntity != Entity::none()) {
+            ctx.destroyEntity(grab_state.constraintEntity);
+            grab_state.constraintEntity = Entity::none();
+        }
 
-         auto &grab_state = ctx.get<GrabState>(agent_entity);
-         if (grab_state.constraintEntity != Entity::none()) {
-             ctx.destroyEntity(grab_state.constraintEntity);
-             grab_state.constraintEntity = Entity::none();
-         }
+        ctx.get<Progress>(agent_entity).maxY = pos.y;
 
-         ctx.get<Progress>(agent_entity).maxY = pos.y;
+        ctx.get<Velocity>(agent_entity) = {
+            Vector3::zero(),
+            Vector3::zero(),
+        };
+        ctx.get<ExternalForce>(agent_entity) = Vector3::zero();
+        ctx.get<ExternalTorque>(agent_entity) = Vector3::zero();
+        ctx.get<Action>(agent_entity) = Action {
+            .moveAmount = 0,
+            .moveAngle = 0,
+            .rotate = consts::numTurnBuckets / 2,
+            .interact = 0,
+        };
 
-         ctx.get<Velocity>(agent_entity) = {
-             Vector3::zero(),
-             Vector3::zero(),
-         };
-         ctx.get<ExternalForce>(agent_entity) = Vector3::zero();
-         ctx.get<ExternalTorque>(agent_entity) = Vector3::zero();
-         ctx.get<Action>(agent_entity) = Action {
-             .moveAmount = 0,
-             .moveAngle = 0,
-             .rotate = consts::numTurnBuckets / 2,
-             .interact = 0,
-         };
-
-         ctx.get<StepsRemaining>(agent_entity).t = consts::episodeLen;
-         ctx.get<KeyCode>(agent_entity).code = 0;
-     }
+        ctx.get<StepsRemaining>(agent_entity).t = consts::episodeLen;
+        ctx.get<KeyCode>(agent_entity).code = 0;
+    }
 }
 
 static Entity makeKey(Engine &ctx,
@@ -1241,7 +1219,7 @@ static void generateLevel(Engine &ctx)
     // room rather than a fixed progression of challenge difficulty
     for (CountT i = 0; i < consts::maxRooms; i++) {
         RoomType room_type = (RoomType)(
-            ctx.data().rng.rand() * (uint32_t)RoomType::NumTypes);
+            ctx.data().rng.sampleI32(0, (uint32_t)RoomType::NumTypes));
         
         if (room_type == RoomType::Key) {
             // For the simple room, exclude key rooms.

@@ -2,11 +2,10 @@
 
 #include <madrona/taskgraph_builder.hpp>
 #include <madrona/custom_context.hpp>
+#include <madrona/rand.hpp>
 
 #include "consts.hpp"
 #include "types.hpp"
-#include "init.hpp"
-#include "rng.hpp"
 #include "sim_flags.hpp"
 
 namespace madEscape {
@@ -64,12 +63,18 @@ struct Sim : public madrona::WorldBase {
         bool autoReset;
         SimFlags simFlags;
         RewardMode rewardMode;
-        const madrona::render::RenderECSBridge *renderBridge;
+        RandKey initRandKey;
         float buttonWidth;
         float doorWidth;
         float rewardPerDist;
         float slackReward;
+        madrona::phys::ObjectManager *rigidBodyObjMgr;
+        const madrona::render::RenderECSBridge *renderBridge;
     };
+
+    // This class would allow per-world custom data to be passed into
+    // simulator initialization, but that isn't necessary in this environment
+    struct WorldInit {};
 
     // Sim::registerTypes is called during initialization
     // to register all components & archetypes with the ECS.
@@ -87,17 +92,26 @@ struct Sim : public madrona::WorldBase {
     // can contain per-world initialization data, created in (src/mgr.cpp)
     Sim(Engine &ctx,
         const Config &cfg,
-        const WorldInit &init);
+        const WorldInit &);
 
-    // EpisodeManager globally tracks episode IDs with an atomic across the
-    // simulation.
-    EpisodeManager *episodeMgr;
+    // The base random key that episode random keys are split off of
+    madrona::RandKey initRandKey;
 
-    // Simple random number generator seeded with episode ID.
-    RNG rng;
+    // Should the environment automatically reset (generate a new episode)
+    // at the end of each episode?
+    bool autoReset;
 
+    SimFlags simFlags;
+
+    // Are we enabling rendering? (whether with the viewer or not)
+    bool enableRender;
+
+    // Current episode within this world
+    uint32_t curWorldEpisode;
     // The random seed that generated this world.
-    int32_t seed;
+    RandKey curEpisodeRNDCounter;
+    // Random number generator state
+    madrona::RNG rng;
 
     // Floor plane entity, constant across all episodes.
     Entity floorPlane;
@@ -109,9 +123,6 @@ struct Sim : public madrona::WorldBase {
     // Agent entity references. This entities live across all episodes
     // and are just reset to the start of the level on reset.
     Entity agents[consts::numAgents];
-
-    // Episode ID number
-    int32_t curEpisodeIdx;
 
     // Queries for the collectObservations system.
     Query<Position, GrabState>  otherAgentQuery;
@@ -127,16 +138,6 @@ struct Sim : public madrona::WorldBase {
     Query<Position, Scale, EntityType> ckptWallQuery;
     Query<Position, Rotation, KeyState> ckptKeyQuery;
 
-    // Should the environment automatically reset (generate a new episode)
-    // at the end of each episode?
-    bool autoReset;
-
-    SimFlags simFlags;
-
-    // Are we visualizing the simulation in the viewer?
-    bool enableVizRender;
-    // Are we enabling rendering? (whether with the viewer or not)
-    bool enableRender;
 };
 
 class Engine : public ::madrona::CustomContext<Engine, Sim> {

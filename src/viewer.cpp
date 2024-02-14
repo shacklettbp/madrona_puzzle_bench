@@ -86,6 +86,7 @@ int main(int argc, char *argv[])
         .execMode = exec_mode,
         .gpuID = 0,
         .numWorlds = num_worlds,
+        .randSeed = 5,
         .autoReset = replay_log.has_value(),
         .simFlags = flags,
         .rewardMode = RewardMode::OG,
@@ -237,7 +238,7 @@ int main(int argc, char *argv[])
             r -= shift_pressed ? 2 : 1;
         }
 
-        if (input.keyPressed(Key::G)) {
+        if (input.keyHit(Key::G)) {
             interact = 1;
         }
 

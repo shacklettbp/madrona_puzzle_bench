@@ -79,7 +79,6 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
 
     registry.registerSingleton<WorldReset>();
     registry.registerSingleton<LevelState>();
-    registry.registerSingleton<GlobalProgress>(); // Progress tracking component, reuse existing struct
     registry.registerSingleton<RoomCount>(); // Number of rooms for this world.
 
     // Checkpoint state.
@@ -156,27 +155,26 @@ static inline void initWorld(Engine &ctx)
 {
     phys::RigidBodyPhysicsSystem::reset(ctx);
 
-    // Assign a new episode ID
-    EpisodeManager &episode_mgr = *ctx.data().episodeMgr;
-    int32_t episode_idx = episode_mgr.curEpisode.fetch_add<sync::relaxed>(1);
-
-    int32_t &seed = ctx.data().seed;
-
+    RandKey new_rnd_counter;
     if ((ctx.data().simFlags & SimFlags::UseFixedWorld) ==
             SimFlags::UseFixedWorld) {
-        seed = 0;
+        new_rnd_counter = { 0, 0 };
     } else {
         if (ctx.singleton<CheckpointReset>().reset == 1) {
             // If loading a checkpoint, use the random
             // seed that generated that world.
-            seed = ctx.singleton<Checkpoint>().seed;
+            new_rnd_counter = ctx.singleton<Checkpoint>().initRNDCounter;
         } else {
-            seed = episode_idx;
+            new_rnd_counter = {
+                .a = ctx.data().curWorldEpisode++,
+                .b = (uint32_t)ctx.worldID().idx,
+            };
         }
     }
 
-    ctx.data().rng = RNG::make(seed);
-    ctx.data().curEpisodeIdx = episode_idx;
+    ctx.data().curEpisodeRNDCounter = new_rnd_counter;
+    ctx.data().rng = RNG(rand::split_i(ctx.data().initRandKey,
+        new_rnd_counter.a, new_rnd_counter.b));
     
     // Defined in src/level_gen.hpp / src/level_gen.cpp
     generateWorld(ctx);
@@ -304,7 +302,7 @@ inline void checkpointSystem(Engine &ctx, CheckpointSave &save)
     Checkpoint &ckpt = ctx.singleton<Checkpoint>();
 
     // Save the random seed.
-    ckpt.seed = ctx.data().seed;
+    ckpt.initRNDCounter = ctx.data().curEpisodeRNDCounter;
     {
         // Keys
         int idx = 0;
@@ -1608,9 +1606,8 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
 
 Sim::Sim(Engine &ctx,
          const Config &cfg,
-         const WorldInit &init)
-    : WorldBase(ctx),
-      episodeMgr(init.episodeMgr)
+         const WorldInit &)
+    : WorldBase(ctx)
 {
     // Currently the physics system needs an upper bound on the number of
     // entities that will be stored in the BVH. We plan to fix this in
@@ -1619,10 +1616,13 @@ Sim::Sim(Engine &ctx,
         consts::maxRooms * (consts::maxEntitiesPerRoom + 3) +
         4 * 3 * consts::maxRooms; // side walls + floor
 
-    phys::RigidBodyPhysicsSystem::init(ctx, init.rigidBodyObjMgr,
+    phys::RigidBodyPhysicsSystem::init(ctx, cfg.rigidBodyObjMgr,
         consts::deltaT, consts::numPhysicsSubsteps, -9.8f * math::up,
         max_total_entities, max_total_entities * max_total_entities / 2,
         consts::numAgents);
+
+    initRandKey = cfg.initRandKey;
+    autoReset = cfg.autoReset;
 
     enableRender = cfg.renderBridge != nullptr;
 
@@ -1630,7 +1630,7 @@ Sim::Sim(Engine &ctx,
         RenderingSystem::init(ctx, cfg.renderBridge);
     }
 
-    autoReset = cfg.autoReset;
+    curWorldEpisode = 0;
 
     simFlags = cfg.simFlags; // VISHNU: remove this? seems like no-op
 
@@ -1651,10 +1651,6 @@ Sim::Sim(Engine &ctx,
 
     // Creates agents, walls, etc.
     createPersistentEntities(ctx);
-
-    // Create the singleton component here?
-    GlobalProgress &globalProgress = ctx.singleton<GlobalProgress>();
-    globalProgress.progressPtr = init.progressPtr;
 
     // Generate initial world state
     initWorld(ctx);
@@ -1682,6 +1678,6 @@ Sim::Sim(Engine &ctx,
 // CUDA kernel for world initialization, which needs to be specialized to the
 // application's world data type (Sim) and config and initialization types.
 // On the CPU it is a no-op.
-MADRONA_BUILD_MWGPU_ENTRY(Engine, Sim, Sim::Config, WorldInit);
+MADRONA_BUILD_MWGPU_ENTRY(Engine, Sim, Sim::Config, Sim::WorldInit);
 
 }

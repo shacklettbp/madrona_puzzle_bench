@@ -19,7 +19,6 @@ NB_MODULE(madrona_escape_room, m) {
     nb::enum_<SimFlags>(m, "SimFlags", nb::is_arithmetic())
         .value("Default", SimFlags::Default)
         .value("UseFixedWorld", SimFlags::UseFixedWorld)
-        .value("StartInDiscoveredRooms", SimFlags::StartInDiscoveredRooms)
         .value("UseComplexLevel", SimFlags::UseComplexLevel)
     ;
 
@@ -39,6 +38,7 @@ NB_MODULE(madrona_escape_room, m) {
                             PyExecMode exec_mode,
                             int64_t gpu_id,
                             int64_t num_worlds,
+                            int64_t rand_seed,
                             bool auto_reset,
                             uint32_t sim_flags,
                             RewardMode reward_mode,
@@ -51,6 +51,7 @@ NB_MODULE(madrona_escape_room, m) {
                 .execMode = exec_mode,
                 .gpuID = (int)gpu_id,
                 .numWorlds = (uint32_t)num_worlds,
+                .randSeed = (uint32_t)rand_seed,
                 .autoReset = auto_reset,
                 .simFlags = SimFlags(sim_flags),
                 .rewardMode = reward_mode,
@@ -63,6 +64,7 @@ NB_MODULE(madrona_escape_room, m) {
         }, nb::arg("exec_mode"),
            nb::arg("gpu_id"),
            nb::arg("num_worlds"),
+           nb::arg("rand_seed"),
            nb::arg("auto_reset"),
            nb::arg("sim_flags"),
            nb::arg("reward_mode"),

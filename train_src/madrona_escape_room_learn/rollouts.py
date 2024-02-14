@@ -116,7 +116,7 @@ class RolloutManager:
             amp : AMPState,
             sim : SimInterface,
             actor_critic : ActorCritic,
-            value_normalizer: EMANormalizer,
+            value_normalizer : EMANormalizer,
         ):
         rnn_states_cur_in = self.rnn_end_states
         rnn_states_cur_out = self.rnn_alt_states

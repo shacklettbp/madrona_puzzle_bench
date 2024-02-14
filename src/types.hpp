@@ -2,6 +2,7 @@
 
 #include <madrona/components.hpp>
 #include <madrona/math.hpp>
+#include <madrona/rand.hpp>
 #include <madrona/physics.hpp>
 #include <madrona/render/ecs.hpp>
 
@@ -11,6 +12,7 @@ namespace madEscape {
 
 // Include several madrona types into the simulator namespace for convenience
 using madrona::Entity;
+using madrona::RandKey;
 using madrona::CountT;
 using madrona::Query;
 using madrona::base::Position;
@@ -271,7 +273,7 @@ struct AgentState {
 };
 
 struct Checkpoint {
-    int32_t seed;
+    madrona::RandKey initRNDCounter;
     ButtonSaveState buttonStates[consts::maxRooms * 2 * 4];
     PhysicsEntityState cubeStates[consts::maxRooms * 3];
     DoorState doorStates[consts::maxRooms * 4];
@@ -406,11 +408,5 @@ struct PhysicsEntity : public madrona::Archetype<
     EntityType,
     madrona::render::Renderable
 > {};
-
-// Tracks global progress the agent has made through the challenge, used to add
-// reward when more progress has been made
-struct GlobalProgress {
-    float* progressPtr;
-};
 
 }

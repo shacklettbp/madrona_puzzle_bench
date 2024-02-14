@@ -21,6 +21,7 @@ public:
         madrona::ExecMode execMode; // CPU or CUDA
         int gpuID; // Which GPU for CUDA backend?
         uint32_t numWorlds; // Simulation batch size
+        uint32_t randSeed; // Seed for random world gen
         bool autoReset; // Immediately generate new world on episode end
         SimFlags simFlags;
         RewardMode rewardMode;
