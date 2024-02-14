@@ -244,7 +244,7 @@ inline void loadCheckpointSystem(Engine &ctx, CheckpointReset &reset)
                 const int32_t &grabIdx = ckpt.agentStates[idx].grabIdx;
                 if (grabIdx != -1) {
                     // Find the new entity at the grab index;
-                    Entity constraint_entity = ctx.makeEntity<ConstraintData>();
+                    Entity constraint_entity = ctx.makeEntity<Joint>();
                     g.constraintEntity = constraint_entity;
 
                     // Need to update agent entity ID because this checkpoint
@@ -547,9 +547,6 @@ inline void grabSystem(Engine &ctx,
         return;
     }
 
-    Entity constraint_entity = ctx.makeEntity<ConstraintData>();
-    grab.constraintEntity = constraint_entity;
-
     Vector3 other_pos = ctx.get<Position>(grab_entity);
     Quat other_rot = ctx.get<Rotation>(grab_entity);
 
@@ -564,7 +561,7 @@ inline void grabSystem(Engine &ctx,
 
     float separation = hit_t - 1.25f;
 
-    ctx.get<JointConstraint>(constraint_entity) = JointConstraint::setupFixed(
+    grab.constraintEntity = JointConstraint::setupFixed(ctx,
         e, grab_entity, attach1, attach2, r1, r2, separation);
 }
 
@@ -1299,6 +1296,91 @@ inline void stepTrackerSystem(Engine &,
     }
 }
 
+static TaskGraphNodeID queueRewardSystem(const Sim::Config &cfg,
+                                         TaskGraphBuilder &builder,
+                                         Span<const TaskGraphNodeID> deps)
+{
+    TaskGraphNodeID reward_sys;
+    switch (cfg.rewardMode) {
+    case RewardMode::OG: {
+        // Compute initial reward now that physics has updated the world state
+        reward_sys = builder.addToGraph<ParallelForNode<Engine,
+             rewardSystem,
+                Position,
+                Progress,
+                Reward
+            >>(deps);
+
+        // Assign partner's reward
+        reward_sys = builder.addToGraph<ParallelForNode<Engine,
+             bonusRewardSystem,
+                OtherAgents,
+                Progress,
+                Reward
+            >>({reward_sys});
+    } break;
+    case RewardMode::Dense1: {
+        reward_sys = builder.addToGraph<ParallelForNode<Engine,
+             denseRewardSystem,
+                Position,
+                Progress,
+                Reward
+            >>(deps);
+    } break;
+    case RewardMode::Dense2: {
+        reward_sys = builder.addToGraph<ParallelForNode<Engine,
+             denseRewardSystem2,
+                Position,
+                Progress,
+                Reward
+            >>(deps);
+    } break;
+    case RewardMode::Dense3: {
+        reward_sys = builder.addToGraph<ParallelForNode<Engine,
+             denseRewardSystem3,
+                Position,
+                Progress,
+                Reward
+            >>(deps);
+    } break;
+    case RewardMode::Sparse1: {
+        reward_sys = builder.addToGraph<ParallelForNode<Engine,
+             sparseRewardSystem,
+                Position,
+                Progress,
+                Reward
+            >>(deps);
+    } break;
+    case RewardMode::Sparse2: {
+        reward_sys = builder.addToGraph<ParallelForNode<Engine,
+             sparseRewardSystem2,
+                Position,
+                Progress,
+                Reward
+            >>(deps);
+    } break;
+    case RewardMode::Complex: {
+        reward_sys = builder.addToGraph<ParallelForNode<Engine,
+             complexSparseRewardSystem,
+                Position,
+                Progress,
+                Reward
+            >>(deps);
+    } break;
+    case RewardMode::Sparse3: {
+        reward_sys = builder.addToGraph<ParallelForNode<Engine,
+             sparseRewardSystem3,
+                Position,
+                Progress,
+                Reward
+            >>(deps);
+    } break;
+    default: MADRONA_UNREACHABLE();
+    }
+
+    return reward_sys;
+}
+
 // Helper function for sorting nodes in the taskgraph.
 // Sorting is only supported / required on the GPU backend,
 // since the CPU backend currently keeps separate tables for each world.
@@ -1306,8 +1388,8 @@ inline void stepTrackerSystem(Engine &,
 // environments
 #ifdef MADRONA_GPU_MODE
 template <typename ArchetypeT>
-TaskGraph::NodeID queueSortByWorld(TaskGraph::Builder &builder,
-                                   Span<const TaskGraph::NodeID> deps)
+TaskGraphNodeID queueSortByWorld(TaskGraphBuilder &builder,
+                                 Span<const TaskGraphNodeID> deps)
 {
     auto sort_sys =
         builder.addToGraph<SortArchetypeNode<ArchetypeT, WorldID>>(
@@ -1406,77 +1488,8 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
             DoorProperties
         >>({key_sys});
 
-    TaskGraphNodeID reward_sys;
+    TaskGraphNodeID reward_sys = queueRewardSystem(cfg, builder, {door_open_sys});
 
-    if (cfg.rewardMode == RewardMode::OG) {
-        // Compute initial reward now that physics has updated the world state
-        reward_sys = builder.addToGraph<ParallelForNode<Engine,
-             rewardSystem,
-                Position,
-                Progress,
-                Reward
-            >>({door_open_sys});
-
-        // Assign partner's reward
-        reward_sys = builder.addToGraph<ParallelForNode<Engine,
-             bonusRewardSystem,
-                OtherAgents,
-                Progress,
-                Reward
-            >>({reward_sys});
-    } else if (cfg.rewardMode == RewardMode::Dense1) {
-        reward_sys = builder.addToGraph<ParallelForNode<Engine,
-             denseRewardSystem,
-                Position,
-                Progress,
-                Reward
-            >>({door_open_sys});
-    } else if (cfg.rewardMode == RewardMode::Dense2) {
-        reward_sys = builder.addToGraph<ParallelForNode<Engine,
-             denseRewardSystem2,
-                Position,
-                Progress,
-                Reward
-            >>({door_open_sys});
-    } else if (cfg.rewardMode == RewardMode::Dense3) {
-        reward_sys = builder.addToGraph<ParallelForNode<Engine,
-             denseRewardSystem3,
-                Position,
-                Progress,
-                Reward
-            >>({door_open_sys});
-    } else if (cfg.rewardMode == RewardMode::Sparse1) {
-        reward_sys = builder.addToGraph<ParallelForNode<Engine,
-             sparseRewardSystem,
-                Position,
-                Progress,
-                Reward
-            >>({door_open_sys});
-    } else if (cfg.rewardMode == RewardMode::Sparse2) {
-        reward_sys = builder.addToGraph<ParallelForNode<Engine,
-             sparseRewardSystem2,
-                Position,
-                Progress,
-                Reward
-            >>({door_open_sys});
-    } else if (cfg.rewardMode == RewardMode::Complex) {
-        reward_sys = builder.addToGraph<ParallelForNode<Engine,
-             complexSparseRewardSystem,
-                Position,
-                Progress,
-                Reward
-            >>({door_open_sys});
-    } else if (cfg.rewardMode == RewardMode::Sparse3) {
-        reward_sys = builder.addToGraph<ParallelForNode<Engine,
-             sparseRewardSystem3,
-                Position,
-                Progress,
-                Reward
-            >>({door_open_sys});
-    } else {
-        assert(false);
-    }
-    
     // Check if the episode is over
     auto done_sys = builder.addToGraph<ParallelForNode<Engine,
         stepTrackerSystem,
@@ -1518,29 +1531,12 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
 #endif
     });
 
-#ifdef MADRONA_GPU_MODE
-    // Sort the constraints added by the loadCheckpointSystem.
-    auto sort_constraints = queueSortByWorld<ConstraintData>(
-        builder, {load_checkpoint_sys});
-#endif
-
-
-
     // Conditionally checkpoint the state of the system if we are on the Nth step.
     auto checkpoint_sys = builder.addToGraph<ParallelForNode<Engine,
-                                                             checkpointSystem,
-                                                             CheckpointSave>>({
-#ifdef MADRONA_GPU_MODE
-        sort_constraints
-#else
-        load_checkpoint_sys
-#endif
-    });
+        checkpointSystem,
+            CheckpointSave
+        >>({load_checkpoint_sys});
 
-    auto clear_tmp = builder.addToGraph<ResetTmpAllocNode>({
-        checkpoint_sys
-    });
-    (void)clear_tmp;
 
 #ifdef MADRONA_GPU_MODE
     // RecycleEntitiesNode is required on the GPU backend in order to reclaim
@@ -1597,11 +1593,7 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
             PartnerObservations,
             RoomEntityObservations,
             RoomDoorObservations
-        >>({checkpoint_sys, 
-#ifdef MADRONA_GPU_MODE
-        sort_constraints
-#endif
-        });
+        >>({checkpoint_sys});
 }
 
 Sim::Sim(Engine &ctx,
@@ -1618,8 +1610,7 @@ Sim::Sim(Engine &ctx,
 
     phys::RigidBodyPhysicsSystem::init(ctx, cfg.rigidBodyObjMgr,
         consts::deltaT, consts::numPhysicsSubsteps, -9.8f * math::up,
-        max_total_entities, max_total_entities * max_total_entities / 2,
-        consts::numAgents);
+        max_total_entities);
 
     initRandKey = cfg.initRandKey;
     autoReset = cfg.autoReset;
