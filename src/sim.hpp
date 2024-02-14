@@ -8,7 +8,7 @@
 #include "types.hpp"
 #include "sim_flags.hpp"
 
-namespace madEscape {
+namespace madPuzzle {
 
 class Engine;
 

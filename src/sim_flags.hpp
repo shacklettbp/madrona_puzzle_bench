@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace madEscape {
+namespace madPuzzle {
 
 enum class SimFlags : uint32_t {
     Default                = 0,

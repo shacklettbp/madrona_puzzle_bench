@@ -1,7 +1,7 @@
 import torch
-import madrona_escape_room
+import madrona_puzzle_bench
 
-from madrona_escape_room_learn import LearningState
+from madrona_puzzle_bench_learn import LearningState
 
 from policy import make_policy, setup_obs
 
@@ -34,19 +34,19 @@ arg_parser.add_argument('--use-complex-level', action='store_true')
 
 args = arg_parser.parse_args()
 
-sim_flags = madrona_escape_room.SimFlags.Default
+sim_flags = madrona_puzzle_bench.SimFlags.Default
 if args.use_complex_level:
-    sim_flags |= madrona_escape_room.SimFlags.UseComplexLevel
+    sim_flags |= madrona_puzzle_bench.SimFlags.UseComplexLevel
 print(sim_flags)
 
-sim = madrona_escape_room.SimManager(
-    exec_mode = madrona_escape_room.madrona.ExecMode.CUDA if args.gpu_sim else madrona_escape_room.madrona.ExecMode.CPU,
+sim = madrona_puzzle_bench.SimManager(
+    exec_mode = madrona_puzzle_bench.madrona.ExecMode.CUDA if args.gpu_sim else madrona_puzzle_bench.madrona.ExecMode.CPU,
     gpu_id = args.gpu_id,
     num_worlds = args.num_worlds,
     rand_seed = 5,
     auto_reset = True,
-    sim_flags = madrona_escape_room.SimFlags.Default,
-    reward_mode = madrona_escape_room.RewardMode.Sparse3,
+    sim_flags = madrona_puzzle_bench.SimFlags.Default,
+    reward_mode = madrona_puzzle_bench.RewardMode.Sparse3,
     button_width = 1.3,
     door_width = 20.0 / 3.,
     reward_per_dist = 0.05,

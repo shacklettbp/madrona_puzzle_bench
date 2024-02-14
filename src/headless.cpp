@@ -25,7 +25,7 @@ using namespace madrona;
 
 int main(int argc, char *argv[])
 {
-    using namespace madEscape;
+    using namespace madPuzzle;
 
     if (argc < 4) {
         fprintf(stderr, "%s TYPE NUM_WORLDS NUM_STEPS [--rand-actions]\n", argv[0]);

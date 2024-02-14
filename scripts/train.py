@@ -1,8 +1,8 @@
 import torch
-import madrona_escape_room
-from madrona_escape_room import SimFlags, RewardMode
+import madrona_puzzle_bench
+from madrona_puzzle_bench import SimFlags, RewardMode
 
-from madrona_escape_room_learn import (
+from madrona_puzzle_bench_learn import (
     train, profile, TrainConfig, PPOConfig, SimInterface,
 )
 
@@ -177,8 +177,8 @@ reward_mode = getattr(RewardMode, args.reward_mode)
 
 
 
-sim = madrona_escape_room.SimManager(
-    exec_mode = madrona_escape_room.madrona.ExecMode.CUDA if args.gpu_sim else madrona_escape_room.madrona.ExecMode.CPU,
+sim = madrona_puzzle_bench.SimManager(
+    exec_mode = madrona_puzzle_bench.madrona.ExecMode.CUDA if args.gpu_sim else madrona_puzzle_bench.madrona.ExecMode.CPU,
     gpu_id = args.gpu_id,
     num_worlds = args.num_worlds,
     rand_seed = 5,

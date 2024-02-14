@@ -1,4 +1,4 @@
-namespace madEscape {
+namespace madPuzzle {
 
 template <typename ArchetypeT>
 madrona::Entity Engine::makeRenderableEntity()

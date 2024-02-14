@@ -1,4 +1,4 @@
-namespace madEscape {
+namespace madPuzzle {
 
 inline SimFlags & operator|=(SimFlags &a, SimFlags b)
 {

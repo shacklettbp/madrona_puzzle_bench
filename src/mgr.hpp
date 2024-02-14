@@ -7,7 +7,7 @@
 
 #include "sim_flags.hpp"
 
-namespace madEscape {
+namespace madPuzzle {
 
 // The Manager class encapsulates the linkage between the outside training
 // code and the internal simulation state (src/sim.hpp / src/sim.cpp)

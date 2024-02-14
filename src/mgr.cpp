@@ -25,7 +25,7 @@ using namespace madrona::math;
 using namespace madrona::phys;
 using namespace madrona::py;
 
-namespace madEscape {
+namespace madPuzzle {
 
 struct RenderGPUState {
     render::APILibHandle apiLib;

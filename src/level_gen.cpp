@@ -1,7 +1,7 @@
 #include "level_gen.hpp"
 #include <iostream>
 
-namespace madEscape {
+namespace madPuzzle {
 
 using namespace madrona;
 using namespace madrona::math;

@@ -7,11 +7,11 @@ namespace nb = nanobind;
 
 using namespace madrona::py;
 
-namespace madEscape {
+namespace madPuzzle {
 
 // This file creates the python bindings used by the learning code.
 // Refer to the nanobind documentation for more details on these functions.
-NB_MODULE(madrona_escape_room, m) {
+NB_MODULE(madrona_puzzle_bench, m) {
     // Each simulator has a madrona submodule that includes base types
     // like Tensor and PyExecMode.
     setupMadronaSubmodule(m);

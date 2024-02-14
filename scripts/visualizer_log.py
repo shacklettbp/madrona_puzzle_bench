@@ -1,6 +1,6 @@
-import madrona_escape_room
+import madrona_puzzle_bench
 
-from madrona_escape_room_learn import LearningState, SimInterface
+from madrona_puzzle_bench_learn import LearningState, SimInterface
 
 from policy import make_policy, setup_obs
 
@@ -12,9 +12,9 @@ from pathlib import Path
 import warnings
 warnings.filterwarnings("error")
 
-from madrona_escape_room_learn.rollouts import RolloutManager, Rollouts
-from madrona_escape_room_learn.amp import AMPState
-from madrona_escape_room_learn.moving_avg import EMANormalizer
+from madrona_puzzle_bench_learn.rollouts import RolloutManager, Rollouts
+from madrona_puzzle_bench_learn.amp import AMPState
+from madrona_puzzle_bench_learn.moving_avg import EMANormalizer
 from torch import optim
 import datetime
 import json
@@ -38,8 +38,8 @@ arg_parser.add_argument('--gpu-sim', action='store_true')
 
 args = arg_parser.parse_args()
 
-sim = madrona_escape_room.SimManager(
-    exec_mode = madrona_escape_room.madrona.ExecMode.CUDA if args.gpu_sim else madrona_escape_room.madrona.ExecMode.CPU,
+sim = madrona_puzzle_bench.SimManager(
+    exec_mode = madrona_puzzle_bench.madrona.ExecMode.CUDA if args.gpu_sim else madrona_puzzle_bench.madrona.ExecMode.CPU,
     gpu_id = args.gpu_id,
     num_worlds = args.num_worlds,
     auto_reset = True,

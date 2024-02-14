@@ -1,5 +1,5 @@
 import torch
-import madrona_escape_room
+import madrona_puzzle_bench
 import argparse
 import time
 
@@ -10,8 +10,8 @@ arg_parser.add_argument('--gpu-id', type=int, default=0)
 
 args = arg_parser.parse_args()
 
-sim = madrona_escape_room.SimManager(
-    exec_mode = madrona_escape_room.madrona.ExecMode.CUDA,
+sim = madrona_puzzle_bench.SimManager(
+    exec_mode = madrona_puzzle_bench.madrona.ExecMode.CUDA,
     gpu_id = args.gpu_id,
     num_worlds = args.num_worlds,
     auto_reset = True,

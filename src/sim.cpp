@@ -10,7 +10,7 @@ using namespace madrona::phys;
 
 namespace RenderingSystem = madrona::render::RenderingSystem;
 
-namespace madEscape {
+namespace madPuzzle {
 
 // Helper function for determining room membership.
 static inline CountT roomIndex(const Position &p, CountT numRooms)

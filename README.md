@@ -11,7 +11,7 @@ If you're interested in using Madrona to implement a high-performance batch simu
 The Environment and Learning Task
 --------------
 
-https://github.com/shacklettbp/madrona_escape_room/assets/1111429/ec6231c8-a74b-4f0a-8a1a-b1bcdc7111cd
+https://github.com/shacklettbp/madrona_puzzle_bench/assets/1111429/ec6231c8-a74b-4f0a-8a1a-b1bcdc7111cd
 
 As shown above, the simulator implements a 3D environment consisting of two agents and a row of three rooms. All agents start in the first room, and must navigate to as many new rooms as possible. The agents must step on buttons or push movable blocks over buttons to trigger the opening of doors that lead to new rooms. Agents are rewarded based on their progress along the length of the level.
 
@@ -56,8 +56,8 @@ The built-in training functionality requires [PyTorch 2.0](https://pytorch.org/g
 
 Now that you have the required dependencies, fetch the repo (don't forget `--recursive`!):
 ```bash
-git clone --recursive https://github.com/shacklettbp/madrona_escape_room.git
-cd madrona_escape_room
+git clone --recursive https://github.com/shacklettbp/madrona_puzzle_bench.git
+cd madrona_puzzle_bench
 ```
 
 Next, for Linux and MacOS: Run `cmake` and then `make` to build the simulator:
@@ -75,7 +75,7 @@ the project using the integrated `cmake` functionality.
 
 Now, setup the python components of the repository with `pip`:
 ```bash
-pip install -e . # Add -Cpackages.madrona_escape_room.ext-out-dir=PATH_TO_YOUR_BUILD_DIR on Windows
+pip install -e . # Add -Cpackages.madrona_puzzle_bench.ext-out-dir=PATH_TO_YOUR_BUILD_DIR on Windows
 ```
 
 You can then view the environment by running:
@@ -97,26 +97,26 @@ We assume the reader is familiar with the key concepts of the entity component s
 
 #### Defining the Simulation's State: Components and Archetypes ####
 
-The first step to understanding the simulator's implementation is to understand the ECS components that make up the data in the simulation. All the custom logic in the simulation (as well as logic for built-in systems like physics) is written in terms of these data types. Take a look at [`src/types.hpp`](https://github.com/shacklettbp/madrona_escape_room/blob/main/src/types.hpp#L28). This file first defines all the ECS components as simple C++ structs and next declares the ECS archetypes in terms of the components they are composed of. For integration with learning, many of the components of the `Agent` archetype are directly exported as PyTorch tensors. For example, the `Action` component directly correspondes to the action space described above, and `RoomEntityObservations` is the agent observations of all the objects in each room.
+The first step to understanding the simulator's implementation is to understand the ECS components that make up the data in the simulation. All the custom logic in the simulation (as well as logic for built-in systems like physics) is written in terms of these data types. Take a look at [`src/types.hpp`](https://github.com/shacklettbp/madrona_puzzle_bench/blob/main/src/types.hpp#L28). This file first defines all the ECS components as simple C++ structs and next declares the ECS archetypes in terms of the components they are composed of. For integration with learning, many of the components of the `Agent` archetype are directly exported as PyTorch tensors. For example, the `Action` component directly correspondes to the action space described above, and `RoomEntityObservations` is the agent observations of all the objects in each room.
 
 #### Defining the Simulation's Logic: Systems and the Task Graph ####
 
-After understanding the ECS components that make up the data of the simulation, the next step is to learn about the ECS systems that operate on these components and implement the custom logic of the simulation. Madrona simulators define a centralized task graph that declares all the systems that need to execute during each simulation step that the Madrona runtime then executes across all the unique worlds in a simulation batch simultaneously for each step. This codebase builds the task graph during initialization in the [`Sim::setupTasks`](https://github.com/shacklettbp/madrona_escape_room/blob/main/src/sim.cpp#L552) function using `TaskGraphBuilder` class provided by Madrona. Take note of all the ECS system functions that `setupTasks` enqueues in the task graph using `ParallelForNode<>` nodes, and match the component types to the components declared you viewed in [`types.hpp`](https://github.com/shacklettbp/madrona_escape_room/blob/main/src/types.hpp). For example, `movementSystem`, added at the beginning of the task graph, implements the custom logic that translates discrete agent actions from the `Action` component into forces for the physics engine. At the end of each step, `collectObservationSystem` reads the simulation state and builds observations for the agent policy.
+After understanding the ECS components that make up the data of the simulation, the next step is to learn about the ECS systems that operate on these components and implement the custom logic of the simulation. Madrona simulators define a centralized task graph that declares all the systems that need to execute during each simulation step that the Madrona runtime then executes across all the unique worlds in a simulation batch simultaneously for each step. This codebase builds the task graph during initialization in the [`Sim::setupTasks`](https://github.com/shacklettbp/madrona_puzzle_bench/blob/main/src/sim.cpp#L552) function using `TaskGraphBuilder` class provided by Madrona. Take note of all the ECS system functions that `setupTasks` enqueues in the task graph using `ParallelForNode<>` nodes, and match the component types to the components declared you viewed in [`types.hpp`](https://github.com/shacklettbp/madrona_puzzle_bench/blob/main/src/types.hpp). For example, `movementSystem`, added at the beginning of the task graph, implements the custom logic that translates discrete agent actions from the `Action` component into forces for the physics engine. At the end of each step, `collectObservationSystem` reads the simulation state and builds observations for the agent policy.
 
-At this point for an overview of the whole simulator you can continue to the next section, or for further details, you can continue reading [`src/sim.cpp`](https://github.com/shacklettbp/madrona_escape_room/blob/main/src/sim.cpp) and ['src/sim.hpp](https://github.com/shacklettbp/madrona_escape_room/blob/main/src/sim.hpp) where all the core simulation logic is located with the exception of level generation logic that handles creating new entities and placing them. The level generation logic starts with the [`generateWorld`](https://github.com/shacklettbp/madrona_escape_room/blob/main/src/level_gen.cpp#L558) function in [`src/level_gen.cpp`](https://github.com/shacklettbp/madrona_escape_room/blob/main/src/level_gen.cpp) and is called for each world when a training episode ends.
+At this point for an overview of the whole simulator you can continue to the next section, or for further details, you can continue reading [`src/sim.cpp`](https://github.com/shacklettbp/madrona_puzzle_bench/blob/main/src/sim.cpp) and ['src/sim.hpp](https://github.com/shacklettbp/madrona_puzzle_bench/blob/main/src/sim.hpp) where all the core simulation logic is located with the exception of level generation logic that handles creating new entities and placing them. The level generation logic starts with the [`generateWorld`](https://github.com/shacklettbp/madrona_puzzle_bench/blob/main/src/level_gen.cpp#L558) function in [`src/level_gen.cpp`](https://github.com/shacklettbp/madrona_puzzle_bench/blob/main/src/level_gen.cpp) and is called for each world when a training episode ends.
 
 #### Initializing the Simulator and Interfacing with Python Training Code ####
 
-The final missing pieces of the simulator are how the Madrona backends are initialized and how data communication between PyTorch and the simulator is managed. These pieces are controlled by the `Manager` class in [`src/mgr.hpp`](https://github.com/shacklettbp/madrona_escape_room/blob/main/src/mgr.hpp) and [`src/mgr.cpp`](https://github.com/shacklettbp/madrona_escape_room/blob/main/src/mgr.cpp). During initialization, the `Manager` constructor is passed an `ExecMode` object from pytorch that dictates whether the CPU or CUDA backends should be initialized. The `Manager` class then loads physics assets off disk (copying them to the GPU if needed) and then initializes the appropriate backend. Once initialization is complete, the python code can access simulation state through the `Manager`'s exported PyTorch tensors (for example, `Manager::rewardTensor`) via the python bindings declared in [`src/bindings.cpp`](https://github.com/shacklettbp/madrona_escape_room/blob/main/src/mgr.cpp). These bindings are just a thin wrapper around the `Manager` class using [`nanobind`](https://github.com/wjakob/nanobind).
+The final missing pieces of the simulator are how the Madrona backends are initialized and how data communication between PyTorch and the simulator is managed. These pieces are controlled by the `Manager` class in [`src/mgr.hpp`](https://github.com/shacklettbp/madrona_puzzle_bench/blob/main/src/mgr.hpp) and [`src/mgr.cpp`](https://github.com/shacklettbp/madrona_puzzle_bench/blob/main/src/mgr.cpp). During initialization, the `Manager` constructor is passed an `ExecMode` object from pytorch that dictates whether the CPU or CUDA backends should be initialized. The `Manager` class then loads physics assets off disk (copying them to the GPU if needed) and then initializes the appropriate backend. Once initialization is complete, the python code can access simulation state through the `Manager`'s exported PyTorch tensors (for example, `Manager::rewardTensor`) via the python bindings declared in [`src/bindings.cpp`](https://github.com/shacklettbp/madrona_puzzle_bench/blob/main/src/mgr.cpp). These bindings are just a thin wrapper around the `Manager` class using [`nanobind`](https://github.com/wjakob/nanobind).
 
 #### Visualizing Simulation Output ####
 
-The code that integrates with our visualization infrastructure is located in [`src/viewer.cpp`](https://github.com/shacklettbp/madrona_escape_room/blob/main/src/viewer.cpp). This code links with the `Manager` class and produces the `viewer` binary in the build directory that lets you control the agents directly and replay actions. More customization in the viewer code to support custom UI and overlays will be supported in the future.
+The code that integrates with our visualization infrastructure is located in [`src/viewer.cpp`](https://github.com/shacklettbp/madrona_puzzle_bench/blob/main/src/viewer.cpp). This code links with the `Manager` class and produces the `viewer` binary in the build directory that lets you control the agents directly and replay actions. More customization in the viewer code to support custom UI and overlays will be supported in the future.
 
 Training Agents 
 --------------------------------
 
-In addition to the simulator itself, this repo contains a simple PPO implementation (in PyTorch) to demonstrate how to integrate a training codebase with a Madrona batch simulator. [`scripts/train.py`](https://github.com/shacklettbp/madrona_escape_room/blob/main/scripts/train.py) is the training code entry point, while the bulk of the PPO implementation is in [train_src/madrona_escape_room_learn](https://github.com/shacklettbp/madrona_escape_room/blob/main/train_src/madrona_escape_room_learn). 
+In addition to the simulator itself, this repo contains a simple PPO implementation (in PyTorch) to demonstrate how to integrate a training codebase with a Madrona batch simulator. [`scripts/train.py`](https://github.com/shacklettbp/madrona_puzzle_bench/blob/main/scripts/train.py) is the training code entry point, while the bulk of the PPO implementation is in [train_src/madrona_puzzle_bench_learn](https://github.com/shacklettbp/madrona_puzzle_bench/blob/main/train_src/madrona_puzzle_bench_learn). 
 
 For example, the following settings will produce agents that should be able to solve all three rooms fairly consistently:
 ```bash

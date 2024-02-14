@@ -9,8 +9,8 @@ from functools import partial
 from time import time
 import os
 
-import madrona_escape_room
-from madrona_escape_room import SimFlags, RewardMode
+import madrona_puzzle_bench
+from madrona_puzzle_bench import SimFlags, RewardMode
 
 import madrona_learn
 from madrona_learn import (
@@ -60,8 +60,8 @@ if args.use_fixed_world:
 
 reward_mode = getattr(RewardMode, args.reward_mode)
 
-sim = madrona_escape_room.SimManager(
-    exec_mode = madrona_escape_room.madrona.ExecMode.CUDA if args.gpu_sim else madrona_escape_room.madrona.ExecMode.CPU,
+sim = madrona_puzzle_bench.SimManager(
+    exec_mode = madrona_puzzle_bench.madrona.ExecMode.CUDA if args.gpu_sim else madrona_puzzle_bench.madrona.ExecMode.CPU,
     gpu_id = args.gpu_id,
     num_worlds = args.num_worlds,
     auto_reset = True,

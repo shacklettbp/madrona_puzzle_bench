@@ -4,13 +4,13 @@ build-backend = "madrona-py-build"
 backend-path = ["external/madrona/py"]
 
 [project]
-name = "madrona_escape_room"
+name = "madrona_puzzle_bench"
 version = "0.0.1"
 
-[tool.madrona.packages.madrona_escape_room]
+[tool.madrona.packages.madrona_puzzle_bench]
 ext-only = true
 ext-out-dir = "build"
 
 # This module includes the PPO implementation for the training demo
-[tool.madrona.packages.madrona_escape_room_learn]
-path = "train_src/madrona_escape_room_learn"
+[tool.madrona.packages.madrona_puzzle_bench_learn]
+path = "train_src/madrona_puzzle_bench_learn"
