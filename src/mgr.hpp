@@ -60,7 +60,6 @@ public:
     madrona::py::Tensor lidarTensor() const;
     madrona::py::Tensor stepsRemainingTensor() const;
     madrona::py::Tensor agentIDTensor() const;
-    madrona::py::TrainInterface trainInterface() const;
 
     // These functions are used by the viewer to control the simulation
     // with keyboard inputs in place of DNN policy actions
