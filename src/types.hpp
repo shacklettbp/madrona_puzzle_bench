@@ -33,6 +33,15 @@ struct WorldReset {
     int32_t reset;
 };
 
+enum class LevelType : uint32_t {
+    SingleButton,
+    DoubleButton,
+    CubeBlocking,
+    CubeButtons,
+    Key,
+    NumTypes,
+};
+
 // Discrete action component. Ranges are defined by consts::numMoveBuckets (5),
 // repeated here for clarity
 struct Action {
@@ -99,7 +108,7 @@ static_assert(sizeof(PartnerObservations) == sizeof(float) *
 // Per-agent egocentric observations for the interactable entities
 // in the current room.
 struct EntityObservation {
-    PolarObservation polar;
+    PolarObservation posPolar;
     float encodedType;
 };
 
