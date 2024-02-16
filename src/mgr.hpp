@@ -30,6 +30,7 @@ public:
         uint32_t batchRenderViewHeight = 64;
         madrona::render::APIBackend *extRenderAPI = nullptr;
         madrona::render::GPUDevice *extRenderDev = nullptr;
+        uint32_t episodeLen;
         float buttonWidth;
         float doorWidth;
         float rewardPerDist;
@@ -49,13 +50,17 @@ public:
     madrona::py::Tensor actionTensor() const;
     madrona::py::Tensor rewardTensor() const;
     madrona::py::Tensor doneTensor() const;
-    madrona::py::Tensor selfObservationTensor() const;
-    madrona::py::Tensor partnerObservationsTensor() const;
-    madrona::py::Tensor roomEntityObservationsTensor() const;
-    madrona::py::Tensor roomDoorObservationsTensor() const;
-    madrona::py::Tensor lidarTensor() const;
+    madrona::py::Tensor agentTxfmObsTensor() const;
+    madrona::py::Tensor agentInteractObsTensor() const;
+    madrona::py::Tensor agentLevelTypeObsTensor() const;
+    madrona::py::Tensor entityPhysicsStateObsTensor() const;
+    madrona::py::Tensor entityTypeObsTensor() const;
+    madrona::py::Tensor entityAttributesObsTensor() const;
+    madrona::py::Tensor lidarDepthTensor() const;
+    madrona::py::Tensor lidarHitTypeTensor() const;
     madrona::py::Tensor stepsRemainingTensor() const;
-    madrona::py::Tensor agentIDTensor() const;
+    madrona::py::Tensor rgbTensor() const;
+    madrona::py::Tensor depthTensor() const;
 
     // These functions are used by the viewer to control the simulation
     // with keyboard inputs in place of DNN policy actions
@@ -68,8 +73,6 @@ public:
                    int32_t move_angle,
                    int32_t rotate,
                    int32_t interact);
-    madrona::py::Tensor rgbTensor() const;
-    madrona::py::Tensor depthTensor() const;
 
     madrona::render::RenderManager & getRenderManager();
 

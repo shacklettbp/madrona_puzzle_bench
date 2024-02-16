@@ -19,7 +19,6 @@ NB_MODULE(madrona_puzzle_bench, m) {
     nb::enum_<SimFlags>(m, "SimFlags", nb::is_arithmetic())
         .value("Default", SimFlags::Default)
         .value("UseFixedWorld", SimFlags::UseFixedWorld)
-        .value("UseComplexLevel", SimFlags::UseComplexLevel)
     ;
 
     nb::enum_<RewardMode>(m, "RewardMode")
@@ -43,6 +42,7 @@ NB_MODULE(madrona_puzzle_bench, m) {
                             uint32_t sim_flags,
                             RewardMode reward_mode,
                             bool enable_batch_renderer,
+                            uint32_t episode_len,
                             float button_width,
                             float door_width,
                             float reward_per_dist,
@@ -56,6 +56,7 @@ NB_MODULE(madrona_puzzle_bench, m) {
                 .simFlags = SimFlags(sim_flags),
                 .rewardMode = reward_mode,
                 .enableBatchRenderer = enable_batch_renderer,
+                .episodeLen = episode_len,
                 .buttonWidth = button_width,
                 .doorWidth = door_width,
                 .rewardPerDist = reward_per_dist,
@@ -69,6 +70,7 @@ NB_MODULE(madrona_puzzle_bench, m) {
            nb::arg("sim_flags"),
            nb::arg("reward_mode"),
            nb::arg("enable_batch_renderer") = false,
+           nb::arg("episode_len"),
            nb::arg("button_width"),
            nb::arg("door_width"),
            nb::arg("reward_per_dist"),

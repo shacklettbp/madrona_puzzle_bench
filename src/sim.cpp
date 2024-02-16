@@ -58,28 +58,30 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
     RenderingSystem::registerTypes(registry, cfg.renderBridge);
 
     registry.registerComponent<Action>();
-    registry.registerComponent<SelfObservation>();
-    registry.registerComponent<AgentID>();
+
+    registry.registerComponent<AgentTxfmObs>();
+    registry.registerComponent<AgentInteractObs>();
+    registry.registerComponent<AgentLevelTypeObs>();
+
+    registry.registerComponent<EntityPhysicsStateObsArray>();
+    registry.registerComponent<EntityTypeObsArray>();
+    registry.registerComponent<EntityAttributesObsArray>();
+    registry.registerComponent<LidarDepth>();
+    registry.registerComponent<LidarHitType>();
+
     registry.registerComponent<Reward>();
     registry.registerComponent<Done>();
     registry.registerComponent<GrabState>();
     registry.registerComponent<Progress>();
-    registry.registerComponent<OtherAgents>();
-    registry.registerComponent<PartnerObservations>();
-    registry.registerComponent<RoomEntityObservations>();
-    registry.registerComponent<RoomDoorObservations>();
     registry.registerComponent<ButtonState>();
     registry.registerComponent<OpenState>();
     registry.registerComponent<DoorProperties>();
-    registry.registerComponent<Lidar>();
     registry.registerComponent<StepsRemaining>();
     registry.registerComponent<EntityType>();
-    registry.registerComponent<KeyState>();
-    registry.registerComponent<KeyCode>();
+    registry.registerComponent<EntityLinkedListElem>();
 
     registry.registerSingleton<WorldReset>();
-    registry.registerSingleton<LevelState>();
-    registry.registerSingleton<RoomCount>(); // Number of rooms for this world.
+    registry.registerSingleton<Level>();
 
     // Checkpoint state.
     registry.registerSingleton<Checkpoint>();
@@ -90,7 +92,6 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
     registry.registerArchetype<PhysicsEntity>();
     registry.registerArchetype<DoorEntity>();
     registry.registerArchetype<ButtonEntity>();
-    registry.registerArchetype<KeyEntity>();
 
     registry.exportSingleton<Checkpoint>(
         (uint32_t)ExportID::Checkpoint);
@@ -103,20 +104,28 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
 
     registry.exportColumn<Agent, Action>(
         (uint32_t)ExportID::Action);
-    registry.exportColumn<Agent, SelfObservation>(
-        (uint32_t)ExportID::SelfObservation);
-    registry.exportColumn<Agent, AgentID>(
-        (uint32_t)ExportID::AgentID);
-    registry.exportColumn<Agent, PartnerObservations>(
-        (uint32_t)ExportID::PartnerObservations);
-    registry.exportColumn<Agent, RoomEntityObservations>(
-        (uint32_t)ExportID::RoomEntityObservations);
-    registry.exportColumn<Agent, RoomDoorObservations>(
-        (uint32_t)ExportID::RoomDoorObservations);
-    registry.exportColumn<Agent, Lidar>(
-        (uint32_t)ExportID::Lidar);
+
+    registry.exportColumn<Agent, AgentTxfmObs>(
+        (uint32_t)ExportID::AgentTxfmObs);
+    registry.exportColumn<Agent, AgentInteractObs>(
+        (uint32_t)ExportID::AgentInteractObs);
+    registry.exportColumn<Agent, AgentLevelTypeObs>(
+        (uint32_t)ExportID::AgentLevelTypeObs);
     registry.exportColumn<Agent, StepsRemaining>(
         (uint32_t)ExportID::StepsRemaining);
+
+    registry.exportColumn<Agent, EntityPhysicsStateObsArray>(
+        (uint32_t)ExportID::EntityPhysicsStateObsArray);
+    registry.exportColumn<Agent, EntityTypeObsArray>(
+        (uint32_t)ExportID::EntityTypeObsArray);
+    registry.exportColumn<Agent, EntityAttributesObsArray>(
+        (uint32_t)ExportID::EntityAttributesObsArray);
+
+    registry.exportColumn<Agent, LidarDepth>(
+        (uint32_t)ExportID::LidarDepth);
+    registry.exportColumn<Agent, LidarHitType>(
+        (uint32_t)ExportID::LidarHitType);
+
     registry.exportColumn<Agent, Reward>(
         (uint32_t)ExportID::Reward);
     registry.exportColumn<Agent, Done>(
@@ -1623,22 +1632,14 @@ Sim::Sim(Engine &ctx,
 
     curWorldEpisode = 0;
 
-    simFlags = cfg.simFlags; // VISHNU: remove this? seems like no-op
-
     // Set the door and button width
-    consts::doorWidth = cfg.doorWidth;
-    consts::buttonWidth = cfg.buttonWidth;
-    consts::rewardPerDist = cfg.rewardPerDist;
-    consts::slackReward = cfg.slackReward;
+    episodeLen = cfg.episodeLen;
+    doorWidth = cfg.doorWidth;
+    buttonWidth = cfg.buttonWidth;
+    rewardPerDist = cfg.rewardPerDist;
+    slackReward = cfg.slackReward;
 
-    // createPersistentEntities must know the RoomCount
-    if ((ctx.data().simFlags & SimFlags::UseComplexLevel) ==
-            SimFlags::UseComplexLevel) {
-            ctx.singleton<RoomCount>().count = consts::maxRooms;
-        } else {
-            ctx.singleton<RoomCount>().count = 3;
-        }
-
+    simFlags = cfg.simFlags;
 
     // Creates agents, walls, etc.
     createPersistentEntities(ctx);

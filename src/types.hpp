@@ -23,6 +23,8 @@ using madrona::phys::Velocity;
 using madrona::phys::ResponseType;
 using madrona::phys::ExternalForce;
 using madrona::phys::ExternalTorque;
+using madrona::math::Vector3;
+using madrona::math::AABB;
 
 
 // WorldReset is a per-world singleton component that causes the current
@@ -34,11 +36,10 @@ struct WorldReset {
 };
 
 enum class LevelType : uint32_t {
+    Chase,
+    LavaPath,
     SingleButton,
-    DoubleButton,
-    CubeBlocking,
-    CubeButtons,
-    Key,
+    SingleBlockButton,
     NumTypes,
 };
 
@@ -65,81 +66,64 @@ struct Done {
     int32_t v;
 };
 
-// Observation state for the current agent.
-// Positions are rescaled to the bounds of the play area to assist training.
-struct SelfObservation {
-    float roomX;
-    float roomY;
-    float globalX;
-    float globalY;
-    float globalZ;
-    float maxY;
+struct AgentTxfmObs {
+    Vector3 localRoomPos;
+    AABB roomAABB;
     float theta;
-    float isGrabbing;
-    float keyCode;
 };
 
-struct AgentID {
-    int32_t id;
+struct AgentInteractObs {
+    int32_t isGrabbing;
+};
+
+struct AgentLevelTypeObs {
+    LevelType t;
 };
 
 // The state of the world is passed to each agent in terms of egocentric
 // polar coordinates. theta is degrees off agent forward.
-struct PolarObservation {
+struct PolarObs {
     float r;
     float theta;
+    float phi;
 };
-
-struct PartnerObservation {
-    PolarObservation polar;
-    float isGrabbing;
-};
-
-// Egocentric observations of other agents
-struct PartnerObservations {
-    PartnerObservation obs[consts::numAgents - 1];
-};
-
-// PartnerObservations is exported as a
-// [N, A, consts::numAgents - 1, 3] // tensor to pytorch
-static_assert(sizeof(PartnerObservations) == sizeof(float) *
-    (consts::numAgents - 1) * 3);
 
 // Per-agent egocentric observations for the interactable entities
 // in the current room.
-struct EntityObservation {
-    PolarObservation posPolar;
-    float encodedType;
+struct EntityPhysicsStateObs {
+    PolarObs positionPolar;
+    PolarObs velocityPolar;
+    Vector3 entityRotation;
 };
 
-struct RoomEntityObservations {
-    EntityObservation obs[consts::maxObservationsPerAgent];
+struct EntityTypeObs {
+    RoomEntityType entityType;
 };
 
-// RoomEntityObservations is exported as a
-// [N, A, maxObservationsPerAgent, 3] tensor to pytorch
-static_assert(sizeof(RoomEntityObservations) == sizeof(float) *
-    consts::maxObservationsPerAgent * 3);
-
-// Observation of the current room's door. It's relative position and
-// whether or not it is ope
-struct DoorObservation {
-    PolarObservation polar;
-    float isOpen; // 1.0 when open, 0.0 when closed, -1.0 when nonexistent.
+struct EntityAttributesObs {
+    int32_t attr1;
+    int32_t attr2;
 };
 
-struct RoomDoorObservations {
-    DoorObservation obs[consts::doorsPerRoom];
+struct EntityPhysicsStateObsArray {
+    EntityPhysicsStateObs obs[consts::maxObservationsPerAgent];
 };
 
-struct LidarSample {
-    float depth;
-    float encodedType;
+struct EntityTypeObsArray {
+    EntityTypeObs obs[consts::maxObservationsPerAgent];
+};
+
+struct EntityAttributesObsArray {
+    EntityAttributesObs obs[consts::maxObservationsPerAgent];
 };
 
 // Linear depth values and entity type in a circle around the agent
-struct Lidar {
-    LidarSample samples[consts::numLidarSamples];
+struct LidarDepth {
+    float samples[consts::numLidarSamples];
+};
+
+struct LidarHitType {
+    RoomEntityType samples[consts::numLidarSamples];
 };
 
 // Number of steps remaining in the episode. Allows non-recurrent policies
@@ -154,12 +138,6 @@ struct Progress {
     float maxY;
 };
 
-// Per-agent component storing Entity IDs of the other agents. Used to
-// build the egocentric observations of their state.
-struct OtherAgents {
-    madrona::Entity e[consts::numAgents - 1];
-};
-
 // Tracks if an agent is currently grabbing another entity
 struct GrabState {
     Entity constraintEntity;
@@ -169,12 +147,15 @@ struct GrabState {
 // classifying the objects hit by each lidar sample.
 enum class EntityType : uint32_t {
     None,
-    Button,
-    Cube,
-    Wall,
     Agent,
     Door,
+    Block,
+    Ramp,
+    Lava,
+    Button,
     Key,
+    Enemy,
+    Wall,
     NumTypes,
 };
 
@@ -183,13 +164,16 @@ struct OpenState {
     bool isOpen;
 };
 
+struct RoomAABB : AABB {
+    inline RoomAABB(AABB aabb) : AABB(aabb) {}
+}
+
 // Linked buttons that control the door opening and whether or not the door
 // should remain open after the buttons are pressed once.
 struct DoorProperties {
-    Entity  buttons[consts::maxEntitiesPerRoom];
-    int32_t numButtons;
+    Entity linkedButton;
+    Entity linkedRooms[2];
     bool    isPersistent;
-    bool    isExit;
 };
 
 // Similar to OpenState, true during frames where a button is pressed
@@ -197,97 +181,55 @@ struct ButtonState {
     bool isPressed;
 };
 
-struct KeyCode {
-    int32_t code;
+struct Level {
+    Entity startRoom;
 };
 
-// False before an agent claims the key, true after.
-struct KeyState {
-    bool claimed;
-    KeyCode code; // Which door the key opens.
-};
-
-struct RoomRep {
-    int32_t x;
-    int32_t y;
-    Entity door;
-};
-
-struct DoorRep {
-    Entity door;
-    int32_t roomIdx;
-    int32_t code;
-    bool exit;
-};
-
-// Room itself is not a component but is used by the singleton
-// component "LevelState" (below) to represent the state of the full level
-struct Room {
-    // These are entities the agent will interact with
-    Entity entities[consts::maxEntitiesPerRoom];
-
-    // The walls that separate this room from the next
-    Entity walls[consts::wallsPerRoom];
-
-    // The door the agents need to figure out how to lower
-    Entity door[consts::doorsPerRoom];
-};
-
-// A singleton component storing the state of all the rooms in the current
-// randomly generated level
-struct LevelState {
-    Room rooms[consts::maxRooms];
-};
-
-// Checkpoint structs.
-struct ButtonSaveState {
-    Position p;
-    Rotation r;
-    ButtonState b;
-};
-
-struct KeySaveState {
-    Position p;
-    Rotation r;
-    KeyState k;
-};
-
-struct PhysicsEntityState {
-    Position p;
-    Rotation r;
-    Velocity v;
-};
-
-struct DoorState {
-    Position p;
-    Rotation r;
-    Velocity v;
-    OpenState o;
-    KeyCode k;
-};
-
-struct AgentState {
-    Position p;
-    Rotation r;
-    Velocity v;
-    // Index within the checkpoint buffers of the
-    // grabbed entity. -1 if not grabbing.
-    int32_t grabIdx;
-    Reward re;
-    Done d;
-    StepsRemaining s;
-    Progress pr;
-    madrona::phys::JointConstraint j;
-    KeyCode k;
+struct EntityLinkedListElem {
+    Entity next;
 };
 
 struct Checkpoint {
+    // Checkpoint structs.
+    struct ButtonSaveState {
+        Position p;
+        Rotation r;
+        ButtonState b;
+    };
+    
+    struct PhysicsEntityState {
+        Position p;
+        Rotation r;
+        Velocity v;
+    };
+    
+    struct DoorState {
+        Position p;
+        Rotation r;
+        Velocity v;
+        OpenState o;
+    };
+    
+    struct AgentState {
+        Position p;
+        Rotation r;
+        Velocity v;
+        // Index within the checkpoint buffers of the
+        // grabbed entity. -1 if not grabbing.
+        int32_t grabIdx;
+        Reward re;
+        Done d;
+        StepsRemaining s;
+        Progress pr;
+        madrona::phys::JointConstraint j;
+        KeyCode k;
+    };
+
     madrona::RandKey initRNDCounter;
     ButtonSaveState buttonStates[consts::maxRooms * 2 * 4];
     PhysicsEntityState cubeStates[consts::maxRooms * 3];
     DoorState doorStates[consts::maxRooms * 4];
     AgentState agentStates[consts::numAgents];
-    KeySaveState keyStates[consts::maxRooms * 4];
 };
 
 struct CheckpointReset {
@@ -299,9 +241,10 @@ struct CheckpointSave {
     int32_t save;
 };
 
-struct RoomCount {
-    int32_t count;
-};
+struct RoomEntity : public madrona::Archetype<
+    RoomAABB,
+    EntityLinkedListElem
+> {};
 
 /* ECS Archetypes for the game */
 
@@ -326,7 +269,6 @@ struct Agent : public madrona::Archetype<
     // Internal logic state.
     GrabState,
     Progress,
-    OtherAgents,
     EntityType,
     KeyCode,
 
@@ -335,8 +277,6 @@ struct Agent : public madrona::Archetype<
 
     // Observations
     SelfObservation,
-    AgentID,
-    PartnerObservations,
     RoomEntityObservations,
     RoomDoorObservations,
     Lidar,
@@ -369,21 +309,9 @@ struct DoorEntity : public madrona::Archetype<
     ExternalTorque,
     madrona::phys::broadphase::LeafID,
     OpenState,
-    KeyCode,
     DoorProperties,
     EntityType,
-    madrona::render::Renderable
-> {};
-
-// Archetype for the key objects that allow doors to be opened
-// Keys don't have collision but are rendered
-struct KeyEntity : public madrona::Archetype<
-    Position,
-    Rotation,
-    Scale,
-    ObjectID,
-    KeyState,
-    EntityType,
+    EntityLinkedListElem,
     madrona::render::Renderable
 > {};
 
@@ -396,6 +324,7 @@ struct ButtonEntity : public madrona::Archetype<
     ObjectID,
     ButtonState,
     EntityType,
+    EntityLinkedListElem,
     madrona::render::Renderable
 > {};
 
@@ -415,6 +344,7 @@ struct PhysicsEntity : public madrona::Archetype<
     ExternalTorque,
     madrona::phys::broadphase::LeafID,
     EntityType,
+    EntityLinkedListElem,
     madrona::render::Renderable
 > {};
 

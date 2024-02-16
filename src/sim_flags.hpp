@@ -7,7 +7,6 @@ namespace madPuzzle {
 enum class SimFlags : uint32_t {
     Default                = 0,
     UseFixedWorld          = 1 << 0,
-    UseComplexLevel        = 1 << 2,
 };
 
 enum class RewardMode : uint32_t {

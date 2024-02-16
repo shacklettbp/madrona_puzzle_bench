@@ -19,12 +19,14 @@ enum class ExportID : uint32_t {
     Action,
     Reward,
     Done,
-    SelfObservation,
-    AgentID,
-    PartnerObservations,
-    RoomEntityObservations,
-    RoomDoorObservations,
-    Lidar,
+    AgentTxfmObs,
+    AgentInteractObs,
+    AgentLevelTypeObs,
+    EntityPhysicsStateObsArray,
+    EntityTypeObsArray,
+    EntityAttributesObsArray,
+    LidarDepth,
+    LidarHitType,
     StepsRemaining,
     Checkpoint,
     CheckpointReset,
@@ -64,8 +66,9 @@ struct Sim : public madrona::WorldBase {
         SimFlags simFlags;
         RewardMode rewardMode;
         RandKey initRandKey;
-        float buttonWidth;
+        uint32_t episodeLen;
         float doorWidth;
+        float buttonWidth;
         float rewardPerDist;
         float slackReward;
         madrona::phys::ObjectManager *rigidBodyObjMgr;
@@ -101,6 +104,11 @@ struct Sim : public madrona::WorldBase {
     // at the end of each episode?
     bool autoReset;
 
+    uint32_t episodeLen;
+    float doorWidth;
+    float buttonWidth;
+    float rewardPerDist;
+    float slackReward;
     SimFlags simFlags;
 
     // Are we enabling rendering? (whether with the viewer or not)
@@ -122,7 +130,7 @@ struct Sim : public madrona::WorldBase {
 
     // Agent entity references. This entities live across all episodes
     // and are just reset to the start of the level on reset.
-    Entity agents[consts::numAgents];
+    Entity agent;
 
     // Queries for the collectObservations system.
     Query<Position, GrabState>  otherAgentQuery;

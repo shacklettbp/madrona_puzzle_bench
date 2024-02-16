@@ -76,7 +76,7 @@ static inline Optional<render::RenderManager> initRenderManager(
         .agentViewWidth = mgr_cfg.batchRenderViewWidth,
         .agentViewHeight = mgr_cfg.batchRenderViewHeight,
         .numWorlds = mgr_cfg.numWorlds,
-        .maxViewsPerWorld = consts::numAgents,
+        .maxViewsPerWorld = 1,
         .maxInstancesPerWorld = 1000,
         .execMode = mgr_cfg.execMode,
         .voxelCfg = {},
@@ -466,6 +466,7 @@ Manager::Impl * Manager::Impl::init(
     sim_cfg.simFlags = mgr_cfg.simFlags;
     sim_cfg.rewardMode = mgr_cfg.rewardMode;
     sim_cfg.initRandKey = rand::initKey(mgr_cfg.randSeed);
+    sim_cfg.episodeLen = mgr_cfg.episodeLen;
     sim_cfg.buttonWidth = mgr_cfg.buttonWidth;
     sim_cfg.doorWidth = mgr_cfg.doorWidth;
     sim_cfg.rewardPerDist = mgr_cfg.rewardPerDist;
@@ -667,7 +668,7 @@ Tensor Manager::actionTensor() const
 {
     return impl_->exportTensor(ExportID::Action, TensorElementType::Int32,
         {
-            impl_->cfg.numWorlds * consts::numAgents,
+            impl_->cfg.numWorlds,
             sizeof(Action) / sizeof(int32_t),
         });
 }
@@ -676,7 +677,7 @@ Tensor Manager::rewardTensor() const
 {
     return impl_->exportTensor(ExportID::Reward, TensorElementType::Float32,
                                {
-                                   impl_->cfg.numWorlds * consts::numAgents,
+                                   impl_->cfg.numWorlds,
                                    sizeof(Reward) / sizeof(float),
                                });
 }
@@ -685,61 +686,93 @@ Tensor Manager::doneTensor() const
 {
     return impl_->exportTensor(ExportID::Done, TensorElementType::Int32,
                                {
-                                   impl_->cfg.numWorlds * consts::numAgents,
+                                   impl_->cfg.numWorlds,
                                    sizeof(Done) / sizeof(int32_t),
                                });
 }
 
-Tensor Manager::selfObservationTensor() const
+Tensor Manager::agentTxfmObsTensor() const
 {
-    return impl_->exportTensor(ExportID::SelfObservation,
+    return impl_->exportTensor(ExportID::AgentTxfmObs,
                                TensorElementType::Float32,
                                {
-                                   impl_->cfg.numWorlds * consts::numAgents,
-                                   sizeof(SelfObservation) / sizeof(float),
+                                   impl_->cfg.numWorlds,
+                                   sizeof(AgentTxfmObs) / sizeof(float),
                                });
 }
 
-Tensor Manager::partnerObservationsTensor() const
+Tensor Manager::agentInteractObsTensor() const
 {
-    return impl_->exportTensor(ExportID::PartnerObservations,
-                               TensorElementType::Float32,
+    return impl_->exportTensor(ExportID::AgentInteractObs,
+                               TensorElementType::Int32,
                                {
-                                   impl_->cfg.numWorlds * consts::numAgents,
-                                   consts::numAgents - 1,
-                                   sizeof(PartnerObservation) / sizeof(float),
+                                   impl_->cfg.numWorlds,
+                                   sizeof(AgentInteractObs) / sizeof(int32_t),
                                });
 }
 
-Tensor Manager::roomEntityObservationsTensor() const
+Tensor Manager::agentLevelTypeObsTensor() const
 {
-    return impl_->exportTensor(ExportID::RoomEntityObservations,
+    return impl_->exportTensor(ExportID::AgentLevelTypeObs,
+                               TensorElementType::Int32,
+                               {
+                                   impl_->cfg.numWorlds,
+                                   sizeof(AgentLevelTypeObs) / sizeof(int32_t),
+                               });
+}
+
+Tensor Manager::entityPhysicsStateObsTensor() const
+{
+    return impl_->exportTensor(ExportID::EntityPhysicsStateObsArray,
                                TensorElementType::Float32,
                                {
-                                   impl_->cfg.numWorlds * consts::numAgents,
+                                   impl_->cfg.numWorlds,
                                    consts::maxObservationsPerAgent,
-                                   sizeof(EntityObservation) / sizeof(float),
+                                   sizeof(EntityPhysicsStateObs) / sizeof(float),
                                });
 }
 
-Tensor Manager::roomDoorObservationsTensor() const
+Tensor Manager::entityTypeObsTensor() const
 {
-    return impl_->exportTensor(ExportID::RoomDoorObservations,
+    return impl_->exportTensor(ExportID::EntityTypeObsArray,
+                               TensorElementType::Int32,
+                               {
+                                   impl_->cfg.numWorlds,
+                                   consts::maxObservationsPerAgent,
+                                   sizeof(EntityTypeObs) / sizeof(float),
+                               });
+}
+
+Tensor Manager::entityAttributesObsTensor() const
+{
+    return impl_->exportTensor(ExportID::EntityAttributesObsArray,
                                TensorElementType::Float32,
                                {
-                                   impl_->cfg.numWorlds * consts::numAgents,
-                                   consts::doorsPerRoom,
-                                   sizeof(DoorObservation) / sizeof(float)
+                                   impl_->cfg.numWorlds,
+                                   consts::maxObservationsPerAgent,
+                                   sizeof(EntityAttributesObs) / sizeof(int32_t),
                                });
 }
 
-Tensor Manager::lidarTensor() const
+Tensor Manager::lidarDepthTensor() const
 {
-    return impl_->exportTensor(ExportID::Lidar, TensorElementType::Float32,
+    return impl_->exportTensor(ExportID::LidarDepth,
+                               TensorElementType::Float32,
                                {
-                                   impl_->cfg.numWorlds * consts::numAgents,
+                                   impl_->cfg.numWorlds,
                                    consts::numLidarSamples,
-                                   sizeof(LidarSample) / sizeof(float),
+                                   1,
+                               });
+}
+
+Tensor Manager::lidarHitTypeTensor() const
+{
+    return impl_->exportTensor(ExportID::LidarHitType,
+                               TensorElementType::Int32,
+                               {
+                                   impl_->cfg.numWorlds,
+                                   consts::numLidarSamples,
+                                   1,
                                });
 }
 
@@ -748,18 +781,8 @@ Tensor Manager::stepsRemainingTensor() const
     return impl_->exportTensor(ExportID::StepsRemaining,
                                TensorElementType::Int32,
                                {
-                                   impl_->cfg.numWorlds * consts::numAgents,
+                                   impl_->cfg.numWorlds,
                                    sizeof(StepsRemaining) / sizeof(int32_t),
-                               });
-}
-
-Tensor Manager::agentIDTensor() const
-{
-    return impl_->exportTensor(ExportID::AgentID,
-                               TensorElementType::Int32,
-                               {
-                                   impl_->cfg.numWorlds * consts::numAgents,
-                                   sizeof(AgentID) / sizeof(int32_t),
                                });
 }
 
@@ -769,7 +792,6 @@ Tensor Manager::rgbTensor() const
 
     return Tensor((void*)rgb_ptr, TensorElementType::UInt8, {
         impl_->cfg.numWorlds,
-        consts::numAgents,
         impl_->cfg.batchRenderViewHeight,
         impl_->cfg.batchRenderViewWidth,
         4,
@@ -782,7 +804,6 @@ Tensor Manager::depthTensor() const
 
     return Tensor((void *)depth_ptr, TensorElementType::Float32, {
         impl_->cfg.numWorlds,
-        consts::numAgents,
         impl_->cfg.batchRenderViewHeight,
         impl_->cfg.batchRenderViewWidth,
         1,

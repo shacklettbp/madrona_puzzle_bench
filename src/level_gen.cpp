@@ -71,7 +71,6 @@ static void registerRigidBodyEntity(
 // All these entities persist across all episodes.
 void createPersistentEntities(Engine &ctx)
 {
-    const int32_t numRooms = ctx.singleton<RoomCount>().count;
     // Create the floor entity, just a simple static plane.
     ctx.data().floorPlane = ctx.makeRenderableEntity<PhysicsEntity>();
     setupRigidBodyEntity(
@@ -83,110 +82,22 @@ void createPersistentEntities(Engine &ctx)
         EntityType::None, // Floor plane type should never be queried
         ResponseType::Static);
 
-    if ((ctx.data().simFlags & SimFlags::UseComplexLevel)
-        != SimFlags::UseComplexLevel)
-    {
-        // Create the outer wall entities
-        // Behind
-        ctx.data().borders[0] = ctx.makeRenderableEntity<PhysicsEntity>();
-        setupRigidBodyEntity(
-            ctx,
-            ctx.data().borders[0],
-            Vector3{
-                0,
-                -consts::wallWidth / 2.f,
-                0,
-            },
-            Quat{1, 0, 0, 0},
-            SimObject::Wall,
-            EntityType::Wall,
-            ResponseType::Static,
-            Diag3x3{
-                consts::worldWidth + consts::wallWidth * 2,
-                consts::wallWidth,
-                2.f,
-            });
+    Entity agent = ctx.data().agents[i] =
+        ctx.makeRenderableEntity<Agent>();
 
-        // Right
-        ctx.data().borders[1] = ctx.makeRenderableEntity<PhysicsEntity>();
-        setupRigidBodyEntity(
-            ctx,
-            ctx.data().borders[1],
-            Vector3{
-                consts::worldWidth / 2.f + consts::wallWidth / 2.f,
-                consts::roomLength * numRooms / 2.f,
-                0,
-            },
-            Quat{1, 0, 0, 0},
-            SimObject::Wall,
-            EntityType::Wall,
-            ResponseType::Static,
-            Diag3x3{
-                consts::wallWidth,
-                consts::roomLength * numRooms,
-                2.f,
-            });
-
-        // Left
-        ctx.data().borders[2] = ctx.makeRenderableEntity<PhysicsEntity>();
-        setupRigidBodyEntity(
-            ctx,
-            ctx.data().borders[2],
-            Vector3{
-                -consts::worldWidth / 2.f - consts::wallWidth / 2.f,
-                consts::roomLength * numRooms / 2.f,
-                0,
-            },
-            Quat{1, 0, 0, 0},
-            SimObject::Wall,
-            EntityType::Wall,
-            ResponseType::Static,
-            Diag3x3{
-                consts::wallWidth,
-                consts::roomLength * numRooms,
-                2.f,
-            });
+    // Create a render view for the agent
+    if (ctx.data().enableRender) {
+        render::RenderingSystem::attachEntityToView(ctx,
+                agent,
+                100.f, 0.001f,
+                1.5f * math::up);
     }
 
-    // Create agent entities. Note that this leaves a lot of components
-    // uninitialized, these will be set during world generation, which is
-    // called for every episode.
-    for (CountT i = 0; i < consts::numAgents; ++i) {
-        Entity agent = ctx.data().agents[i] =
-            ctx.makeRenderableEntity<Agent>();
-
-        // Create a render view for the agent
-        if (ctx.data().enableRender) {
-            render::RenderingSystem::attachEntityToView(ctx,
-                    agent,
-                    100.f, 0.001f,
-                    1.5f * math::up);
-        }
-
-        ctx.get<Scale>(agent) = Diag3x3 { 1, 1, 1 };
-        ctx.get<ObjectID>(agent) = ObjectID { (int32_t)SimObject::Agent };
-        ctx.get<ResponseType>(agent) = ResponseType::Dynamic;
-        ctx.get<GrabState>(agent).constraintEntity = Entity::none();
-        ctx.get<EntityType>(agent) = EntityType::Agent;
-        ctx.get<AgentID>(agent).id = (int32_t)i;
-    }
-
-    // Populate OtherAgents component, which maintains a reference to the
-    // other agents in the world for each agent.
-    for (CountT i = 0; i < consts::numAgents; i++) {
-        Entity cur_agent = ctx.data().agents[i];
-
-        OtherAgents &other_agents = ctx.get<OtherAgents>(cur_agent);
-        CountT out_idx = 0;
-        for (CountT j = 0; j < consts::numAgents; j++) {
-            if (i == j) {
-                continue;
-            }
-
-            Entity other_agent = ctx.data().agents[j];
-            other_agents.e[out_idx++] = other_agent;
-        }
-    }
+    ctx.get<Scale>(agent) = Diag3x3 { 1, 1, 1 };
+    ctx.get<ObjectID>(agent) = ObjectID { (int32_t)SimObject::Agent };
+    ctx.get<ResponseType>(agent) = ResponseType::Dynamic;
+    ctx.get<GrabState>(agent).constraintEntity = Entity::none();
+    ctx.get<EntityType>(agent) = EntityType::Agent;
 }
 
 // Although agents and walls persist between episodes, we still need to
@@ -1046,114 +957,6 @@ static CountT makeCubeButtonsRoom(Engine &ctx,
 
 // Make the doors and separator walls at the end of the room
 // before delegating to specific code based on room_type.
-static int32_t makeComplexRoom(Engine &ctx,
-                     LevelState &level,
-                     CountT room_idx,
-                     const RoomRep *roomList,
-                     DoorRep *doorList)
-{
-
-    Room &room = level.rooms[room_idx];
-    // Need to set any extra entities to type none so random uninitialized data
-    // from prior episodes isn't exported to pytorch as agent observations.
-    for (CountT i = 0; i < consts::maxEntitiesPerRoom; i++) {
-        room.entities[i] = Entity::none();
-    }
-    // These limits are independent of the number of rooms.
-    for (CountT i = 0; i < consts::wallsPerRoom; i++) {
-        room.walls[i] = Entity::none();
-    }
-    for (CountT i = 0; i < consts::doorsPerRoom; i++) {
-        room.door[i] = Entity::none();
-    }
-
-    RoomRep this_room = roomList[room_idx];
-
-    float room_center_x = consts::roomLength * this_room.x;
-    float room_center_y = consts::roomLength * this_room.y;
-
-    // W, N, E, S
-    int32_t wallsToGenerate[4] = {1, 1, 1, 1};
-    int32_t existingWalls = 0;
-    // Search all previous rooms.
-    for (int i = 0; i < room_idx; ++i) {
-        int32_t i_x = roomList[i].x;
-        int32_t i_y = roomList[i].y;
-        if (i_y == this_room.y) {
-            if (roomList[i].x == this_room.x + 1) {
-                wallsToGenerate[1] = 0;
-                existingWalls++;
-            }
-            if (roomList[i].x == this_room.x - 1) {
-                wallsToGenerate[3] = 0;
-                existingWalls++;
-            }
-        }
-
-        if (i_x == this_room.x ) {
-            if (i_y == this_room.y + 1) {
-                wallsToGenerate[0] = 0;
-                existingWalls++;
-            }
-            if (roomList[i].y == this_room.y - 1) {
-                wallsToGenerate[2] = 0;
-                existingWalls++;
-            }
-        }
-    }
-
-    if (existingWalls == 4) {
-        // Nothing to do
-        return 0;
-    }
-
-    int chosenDoor = -1;
-    while (chosenDoor == -1) {
-        chosenDoor = int32_t(randBetween(ctx, 0.0f, 4.0f));
-        if (wallsToGenerate[chosenDoor] == 0) {
-            chosenDoor = -1;
-        }
-    }
-
-    int totalDoors = 0;
-    for (int i = 0; i < 4; ++i) {
-        if (wallsToGenerate[i] == 0) {
-            continue;
-        }
-
-        // Weighted coin flip for door making.
-        bool makeDoor = (chosenDoor == i) || (randBetween(ctx, 0.0f, 1.0f) > 0.9f);
-
-        Vector3 wallCenter;
-        switch (i) {
-            case 0:
-                wallCenter = Vector3{room_center_x, room_center_y + consts::roomLength * 0.5f, 0.0f};
-                break;
-            case 1:
-                wallCenter = Vector3{room_center_x+ consts::roomLength * 0.5f, room_center_y, 0.0f};
-                break;
-            case 2:
-                wallCenter = Vector3{room_center_x, room_center_y - consts::roomLength * 0.5f, 0.0f};
-                break;
-            case 3:
-                wallCenter = Vector3{room_center_x - consts::roomLength * 0.5f, room_center_y, 0.0f};
-                break;
-            default: break;
-        }
-        makeWall(ctx, room, room_idx, wallCenter, i, makeDoor, &doorList[totalDoors], roomList);
-        if (makeDoor) {
-            doorList[totalDoors].roomIdx = room_idx;
-            doorList[totalDoors].exit = true;
-            totalDoors++;
-        }
-    }
-
-    return totalDoors;
-}
-
-
-// Make the doors and separator walls at the end of the room
-// before delegating to specific code based on room_type.
 static void makeRoom(Engine &ctx,
                      LevelState &level,
                      CountT room_idx,
@@ -1202,33 +1005,6 @@ static void makeRoom(Engine &ctx,
     default: MADRONA_UNREACHABLE();
     }
 
-
-}
-
-static void generateLevel(Engine &ctx)
-{
-    LevelState &level = ctx.singleton<LevelState>();
-#if 0
-    // For training simplicity, define a fixed sequence of levels.
-    makeRoom(ctx, level, 0, RoomType::DoubleButton);
-    makeRoom(ctx, level, 1, RoomType::CubeBlocking);
-    makeRoom(ctx, level, 2, RoomType::CubeButtons);
-#endif
-
-    // An alternative implementation could randomly select the type for each
-    // room rather than a fixed progression of challenge difficulty
-    for (CountT i = 0; i < consts::maxRooms; i++) {
-        RoomType room_type = (RoomType)(
-            ctx.data().rng.sampleI32(0, (uint32_t)RoomType::NumTypes));
-        
-        if (room_type == RoomType::Key) {
-            // For the simple room, exclude key rooms.
-            i -= 1;
-            continue;
-        }
-
-        makeRoom(ctx, level, i, room_type);
-    }
 
 }
 
@@ -1395,21 +1171,33 @@ static void generateComplexLevel(Engine &ctx)
     }
 }
 
-
-// Randomly generate a new world for a training episode
-void generateWorld(Engine &ctx)
+void generateLevel(Engine &ctx)
 {
     resetPersistentEntities(ctx);
 
-    if ((ctx.data().simFlags & SimFlags::UseComplexLevel) ==
-        SimFlags::UseComplexLevel)
-    {
-        generateComplexLevel(ctx);
+    LevelState &level = ctx.singleton<LevelState>();
+#if 0
+    // For training simplicity, define a fixed sequence of levels.
+    makeRoom(ctx, level, 0, RoomType::DoubleButton);
+    makeRoom(ctx, level, 1, RoomType::CubeBlocking);
+    makeRoom(ctx, level, 2, RoomType::CubeButtons);
+#endif
+
+    // An alternative implementation could randomly select the type for each
+    // room rather than a fixed progression of challenge difficulty
+    for (CountT i = 0; i < consts::maxRooms; i++) {
+        RoomType room_type = (RoomType)(
+            ctx.data().rng.sampleI32(0, (uint32_t)RoomType::NumTypes));
+        
+        if (room_type == RoomType::Key) {
+            // For the simple room, exclude key rooms.
+            i -= 1;
+            continue;
+        }
+
+        makeRoom(ctx, level, i, room_type);
     }
-    else
-    {
-        generateLevel(ctx);
-    }
+
 }
 
 }
