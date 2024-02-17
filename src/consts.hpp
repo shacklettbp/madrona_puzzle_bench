@@ -10,6 +10,8 @@ namespace consts {
 inline constexpr madrona::CountT maxObservationsPerAgent = 9;//20;
 
 // Various world / entity size parameters
+inline constexpr float wallWidth = 1.f;
+
 inline constexpr float worldLength = 40.0f;
 inline constexpr float worldWidth = 20.f;
 inline constexpr float keyWidth = 0.5f;

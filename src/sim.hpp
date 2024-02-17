@@ -37,7 +37,7 @@ enum class ExportID : uint32_t {
 // Stores values for the ObjectID component that links entities to
 // render / physics assets.
 enum class SimObject : uint32_t {
-    Cube,
+    Block,
     Wall,
     Door,
     PurpleDoor,
@@ -121,9 +121,6 @@ struct Sim : public madrona::WorldBase {
     // Random number generator state
     madrona::RNG rng;
 
-    // Floor plane entity, constant across all episodes.
-    Entity floorPlane;
-
     // Border wall entities: 3 walls to the left, up and down that define
     // play area. These are constant across all episodes.
     Entity borders[3];
@@ -133,8 +130,9 @@ struct Sim : public madrona::WorldBase {
     Entity agent;
 
     // Queries for the collectObservations system.
+    Query<Entity, EntityType> simEntityQuery;
+
     Query<Position, GrabState>  otherAgentQuery;
-    Query<Position, EntityType> roomEntityQuery;
     Query<Position, OpenState>  doorQuery;
 
     // Queries for checkpointing

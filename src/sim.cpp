@@ -76,12 +76,16 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
     registry.registerComponent<ButtonState>();
     registry.registerComponent<OpenState>();
     registry.registerComponent<DoorProperties>();
-    registry.registerComponent<StepsRemaining>();
+    registry.registerComponent<StepsRemainingObservation>();
     registry.registerComponent<EntityType>();
-    registry.registerComponent<EntityLinkedListElem>();
+
+    registry.registerComponent<LevelListElem>();
+    registry.registerComponent<RoomListElem>();
+    registry.registerComponent<ButtonListElem>();
 
     registry.registerSingleton<WorldReset>();
     registry.registerSingleton<Level>();
+    registry.registerSingleton<EpisodeState>();
 
     // Checkpoint state.
     registry.registerSingleton<Checkpoint>();
@@ -111,7 +115,7 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
         (uint32_t)ExportID::AgentInteractObs);
     registry.exportColumn<Agent, AgentLevelTypeObs>(
         (uint32_t)ExportID::AgentLevelTypeObs);
-    registry.exportColumn<Agent, StepsRemaining>(
+    registry.exportColumn<Agent, StepsRemainingObservation>(
         (uint32_t)ExportID::StepsRemaining);
 
     registry.exportColumn<Agent, EntityPhysicsStateObsArray>(
@@ -130,34 +134,6 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
         (uint32_t)ExportID::Reward);
     registry.exportColumn<Agent, Done>(
         (uint32_t)ExportID::Done);
-}
-
-static inline void cleanupWorld(Engine &ctx)
-{
-    int32_t numRooms = ctx.singleton<RoomCount>().count;
-    // Destroy current level entities
-    LevelState &level = ctx.singleton<LevelState>();
-    for (int32_t i = 0; i < numRooms; i++) {
-        Room &room = level.rooms[i];
-        for (CountT j = 0; j < consts::maxEntitiesPerRoom; j++) {
-            if (room.entities[j] != Entity::none()) {
-                ctx.destroyRenderableEntity(room.entities[j]);
-                room.entities[j] = Entity::none();
-            }
-        }
-        for (int32_t j = 0; j < consts::wallsPerRoom; ++j) {
-            if (room.walls[j] != Entity::none()) {
-                ctx.destroyRenderableEntity(room.walls[j]);
-                room.walls[j] = Entity::none();
-            }
-        }
-        for (int32_t j = 0; j < consts::doorsPerRoom; ++j) {
-            if (room.door[j] != Entity::none()) {
-                ctx.destroyRenderableEntity(room.door[j]);
-                room.door[j] = Entity::none();
-            }
-        }
-    }
 }
 
 static inline void initWorld(Engine &ctx)
@@ -408,6 +384,8 @@ inline void checkpointSystem(Engine &ctx, CheckpointSave &save)
         );
     }
 }
+
+inline void 
 
 // This system runs each frame and checks if the current episode is complete
 // or if code external to the application has forced a reset by writing to the
@@ -770,18 +748,18 @@ static inline float encodeType(EntityType type)
 
 // This system packages all the egocentric observations together 
 // for the policy inputs.
-inline void collectObservationsSystem(Engine &ctx,
-                                      Position pos,
-                                      Rotation rot,
-                                      const Progress &progress,
-                                      const GrabState &grab,
-                                      const KeyCode &keyCode,
-                                      SelfObservation &self_obs,
-                                      PartnerObservations &partner_obs,
-                                      RoomEntityObservations &room_ent_obs,
-                                      RoomDoorObservations &room_door_obs)
+inline void collectObservationsSystem(
+    Engine &ctx,
+    Position pos,
+    Rotation rot,
+    const Progress &progress,
+    const GrabState &grab,
+    SelfObservation &self_obs,
+    StepsRemainingObservation &steps_remaining_obs,
+    PartnerObservations &partner_obs,
+    RoomEntityObservations &room_ent_obs,
+    RoomDoorObservations &room_door_obs)
 {
-
     const int32_t numRooms = ctx.singleton<RoomCount>().count;
 
     // Calls old roomIndex if not using the complexRoom.
@@ -811,6 +789,9 @@ inline void collectObservationsSystem(Engine &ctx,
     assert(!isnan(self_obs.maxY));
     assert(!isnan(self_obs.theta));
     assert(!isnan(self_obs.isGrabbing));
+
+    steps_remaining_obs.t =
+        ctx.data().episodeLen - ctx.get<EpisodeState>.curStep;
 
     Quat to_view = rot.inv();
 
@@ -1289,6 +1270,8 @@ inline void exitRoomSystem(Engine &,
     }
 }
 
+inline void stepCounterSystem(Engine &ctx,
+
 // Keep track of the number of steps remaining in the episode and
 // notify training that an episode has completed by
 // setting done = 1 on the final step of the episode
@@ -1509,14 +1492,30 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
     // Conditionally reset the world if the episode is over
     auto reset_sys = builder.addToGraph<ParallelForNode<Engine,
         resetSystem,
-        WorldReset
+            WorldReset
         >>({done_sys});
+
+    // FIXME
+    auto cleanup_level_sys = builder.addToGraph<ParallelForNode<Engine,
+        cleanupLevelSystem,
+            Level
+        >>({reset_sys});
+
+    auto deferred_delete_sys = builder.addToGraph<ParallelForNode<Engine,
+        deferredDeleteSystem,
+            DeferredDelete
+        >>({cleanup_level_sys});
+
+    auto gen_level_sys = builder.addToGraph<ParallelForNode<Engine,
+        generateLevelSystem,
+            Level
+        >>({deferred_delete_sys});
 
 #ifdef MADRONA_GPU_MODE
     // Sort entities, this could be conditional on reset like the second
     // BVH build above.
     auto sort_agents = queueSortByWorld<Agent>(
-        builder, {reset_sys});
+        builder, {gen_level_sys});
     auto sort_phys_objects = queueSortByWorld<PhysicsEntity>(
         builder, {sort_agents});
     auto sort_buttons = queueSortByWorld<ButtonEntity>(
@@ -1536,7 +1535,7 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
 #ifdef MADRONA_GPU_MODE
         sort_walls
 #else
-        reset_sys
+        gen_level_sys
 #endif
     });
 
@@ -1648,14 +1647,16 @@ Sim::Sim(Engine &ctx,
     initWorld(ctx);
 
     // Create the queries for collectObservations
+    ctx.data().simEntityQuery = ctx.query<Entity, EntityType>();
+
+
     ctx.data().otherAgentQuery = ctx.query<Position, GrabState>();
-    ctx.data().roomEntityQuery = ctx.query<Position, EntityType>();
     ctx.data().doorQuery       = ctx.query<Position, OpenState>();
 
     // Create the queries for checkpointing.
     ctx.data().ckptAgentQuery = ctx.query<
         Entity, Position, Rotation, Velocity, GrabState, Reward, Done,
-        StepsRemaining, Progress, KeyCode>();
+        StepsRemainingObservation, Progress, KeyCode>();
     ctx.data().ckptDoorQuery = ctx.query<Position, Rotation, Velocity, OpenState, KeyCode>();
     ctx.data().ckptCubeQuery = ctx.query<Position, Rotation, Velocity, EntityType, Entity>();
     ctx.data().ckptButtonQuery = ctx.query<Position, Rotation, ButtonState>();

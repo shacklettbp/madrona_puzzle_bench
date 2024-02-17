@@ -9,5 +9,6 @@ namespace madPuzzle {
 void createPersistentEntities(Engine &ctx);
 
 void generateLevel(Engine &ctx);
+void destroyLevel(Engine &ctx);
 
 }

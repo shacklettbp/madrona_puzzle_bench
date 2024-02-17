@@ -43,6 +43,28 @@ enum class LevelType : uint32_t {
     NumTypes,
 };
 
+
+// This enum is used to track the type of each entity for the purposes of
+// classifying the objects hit by each lidar sample.
+enum class EntityType : uint32_t {
+    None,
+    Agent,
+    Door,
+    Block,
+    Ramp,
+    Lava,
+    Button,
+    Key,
+    Enemy,
+    Wall,
+    NumTypes,
+};
+
+struct EpisodeState {
+    int32_t curStep;
+    bool reachedExit;
+};
+
 // Discrete action component. Ranges are defined by consts::numMoveBuckets (5),
 // repeated here for clarity
 struct Action {
@@ -97,7 +119,7 @@ struct EntityPhysicsStateObs {
 };
 
 struct EntityTypeObs {
-    RoomEntityType entityType;
+    EntityType entityType;
 };
 
 struct EntityAttributesObs {
@@ -123,12 +145,12 @@ struct LidarDepth {
 };
 
 struct LidarHitType {
-    RoomEntityType samples[consts::numLidarSamples];
+    EntityType samples[consts::numLidarSamples];
 };
 
 // Number of steps remaining in the episode. Allows non-recurrent policies
 // to track the progression of time.
-struct StepsRemaining {
+struct StepsRemainingObservation {
     uint32_t t;
 };
 
@@ -143,22 +165,6 @@ struct GrabState {
     Entity constraintEntity;
 };
 
-// This enum is used to track the type of each entity for the purposes of
-// classifying the objects hit by each lidar sample.
-enum class EntityType : uint32_t {
-    None,
-    Agent,
-    Door,
-    Block,
-    Ramp,
-    Lava,
-    Button,
-    Key,
-    Enemy,
-    Wall,
-    NumTypes,
-};
-
 // A per-door component that tracks whether or not the door should be open.
 struct OpenState {
     bool isOpen;
@@ -168,12 +174,8 @@ struct RoomAABB : AABB {
     inline RoomAABB(AABB aabb) : AABB(aabb) {}
 }
 
-// Linked buttons that control the door opening and whether or not the door
-// should remain open after the buttons are pressed once.
-struct DoorProperties {
-    Entity linkedButton;
+struct DoorRooms {
     Entity linkedRooms[2];
-    bool    isPersistent;
 };
 
 // Similar to OpenState, true during frames where a button is pressed
@@ -182,11 +184,26 @@ struct ButtonState {
 };
 
 struct Level {
-    Entity startRoom;
+    LevelListElem rooms;
 };
 
 struct EntityLinkedListElem {
     Entity next;
+};
+
+struct LevelListElem : EntityLinkedListElem {};
+struct RoomListElem : EntityLinkedListElem {};
+struct ButtonListElem : EntityLinkedListElem {};
+
+// Linked buttons that control the door opening and whether or not the door
+// should remain open after the buttons are pressed once.
+struct DoorButtons {
+    ButtonListElem linkedButton;
+    bool isPersistent;
+};
+
+struct DeferredDelete {
+    Entity e;
 };
 
 struct Checkpoint {
@@ -243,7 +260,12 @@ struct CheckpointSave {
 
 struct RoomEntity : public madrona::Archetype<
     RoomAABB,
-    EntityLinkedListElem
+    RoomListElem,
+    LevelListElem
+> {};
+
+struct DeferredDeleteEntity : public madrona::Archetype<
+    DeferredDelete
 > {};
 
 /* ECS Archetypes for the game */
@@ -280,7 +302,7 @@ struct Agent : public madrona::Archetype<
     RoomEntityObservations,
     RoomDoorObservations,
     Lidar,
-    StepsRemaining,
+    StepsRemainingObservation,
 
     // Reward, episode termination
     Reward,
@@ -309,9 +331,10 @@ struct DoorEntity : public madrona::Archetype<
     ExternalTorque,
     madrona::phys::broadphase::LeafID,
     OpenState,
-    DoorProperties,
+    DoorButtons,
+    DoorRooms,
     EntityType,
-    EntityLinkedListElem,
+    RoomListElem,
     madrona::render::Renderable
 > {};
 
@@ -324,7 +347,8 @@ struct ButtonEntity : public madrona::Archetype<
     ObjectID,
     ButtonState,
     EntityType,
-    EntityLinkedListElem,
+    RoomListElem,
+    ButtonListElem,
     madrona::render::Renderable
 > {};
 
@@ -344,7 +368,7 @@ struct PhysicsEntity : public madrona::Archetype<
     ExternalTorque,
     madrona::phys::broadphase::LeafID,
     EntityType,
-    EntityLinkedListElem,
+    RoomListElem,
     madrona::render::Renderable
 > {};
 
