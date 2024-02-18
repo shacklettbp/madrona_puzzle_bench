@@ -3,11 +3,13 @@
 #include <madrona/types.hpp>
 
 namespace madPuzzle {
+using CountT = madrona::CountT;
 
 namespace consts {
 // Give the agents more observation space than the number of room
 // entities in case they push cubes into other rooms.
-inline constexpr madrona::CountT maxObservationsPerAgent = 9;//20;
+inline constexpr CountT maxObservationsPerAgent = 9;
+inline constexpr CountT maxObjectsPerLevel = 20;
 
 // Various world / entity size parameters
 inline constexpr float wallWidth = 1.f;

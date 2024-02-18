@@ -22,7 +22,6 @@ public:
         int gpuID; // Which GPU for CUDA backend?
         uint32_t numWorlds; // Simulation batch size
         uint32_t randSeed; // Seed for random world gen
-        bool autoReset; // Immediately generate new world on episode end
         SimFlags simFlags;
         RewardMode rewardMode;
         bool enableBatchRenderer;
@@ -31,6 +30,7 @@ public:
         madrona::render::APIBackend *extRenderAPI = nullptr;
         madrona::render::GPUDevice *extRenderDev = nullptr;
         uint32_t episodeLen;
+        uint32_t levelsPerEpisode;
         float buttonWidth;
         float doorWidth;
         float rewardPerDist;
@@ -53,6 +53,7 @@ public:
     madrona::py::Tensor agentTxfmObsTensor() const;
     madrona::py::Tensor agentInteractObsTensor() const;
     madrona::py::Tensor agentLevelTypeObsTensor() const;
+    madrona::py::Tensor agentExitObsTensor() const;
     madrona::py::Tensor entityPhysicsStateObsTensor() const;
     madrona::py::Tensor entityTypeObsTensor() const;
     madrona::py::Tensor entityAttributesObsTensor() const;

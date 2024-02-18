@@ -43,7 +43,6 @@ enum class LevelType : uint32_t {
     NumTypes,
 };
 
-
 // This enum is used to track the type of each entity for the purposes of
 // classifying the objects hit by each lidar sample.
 enum class EntityType : uint32_t {
@@ -61,8 +60,11 @@ enum class EntityType : uint32_t {
 };
 
 struct EpisodeState {
-    int32_t curStep;
+    uint32_t curStep;
+    uint32_t curLevel;
+    bool isDead;
     bool reachedExit;
+    bool episodeFinished;
 };
 
 // Discrete action component. Ranges are defined by consts::numMoveBuckets (5),
@@ -88,6 +90,14 @@ struct Done {
     int32_t v;
 };
 
+// The state of the world is passed to each agent in terms of egocentric
+// polar coordinates. theta is degrees off agent forward.
+struct PolarObs {
+    float r;
+    float theta;
+    float phi;
+};
+
 struct AgentTxfmObs {
     Vector3 localRoomPos;
     AABB roomAABB;
@@ -99,15 +109,11 @@ struct AgentInteractObs {
 };
 
 struct AgentLevelTypeObs {
-    LevelType t;
+    LevelType type;
 };
 
-// The state of the world is passed to each agent in terms of egocentric
-// polar coordinates. theta is degrees off agent forward.
-struct PolarObs {
-    float r;
-    float theta;
-    float phi;
+struct AgentExitObs {
+    PolarObs toExitPolar;
 };
 
 // Per-agent egocentric observations for the interactable entities
@@ -115,6 +121,7 @@ struct PolarObs {
 struct EntityPhysicsStateObs {
     PolarObs positionPolar;
     PolarObs velocityPolar;
+    Vector3 extents;
     Vector3 entityRotation;
 };
 
@@ -157,7 +164,7 @@ struct StepsRemainingObservation {
 // Tracks progress the agent has made through the challenge, used to add
 // reward when more progress has been made
 struct Progress {
-    float maxY;
+    float minDistToExit;
 };
 
 // Tracks if an agent is currently grabbing another entity
@@ -170,9 +177,13 @@ struct OpenState {
     bool isOpen;
 };
 
+struct EntityExtents : Vector3 {
+    inline EntityExtents(Vector3 v) : Vector3(v) {}
+};
+
 struct RoomAABB : AABB {
     inline RoomAABB(AABB aabb) : AABB(aabb) {}
-}
+};
 
 struct DoorRooms {
     Entity linkedRooms[2];
@@ -183,17 +194,17 @@ struct ButtonState {
     bool isPressed;
 };
 
-struct Level {
-    LevelListElem rooms;
-};
-
 struct EntityLinkedListElem {
     Entity next;
 };
 
-struct LevelListElem : EntityLinkedListElem {};
 struct RoomListElem : EntityLinkedListElem {};
 struct ButtonListElem : EntityLinkedListElem {};
+
+struct Level {
+    RoomListElem rooms;
+    Vector3 exitPos;
+};
 
 // Linked buttons that control the door opening and whether or not the door
 // should remain open after the buttons are pressed once.
@@ -208,45 +219,33 @@ struct DeferredDelete {
 
 struct Checkpoint {
     // Checkpoint structs.
-    struct ButtonSaveState {
-        Position p;
-        Rotation r;
-        ButtonState b;
-    };
-    
-    struct PhysicsEntityState {
-        Position p;
-        Rotation r;
-        Velocity v;
-    };
-    
-    struct DoorState {
-        Position p;
-        Rotation r;
-        Velocity v;
-        OpenState o;
+    struct EntityState {
+        Position position;
+        Rotation rotation;
+        Velocity velocity;
+        EntityType entityType;
+        union {
+            OpenState doorOpen;
+            ButtonState button;
+        };
     };
     
     struct AgentState {
-        Position p;
-        Rotation r;
-        Velocity v;
+        Position position;
+        Rotation rotation;
+        Velocity velocity;
         // Index within the checkpoint buffers of the
         // grabbed entity. -1 if not grabbing.
         int32_t grabIdx;
-        Reward re;
-        Done d;
-        StepsRemaining s;
-        Progress pr;
+        Progress taskProgress;
         madrona::phys::JointConstraint j;
-        KeyCode k;
     };
 
     madrona::RandKey initRNDCounter;
-    ButtonSaveState buttonStates[consts::maxRooms * 2 * 4];
-    PhysicsEntityState cubeStates[consts::maxRooms * 3];
-    DoorState doorStates[consts::maxRooms * 4];
-    AgentState agentStates[consts::numAgents];
+    int32_t curEpisodeStep;
+
+    AgentState agentState;
+    EntityState entityStates[consts::maxObjectsPerLevel];
 };
 
 struct CheckpointReset {
@@ -260,8 +259,7 @@ struct CheckpointSave {
 
 struct RoomEntity : public madrona::Archetype<
     RoomAABB,
-    RoomListElem,
-    LevelListElem
+    RoomListElem
 > {};
 
 struct DeferredDeleteEntity : public madrona::Archetype<
@@ -292,17 +290,21 @@ struct Agent : public madrona::Archetype<
     GrabState,
     Progress,
     EntityType,
-    KeyCode,
 
     // Input
     Action,
 
     // Observations
-    SelfObservation,
-    RoomEntityObservations,
-    RoomDoorObservations,
-    Lidar,
+    AgentTxfmObs,
+    AgentInteractObs,
+    AgentLevelTypeObs,
+    AgentExitObs,
     StepsRemainingObservation,
+    EntityPhysicsStateObsArray,
+    EntityTypeObsArray,
+    EntityAttributesObsArray,
+    LidarDepth,
+    LidarHitType,
 
     // Reward, episode termination
     Reward,
@@ -334,7 +336,7 @@ struct DoorEntity : public madrona::Archetype<
     DoorButtons,
     DoorRooms,
     EntityType,
-    RoomListElem,
+    EntityExtents,
     madrona::render::Renderable
 > {};
 
@@ -347,7 +349,7 @@ struct ButtonEntity : public madrona::Archetype<
     ObjectID,
     ButtonState,
     EntityType,
-    RoomListElem,
+    EntityExtents,
     ButtonListElem,
     madrona::render::Renderable
 > {};
@@ -368,7 +370,7 @@ struct PhysicsEntity : public madrona::Archetype<
     ExternalTorque,
     madrona::phys::broadphase::LeafID,
     EntityType,
-    RoomListElem,
+    EntityExtents,
     madrona::render::Renderable
 > {};
 

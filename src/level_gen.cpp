@@ -8,17 +8,27 @@ using namespace madrona::math;
 using namespace madrona::phys;
 
 struct RoomList {
-    EntityLinkedListElem *cur;
+    RoomListElem *cur;
 
-    static inline RoomList init(Entity e)
+    static inline RoomList init(RoomListElem *start)
     {
-        cur = &ctx.get<EntityLinkedListElem>(e);
+        start->next = Entity::none();
+
+        return RoomList {
+            .cur = start,
+        };
     }
 
-    inline void add(Entity e)
+    inline Entity add(Engine &ctx)
     {
+        Entity e = ctx.makeEntity<RoomEntity>();
+
         cur->next = e;
-        cur = &ctx.get<EntityLinkedListElem>(e);
+
+        cur = &ctx.get<RoomListElem>(e);
+        cur->next = Entity::none();
+        
+        return e;
     }
 };
 
@@ -74,10 +84,9 @@ static void registerRigidBodyEntity(
 }
 
 // Agent entity persists across all episodes.
-void createAgent(Engine &ctx)
+Entity createAgent(Engine &ctx)
 {
-    Entity agent = ctx.data().agents[i] =
-        ctx.makeRenderableEntity<Agent>();
+    Entity agent = ctx.makeRenderableEntity<Agent>();
 
     // Create a render view for the agent
     if (ctx.data().enableRender) {
@@ -92,25 +101,18 @@ void createAgent(Engine &ctx)
     ctx.get<ResponseType>(agent) = ResponseType::Dynamic;
     ctx.get<GrabState>(agent).constraintEntity = Entity::none();
     ctx.get<EntityType>(agent) = EntityType::Agent;
+
+    return agent;
 }
 
 // Agents need to be re-registered them with the broadphase system and
 // have their transform / physics state reset to spawn.
-static void resetAgent(Engine &ctx)
+static void resetAgent(Engine &ctx, Vector3 spawn_pos, Vector3 exit_pos)
 {
-    registerRigidBodyEntity(ctx, ctx.data().floorPlane, SimObject::Plane);
-
     Entity agent_entity = ctx.data().agent;
     registerRigidBodyEntity(ctx, agent_entity, SimObject::Agent);
 
-    // Place the agents near the starting wall
-    Vector3 pos {
-        0.f,
-        -ctx.data().doorWidth / 2.f,
-        0.f,
-    };
-
-    ctx.get<Position>(agent_entity) = pos;
+    ctx.get<Position>(agent_entity) = spawn_pos;
     ctx.get<Rotation>(agent_entity) = Quat::angleAxis(
         randInRangeCentered(ctx, math::pi / 4.f),
         math::up);
@@ -121,7 +123,9 @@ static void resetAgent(Engine &ctx)
         grab_state.constraintEntity = Entity::none();
     }
 
-    ctx.get<Progress>(agent_entity).maxY = pos.y;
+    ctx.get<Progress>(agent_entity) = Progress {
+        .minDistToExit = spawn_pos.distance(exit_pos),
+    };
 
     ctx.get<Velocity>(agent_entity) = {
         Vector3::zero(),
@@ -135,8 +139,6 @@ static void resetAgent(Engine &ctx)
         .rotate = consts::numTurnBuckets / 2,
         .interact = 0,
     };
-
-    ctx.get<StepsRemaining>(agent_entity).t = ctx.data().episodeLen;
 }
 
 static void linkDoorButtons(Engine &ctx,
@@ -147,23 +149,27 @@ static void linkDoorButtons(Engine &ctx,
     DoorButtons &door_buttons = ctx.get<DoorButtons>(door);
 
     ButtonListElem *button_list_elem = &door_buttons.linkedButton;
-    *button_list_elem = Entity::none();
+    button_list_elem->next = Entity::none();
 
     auto linkButton = [&](Entity button) {
         button_list_elem->next = button;
         button_list_elem = &ctx.get<ButtonListElem>(button);
+        button_list_elem->next = Entity::none();
     };
 
     for (CountT i = 0; i < buttons.size(); i++) {
-        linkButton(buttons[i]):
+        linkButton(buttons[i]);
     }
-    props.isPersistent = is_persistent;
+    door_buttons.isPersistent = is_persistent;
 }
 
 static Entity makeButton(Engine &ctx,
                          float button_x,
                          float button_y)
 {
+    const float button_width = ctx.data().buttonWidth;
+    const float button_height = 0.2f;
+
     Entity button = ctx.makeRenderableEntity<ButtonEntity>();
     ctx.get<Position>(button) = Vector3 {
         button_x,
@@ -172,13 +178,19 @@ static Entity makeButton(Engine &ctx,
     };
     ctx.get<Rotation>(button) = Quat { 1, 0, 0, 0 };
     ctx.get<Scale>(button) = Diag3x3 {
-        consts::buttonWidth,
-        consts::buttonWidth,
-        0.2f,
+        button_width,
+        button_width,
+        button_height,
     };
     ctx.get<ObjectID>(button) = ObjectID { (int32_t)SimObject::Button };
     ctx.get<ButtonState>(button).isPressed = false;
     ctx.get<EntityType>(button) = EntityType::Button;
+
+    ctx.get<EntityExtents>(button) = Vector3 {
+        .x = button_width,
+        .y = button_width,
+        .z = button_height,
+    };
 
     return button;
 }
@@ -208,249 +220,13 @@ static Entity makeBlock(Engine &ctx,
         });
     registerRigidBodyEntity(ctx, block, SimObject::Block);
 
-    return cube;
-}
-
-static Entity makeRandomButton(Engine &ctx,
-                               float room_center_x,
-                               float room_center_y) 
-    {
-        float button_x =  room_center_x + randInRangeCentered(ctx,
-            consts::worldWidth - consts::buttonWidth - consts::wallWidth);
-
-        float button_y = room_center_y + randInRangeCentered(ctx,
-            consts::worldWidth - consts::buttonWidth - consts::wallWidth);
-
-        Entity button = makeButton(ctx, button_x, button_y);
-
-        return button;
-    }
-
-
-
-static CountT makeBlockBlockingDoor(Engine &ctx,
-                                   Room &room,
-                                   float room_center_x,
-                                   float room_center_y,
-                                   int32_t orientation = 0)
-{
-    Entity button_a = makeRandomButton(ctx, room_center_x, room_center_y);
-    Entity button_b = makeRandomButton(ctx, room_center_x, room_center_y);
-
-    setupDoor(ctx, room.door[orientation], { button_a, button_b }, 0, true);
-
-    Vector3 door_pos = ctx.get<Position>(room.door[orientation]);
-
-    Vector3 doorNormal = Vector3{0,0,0};
-    switch (orientation) {
-        case 0: doorNormal.y = 1; break;
-        case 1: doorNormal.x = 1; break;
-        case 2: doorNormal.y = -1; break;
-        case 3: doorNormal.x = -1; break;
-        default: break;
-    }
-
-    Vector3 cube_x_comp = math::cross(doorNormal, math::up) * 3.f;
-    Vector3 cube_y_comp = -doorNormal * 2.f;
-
-    Vector3 cube_a_pos = door_pos + cube_x_comp + cube_y_comp;
-    Entity cube_a = makeBlock(ctx, cube_a_pos.x, cube_a_pos.y, 1.5f);
-
-    Vector3 cube_b_pos = door_pos + cube_y_comp;
-    Entity cube_b = makeBlock(ctx, cube_b_pos.x, cube_b_pos.y, 1.5f);
-
-    Vector3 cube_c_pos = door_pos - cube_x_comp + cube_y_comp;
-    Entity cube_c = makeBlock(ctx, cube_c_pos.x, cube_c_pos.y, 1.5f);
-
-    Entity entities[5] = {
-        button_a,
-        button_b,
-        cube_a,
-        cube_b,
-        cube_c,
+    ctx.get<EntityExtents>(block) = Vector3 {
+        .x = 2.f * scale,
+        .y = 2.f * scale,
+        .z = 2.f * scale,
     };
-    int32_t placementIdx = 0;
-    for (int i = 0; i < consts::maxEntitiesPerRoom; ++i) {
-        if (room.entities[i] == Entity::none()) {
-            room.entities[i] = entities[placementIdx];
-            placementIdx++;
-            if (placementIdx == 5) {
-                break;
-            }
-        }
-    }
 
-    return 5;
-}
-
-// A room with two buttons that need to be pressed simultaneously,
-// the door stays open.
-static CountT makeDoubleButtonDoor(Engine &ctx,
-                                   Room &room,
-                                   float room_center_x,
-                                   float room_center_y,
-                                   int32_t orientation)
-{
-    Entity a = makeRandomButton(ctx, room_center_x, room_center_y);
-
-    Entity b = makeRandomButton(ctx, room_center_x, room_center_y);
-
-    setupDoor(ctx, room.door[orientation], { a, b }, 0, true);
-
-    Entity buttons[2] = {a, b};
-    int32_t placementIdx = 0;
-    for (int i = 0; i < consts::maxEntitiesPerRoom; ++i) {
-        if (room.entities[i] == Entity::none()) {
-            room.entities[i] = buttons[placementIdx];
-            placementIdx++;
-            if (placementIdx == 2) {
-                break;
-            }
-        }
-    }
-    return 2;
-}
-
-// This room has 2 buttons and 2 cubes. The buttons need to remain pressed
-// for the door to stay open. To progress, the agent must push at least one
-static CountT makeBlockButtonsDoor(Engine &ctx,
-                                  Room &room,
-                                  float room_center_x,
-                                  float room_center_y, 
-                                  int32_t orientation)
-{
-    Entity button_a = makeRandomButton(ctx, room_center_x, room_center_y);
-    Entity button_b = makeRandomButton(ctx, room_center_x, room_center_y);
-
-    setupDoor(ctx, room.door[orientation], { button_a, button_b }, 0, false);
-
-    Vector3 door_pos = ctx.get<Position>(room.door[orientation]);
-
-    Vector3 doorNormal = Vector3{0,0,0};
-    switch (orientation) {
-        case 0: doorNormal.y = 1; break;
-        case 1: doorNormal.x = 1; break;
-        case 2: doorNormal.y = -1; break;
-        case 3: doorNormal.x = -1; break;
-        default: break;
-    }
-
-    Vector3 cube_x_comp = math::cross(doorNormal, math::up);
-    Vector3 cube_y_comp = -doorNormal;
-
-    Vector3 cube_a_x_comp = cube_x_comp.normalize() * 1.5f;
-    Vector3 cube_a_y_comp = cube_y_comp.normalize() * randBetween(ctx, 2.f, 3.f);
-    
-    Vector3 cube_a_pos = door_pos + cube_a_x_comp + cube_a_y_comp;
-
-    Entity cube_a = makeBlock(ctx, cube_a_pos.x, cube_a_pos.y, 1.5f);
-
-    Vector3 cube_b_x_comp = cube_x_comp.normalize() * -1.5f;
-    Vector3 cube_b_y_comp = cube_y_comp.normalize() * randBetween(ctx, 2.f, 3.f);
-    
-    Vector3 cube_b_pos = door_pos + cube_b_x_comp + cube_b_y_comp;
-
-    Entity cube_b = makeBlock(ctx, cube_b_pos.x, cube_b_pos.y, 1.5f);
-
-    Entity entities[4] =  {
-    button_a,
-    button_b,
-    cube_a,
-    cube_b
-    };
-    int32_t placementIdx = 0;
-    for (int i = 0; i < consts::maxEntitiesPerRoom; ++i) {
-        if (room.entities[i] == Entity::none()) {
-            room.entities[i] = entities[placementIdx];
-            placementIdx++;
-            if (placementIdx == 4) {
-                break;
-            }
-        }
-    }
-
-    return 4;
-}
-
-// A door with a single button that needs to be pressed, the door stays open.
-static CountT makeSingleButtonDoor(Engine &ctx,
-                                   Room &room,
-                                   float room_center_x,
-                                   float room_center_y,
-                                   int32_t orientation)
-{
-    Entity button = makeRandomButton(ctx, room_center_x, room_center_y);
-
-    setupDoor(ctx, room.door[orientation], { button }, 0, true);
-
-    for (int i = 0; i < consts::maxEntitiesPerRoom; ++i) {
-        if (room.entities[i] == Entity::none()) {
-            room.entities[i] = button;
-            break;
-        }
-    }
-
-    return 1;
-}
-
-// Builds the two walls & door that block the end of the challenge room
-static void makeEndWall(Engine &ctx,
-                        Room &room,
-                        CountT room_idx)
-{
-    float y_pos = consts::roomLength * (room_idx + 1) -
-        consts::wallWidth / 2.f;
-
-    // Quarter door of buffer on both sides, place door and then build walls
-    // up to the door gap on both sides
-    float door_center = randBetween(ctx, 0.75f * consts::doorWidth, 
-        consts::worldWidth - 0.75f * consts::doorWidth);
-    float left_len = door_center - 0.5f * consts::doorWidth;
-    Entity left_wall = ctx.makeRenderableEntity<PhysicsEntity>();
-    setupRigidBodyEntity(
-        ctx,
-        left_wall,
-        Vector3 {
-            (-consts::worldWidth + left_len) / 2.f,
-            y_pos,
-            0,
-        },
-        Quat { 1, 0, 0, 0 },
-        SimObject::Wall,
-        EntityType::Wall,
-        ResponseType::Static,
-        Diag3x3 {
-            left_len,
-            consts::wallWidth,
-            1.75f,
-        });
-    registerRigidBodyEntity(ctx, left_wall, SimObject::Wall);
-
-    float right_len =
-        consts::worldWidth - door_center - 0.5f * consts::doorWidth;
-    Entity right_wall = ctx.makeRenderableEntity<PhysicsEntity>();
-    setupRigidBodyEntity(
-        ctx,
-        right_wall,
-        Vector3 {
-            (consts::worldWidth - right_len) / 2.f,
-            y_pos,
-            0,
-        },
-        Quat { 1, 0, 0, 0 },
-        SimObject::Wall,
-        EntityType::Wall,
-        ResponseType::Static,
-        Diag3x3 {
-            right_len,
-            consts::wallWidth,
-            1.75f,
-        });
-    registerRigidBodyEntity(ctx, right_wall, SimObject::Wall);
-
-    room.walls[0] = left_wall;
-    room.walls[1] = right_wall;
-    room.door[0] = door;
+    return block;
 }
 
 static void makeRoomWalls(Engine &ctx,
@@ -482,7 +258,7 @@ static void makeRoomWalls(Engine &ctx,
             scale.y = consts::wallWidth;
         }
 
-        Vector2 center = (p1 + p2) / 2.f;
+        Vector2 center = (p0 + p1) / 2.f;
 
         Entity wall = ctx.makeRenderableEntity<PhysicsEntity>();
         setupRigidBodyEntity(
@@ -521,26 +297,32 @@ static void makeRoomWalls(Engine &ctx,
         } else if (diff.y == 0) {
             wall_len = diff.x;
             y_axis = false;
+        } else {
+            assert(false);
         }
 
         float door_dist = 0.25f * door_width +
             door_t * (wall_len - 0.5f * door_width);
 
-        float before_len = door_center - 0.75f * door_width;
-        float after_len = wall_len - door_center - 0.5f * door_width;
+        float before_len = door_dist - 0.75f * door_width;
+        float after_len = wall_len - door_dist - 0.5f * door_width;
 
-        Vector3 door_center = p0;
+        Vector2 door_center = p0;
         Vector2 before_center = p0;
         if (y_axis) {
             before_center.y += before_len / 2.f;
-            door_center.y += door_dist
+            door_center.y += door_dist;
         } else {
             before_center.x += before_len / 2.f;
-            door_center.x += door_dist
+            door_center.x += door_dist;
         }
 
         if (out_door_center != nullptr) {
-            *out_door_center = door_center;
+            *out_door_center = {
+                door_center.x,
+                door_center.y,
+                0.f,
+            };
         }
 
         Entity before_wall = ctx.makeRenderableEntity<PhysicsEntity>();
@@ -557,7 +339,7 @@ static void makeRoomWalls(Engine &ctx,
             EntityType::Wall,
             ResponseType::Static,
             Diag3x3 {
-                y_axis ? consts::wallWidth, before_len,
+                y_axis ? consts::wallWidth : before_len,
                 y_axis ? before_len : consts::wallWidth,
                 2.f,
             });
@@ -584,8 +366,8 @@ static void makeRoomWalls(Engine &ctx,
             EntityType::Wall,
             ResponseType::Static,
             Diag3x3 {
-                y_axis ? consts::wallWidth, after_len,
-                y_axis ? before_len : consts::wallWidth,
+                y_axis ? consts::wallWidth : after_len,
+                y_axis ? after_len : consts::wallWidth,
                 2.f,
             });
         registerRigidBodyEntity(ctx, after_wall, SimObject::Wall);
@@ -609,7 +391,7 @@ static void makeRoomWalls(Engine &ctx,
         makeDoorWall(corners[1], corners[2], *e_door,
                      e_door_pos_out);
     } else {
-        makeFullWall(corners[1], corners[2],);
+        makeFullWall(corners[1], corners[2]);
     }
 
     if (s_door != nullptr) {
@@ -627,12 +409,20 @@ static void makeRoomWalls(Engine &ctx,
     }
 }
 
-static void makeDoor(Engine &ctx,
+static Entity makeDoor(Engine &ctx,
                      Vector3 door_center,
                      bool y_axis)
 
 {
     const float door_obj_width = 0.8f * ctx.data().doorWidth;
+
+    const float door_x_len = 
+        y_axis ? door_obj_width : consts::wallWidth;
+
+    const float door_y_len = 
+        y_axis ? consts::wallWidth : door_obj_width;
+
+    const float door_height = 1.75f;
 
     Entity door = ctx.makeRenderableEntity<DoorEntity>();
     setupRigidBodyEntity(
@@ -644,12 +434,20 @@ static void makeDoor(Engine &ctx,
         EntityType::Door,
         ResponseType::Static,
         Diag3x3 {
-            y_axis ? door_obj_width : consts::wallWidth,
-            y_axis ? consts::wallWidth : door_obj_width,
-            1.75f,
+            door_x_len,
+            door_y_len,
+            door_height,
         });
     registerRigidBodyEntity(ctx, door, SimObject::Door);
     ctx.get<OpenState>(door).isOpen = false;
+
+    ctx.get<EntityExtents>(door) = Vector3 {
+        .x = door_x_len,
+        .y = door_y_len,
+        .z = door_height,
+    };
+
+    return door;
 }
 
 static void makeFloor(Engine &ctx)
@@ -664,19 +462,21 @@ static void makeFloor(Engine &ctx)
         SimObject::Plane,
         EntityType::None, // Floor plane type should never be queried
         ResponseType::Static);
+
+    registerRigidBodyEntity(ctx, floor_plane, SimObject::Plane);
 }
 
-static void makeSpawn(Engine &ctx)
+static void makeSpawn(Engine &ctx, Vector3 spawn_pos)
 {
-    const float spawn_width = ctx.data().doorWidth + 1.5f;
+    const float spawn_size = ctx.data().doorWidth + 1.5f;
 
     Entity back_wall = ctx.makeRenderableEntity<PhysicsEntity>();
     setupRigidBodyEntity(
         ctx,
         back_wall,
-        Vector3 {
+        spawn_pos + Vector3 {
             0.f,
-            -spawn_width,
+            -spawn_size / 2.f,
             0.f,
         },
         Quat { 1, 0, 0, 0 },
@@ -684,7 +484,7 @@ static void makeSpawn(Engine &ctx)
         EntityType::Wall,
         ResponseType::Static,
         Diag3x3 {
-            consts::spawnWidth,
+            spawn_size,
             consts::wallWidth,
             2.f,
         });
@@ -694,9 +494,9 @@ static void makeSpawn(Engine &ctx)
     setupRigidBodyEntity(
         ctx,
         left_wall,
-        Vector3 {
-            -spawn_width,
-            -spawn_width / 2.f,
+        spawn_pos + Vector3 {
+            -spawn_size,
+            0.f,
             0.f,
         },
         Quat { 1, 0, 0, 0 },
@@ -705,7 +505,7 @@ static void makeSpawn(Engine &ctx)
         ResponseType::Static,
         Diag3x3 {
             consts::wallWidth,
-            consts::spawnWidth,
+            spawn_size,
             2.f,
         });
     registerRigidBodyEntity(ctx, back_wall, SimObject::Wall);
@@ -714,9 +514,9 @@ static void makeSpawn(Engine &ctx)
     setupRigidBodyEntity(
         ctx,
         right_wall,
-        Vector3 {
-            spawn_width,
-            -spawn_width / 2.f,
+        spawn_pos + Vector3 {
+            spawn_size,
+            0.f,
             0.f,
         },
         Quat { 1, 0, 0, 0 },
@@ -725,25 +525,28 @@ static void makeSpawn(Engine &ctx)
         ResponseType::Static,
         Diag3x3 {
             consts::wallWidth,
-            consts::spawnWidth,
+            spawn_size,
             2.f,
         });
     registerRigidBodyEntity(ctx, back_wall, SimObject::Wall);
 }
 
-static void chaseLevel(Context &ctx)
+static void chaseLevel(Engine &ctx)
 {
+    (void)ctx;
 }
 
-static void lavaPathLevel(Context &ctx)
+static void lavaPathLevel(Engine &ctx)
 {
+    (void)ctx;
 }
 
-static void singleButtonLevel(Context &ctx)
+static void singleButtonLevel(Engine &ctx)
 {
+    (void)ctx;
 }
 
-static void singleBlockButtonLevel(Context &ctx)
+static void singleBlockButtonLevel(Engine &ctx)
 {
     const float level_size = 20.f;
     const float block_scale = 1.5f;
@@ -761,25 +564,31 @@ static void singleBlockButtonLevel(Context &ctx)
     float spawn_t = ctx.data().rng.sampleUniform();
     float exit_t = ctx.data().rng.sampleUniform();
 
+    Vector3 spawn_door_pos;
     Vector3 exit_door_pos;
     makeRoomWalls(ctx,
                   room_aabb,
                   &spawn_t, nullptr, &exit_t, nullptr,
-                  nullptr, nullptr, &exit_door_pos, nullptr);
+                  &spawn_door_pos, nullptr, &exit_door_pos, nullptr);
 
-    Entity room = ctx.makeEntity<RoomEntity>();
-    ctx.singleton<Level>().rooms.next = room;
+    Level &level = ctx.singleton<Level>();
+    level.exitPos = exit_door_pos;
 
+    Vector3 spawn_pos = spawn_door_pos;
+    spawn_pos.y -= ctx.data().doorWidth / 2.f;
+
+    makeSpawn(ctx, spawn_pos);
+    resetAgent(ctx, spawn_pos, exit_door_pos);
+
+    RoomList room_list = RoomList::init(&level.rooms);
+
+    Entity room = room_list.add(ctx);
     ctx.get<RoomAABB>(room) = room_aabb;
-    ctx.get<LevelListElem>(room).next = Entity::none();
-
-    RoomList room_list = RoomList::init(room);
 
     Entity exit_door = makeDoor(ctx, exit_door_pos, false);
     ctx.get<DoorRooms>(exit_door) = {
         .linkedRooms = { room, Entity::none() },
     };
-    room_list.add(exit_door);
 
     {
         float button_x = randBetween(ctx,
@@ -791,7 +600,6 @@ static void singleBlockButtonLevel(Context &ctx)
             room_aabb.pMax.y - half_wall_width - half_button_width);
 
         Entity button = makeButton(ctx, button_x, button_y);
-        room_list.add(button);
 
         linkDoorButtons(ctx, exit_door, { button }, false);
     }
@@ -805,23 +613,16 @@ static void singleBlockButtonLevel(Context &ctx)
             room_aabb.pMin.y + half_wall_width + block_size / 2.f,
             room_aabb.pMax.y - half_wall_width - block_size / 2.f);
 
-        Entity block = makeBlock(ctx, block_x, block_y, 1.5f);
-        room_list.add(block);
+        makeBlock(ctx, block_x, block_y, 1.5f);
     }
 }
 
-void generateLevel(Engine &ctx)
+LevelType generateLevel(Engine &ctx)
 {
-    resetAgent(ctx);
-
-    makeSpawn();
-
     LevelType level_type = (LevelType)(
         ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes));
 
     level_type = LevelType::SingleBlockButton;
-
-    ctx.get<AgentLevelTypeObs>(ctx.data().agent) = level_type;
 
     switch (level_type) {
     case LevelType::Chase: {
@@ -831,17 +632,19 @@ void generateLevel(Engine &ctx)
         lavaPathLevel(ctx);
     } break;
     case LevelType::SingleButton: {
-        singleButtonLevel(ctx, level);
+        singleButtonLevel(ctx);
     } break;
     case LevelType::SingleBlockButton: {
-        singleBlockButtonLevel(ctx, level);
+        singleBlockButtonLevel(ctx);
     } break;
     }
+
+    return level_type;
 }
 
 void destroyLevel(Engine &ctx)
 {
-    ctx.iterateQuery(ctx.data().genericEntityQuery, [
+    ctx.iterateQuery(ctx.data().simEntityQuery, [
         &ctx
     ](Entity e, EntityType type)
     {
@@ -857,7 +660,7 @@ void destroyLevel(Engine &ctx)
         Entity cur_room = ctx.singleton<Level>().rooms.next;
 
         while (cur_room != Entity::none()) {
-            Entity next_room = ctx.get<LevelListElem>(cur_room).next;
+            Entity next_room = ctx.get<RoomListElem>(cur_room).next;
 
             ctx.destroyEntity(cur_room);
 

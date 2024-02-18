@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
 {
     using namespace madPuzzle;
 
-    constexpr int64_t num_views = 2;
+    constexpr int64_t num_views = 1;
 
     // Read command line arguments
     uint32_t num_worlds = 1;
@@ -39,7 +39,6 @@ int main(int argc, char *argv[])
     }
 
 
-    SimFlags flags = SimFlags::Default;
     ExecMode exec_mode = ExecMode::CPU;
     if (argc >= 3) {
         if (!strcmp("--cpu", argv[2])) {
@@ -49,14 +48,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Simple or complex level
-    if (argc >= 4) {
-        if (!strcmp("--complex", argv[3])) {
-            flags = SimFlags::UseComplexLevel;
-        }
-    }
-
-        // Setup replay log
+    // Setup replay log
     const char *replay_log_path = nullptr;
     if (argc >= 5) {
         replay_log_path = argv[4];
@@ -77,6 +69,13 @@ int main(int argc, char *argv[])
         true;
 #endif
 
+
+    SimFlags flags = SimFlags::Default;
+
+    if (!replay_log.has_value()) {
+        flags |= SimFlags::IgnoreEpisodeLength;
+    }
+
     WindowManager wm {};
     WindowHandle window = wm.makeWindow("Escape Room", 2730, 1536);
     render::GPUHandle render_gpu = wm.initGPU(0, { window.get() });
@@ -87,9 +86,8 @@ int main(int argc, char *argv[])
         .gpuID = 0,
         .numWorlds = num_worlds,
         .randSeed = 5,
-        .autoReset = replay_log.has_value(),
         .simFlags = flags,
-        .rewardMode = RewardMode::OG,
+        .rewardMode = RewardMode::Dense1,
         .enableBatchRenderer = enable_batch_renderer,
         .extRenderAPI = wm.gpuAPIManager().backend(),
         .extRenderDev = render_gpu.device(),
@@ -148,32 +146,26 @@ int main(int argc, char *argv[])
     };
 
     // Printers
-    auto self_printer = mgr.selfObservationTensor().makePrinter();
-    auto partner_printer = mgr.partnerObservationsTensor().makePrinter();
-    auto room_ent_printer = mgr.roomEntityObservationsTensor().makePrinter();
-    auto door_printer = mgr.roomDoorObservationsTensor().makePrinter();
-    auto lidar_printer = mgr.lidarTensor().makePrinter();
-    auto steps_remaining_printer = mgr.stepsRemainingTensor().makePrinter();
+
+    auto agent_txfm_printer = mgr.agentTxfmObsTensor().makePrinter();
+    auto agent_interact_printer = mgr.agentInteractObsTensor().makePrinter();
+    auto agent_lvl_type_printer = mgr.agentLevelTypeObsTensor().makePrinter();
+    auto agent_exit_printer = mgr.agentExitObsTensor().makePrinter();
+
     auto reward_printer = mgr.rewardTensor().makePrinter();
 
     auto printObs = [&]() {
-        printf("Self\n");
-        self_printer.print();
+        printf("Agent Transform\n");
+        agent_txfm_printer.print();
 
-        printf("Partner\n");
-        partner_printer.print();
+        printf("Agent Interact\n");
+        agent_interact_printer.print();
 
-        printf("Room Entities\n");
-        room_ent_printer.print();
+        printf("Level Type\n");
+        agent_lvl_type_printer.print();
 
-        printf("Door\n");
-        door_printer.print();
-
-        printf("Lidar\n");
-        lidar_printer.print();
-
-        printf("Steps Remaining\n");
-        steps_remaining_printer.print();
+        printf("To Exit\n");
+        agent_exit_printer.print();
 
         printf("Reward\n");
         reward_printer.print();

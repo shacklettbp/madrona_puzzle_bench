@@ -1,5 +1,4 @@
 #pragma once
-
 #include <madrona/taskgraph_builder.hpp>
 #include <madrona/custom_context.hpp>
 #include <madrona/rand.hpp>
@@ -22,6 +21,7 @@ enum class ExportID : uint32_t {
     AgentTxfmObs,
     AgentInteractObs,
     AgentLevelTypeObs,
+    AgentExitObs,
     EntityPhysicsStateObsArray,
     EntityTypeObsArray,
     EntityAttributesObsArray,
@@ -67,6 +67,7 @@ struct Sim : public madrona::WorldBase {
         RewardMode rewardMode;
         RandKey initRandKey;
         uint32_t episodeLen;
+        uint32_t levelsPerEpisode;
         float doorWidth;
         float buttonWidth;
         float rewardPerDist;
@@ -105,6 +106,7 @@ struct Sim : public madrona::WorldBase {
     bool autoReset;
 
     uint32_t episodeLen;
+    uint32_t levelsPerEpisode;
     float doorWidth;
     float buttonWidth;
     float rewardPerDist;
@@ -121,29 +123,12 @@ struct Sim : public madrona::WorldBase {
     // Random number generator state
     madrona::RNG rng;
 
-    // Border wall entities: 3 walls to the left, up and down that define
-    // play area. These are constant across all episodes.
-    Entity borders[3];
-
     // Agent entity references. This entities live across all episodes
     // and are just reset to the start of the level on reset.
     Entity agent;
 
     // Queries for the collectObservations system.
     Query<Entity, EntityType> simEntityQuery;
-
-    Query<Position, GrabState>  otherAgentQuery;
-    Query<Position, OpenState>  doorQuery;
-
-    // Queries for checkpointing
-    Query<Entity, Position, Rotation, Velocity, GrabState, Reward, Done,
-          StepsRemaining, Progress, KeyCode> ckptAgentQuery;
-    Query<Position, Rotation, Velocity, OpenState, KeyCode> ckptDoorQuery;
-    Query<Position, Rotation, Velocity, EntityType, Entity> ckptCubeQuery;
-    Query<Position, Rotation, ButtonState> ckptButtonQuery;
-    Query<Position, Scale, EntityType> ckptWallQuery;
-    Query<Position, Rotation, KeyState> ckptKeyQuery;
-
 };
 
 class Engine : public ::madrona::CustomContext<Engine, Sim> {

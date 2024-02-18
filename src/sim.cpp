@@ -12,30 +12,6 @@ namespace RenderingSystem = madrona::render::RenderingSystem;
 
 namespace madPuzzle {
 
-// Helper function for determining room membership.
-static inline CountT roomIndex(const Position &p, CountT numRooms)
-{
-    return std::max(CountT(0),
-    std::min(numRooms - 1, CountT(p.y / consts::roomLength)));
-}
-
-// Helper function for determining room membership.
-static inline CountT proxyRoomIndex(Engine &ctx, const Position &p)
-{
-    if ((ctx.data().simFlags & SimFlags::UseComplexLevel) ==
-        SimFlags::UseComplexLevel)
-    {
-        int32_t x = round(p.x / consts::roomLength) + consts::maxRooms;
-        int32_t y = round(p.y / consts::roomLength) + consts::maxRooms;
-
-        return x + y * consts::maxRooms;
-    }
-    else
-    {
-        return roomIndex(p, CountT(ctx.singleton<RoomCount>().count));
-    }
-}
-
 static inline float computeZAngle(Quat q)
 {
     float siny_cosp = 2.f * (q.w * q.z + q.x * q.y);
@@ -43,9 +19,46 @@ static inline float computeZAngle(Quat q)
     return atan2f(siny_cosp, cosy_cosp);
 }
 
-static inline float angleObs(float v)
+static inline Vector3 quatToEuler(Quat q)
 {
-    return v / math::pi;
+    float sinr_cosp = 2.f * (q.w * q.z + q.y * q.z);
+    float cosr_cosp = 1.f - 2.f * (q.x * q.x + q.y * q.y);
+
+    float sinp = 2.f * (q.w * q.y - q.z * q.z);
+
+    float siny_cosp = 2.f * (q.w * q.z + q.x * q.y);
+    float cosy_cosp = 1.f - 2.f * (q.y * q.y + q.z * q.z);
+    return Vector3 {
+        .x = asinf(sinp),
+        .y = atan2f(sinr_cosp, cosr_cosp),
+        .z = atan2f(siny_cosp, cosy_cosp),
+    };
+}
+
+// Translate xy delta to polar observations for learning.
+static inline PolarObs xyzToPolar(Vector3 v)
+{
+    float r = v.length();
+
+    if (r < 1e-5f) {
+        return PolarObs {
+            .r = 0.f,
+            .theta = 0.f,
+            .phi = 0.f,
+        };
+    }
+
+    v /= r;
+
+    // Note that this is angle off y-forward
+    float theta = -atan2f(v.x, v.y);
+    float phi = asinf(v.z);
+
+    return PolarObs {
+        .r = r,
+        .theta = theta,
+        .phi = phi,
+    };
 }
 
 // Register all the ECS components and archetypes that will be
@@ -62,6 +75,7 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
     registry.registerComponent<AgentTxfmObs>();
     registry.registerComponent<AgentInteractObs>();
     registry.registerComponent<AgentLevelTypeObs>();
+    registry.registerComponent<AgentExitObs>();
 
     registry.registerComponent<EntityPhysicsStateObsArray>();
     registry.registerComponent<EntityTypeObsArray>();
@@ -75,11 +89,12 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
     registry.registerComponent<Progress>();
     registry.registerComponent<ButtonState>();
     registry.registerComponent<OpenState>();
-    registry.registerComponent<DoorProperties>();
+    registry.registerComponent<DoorButtons>();
+    registry.registerComponent<DoorRooms>();
     registry.registerComponent<StepsRemainingObservation>();
     registry.registerComponent<EntityType>();
+    registry.registerComponent<EntityExtents>();
 
-    registry.registerComponent<LevelListElem>();
     registry.registerComponent<RoomListElem>();
     registry.registerComponent<ButtonListElem>();
 
@@ -115,6 +130,8 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
         (uint32_t)ExportID::AgentInteractObs);
     registry.exportColumn<Agent, AgentLevelTypeObs>(
         (uint32_t)ExportID::AgentLevelTypeObs);
+    registry.exportColumn<Agent, AgentExitObs>(
+        (uint32_t)ExportID::AgentExitObs);
     registry.exportColumn<Agent, StepsRemainingObservation>(
         (uint32_t)ExportID::StepsRemaining);
 
@@ -136,10 +153,8 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
         (uint32_t)ExportID::Done);
 }
 
-static inline void initWorld(Engine &ctx)
+static void initEpisodeRNG(Engine &ctx)
 {
-    phys::RigidBodyPhysicsSystem::reset(ctx);
-
     RandKey new_rnd_counter;
     if ((ctx.data().simFlags & SimFlags::UseFixedWorld) ==
             SimFlags::UseFixedWorld) {
@@ -160,13 +175,22 @@ static inline void initWorld(Engine &ctx)
     ctx.data().curEpisodeRNDCounter = new_rnd_counter;
     ctx.data().rng = RNG(rand::split_i(ctx.data().initRandKey,
         new_rnd_counter.a, new_rnd_counter.b));
-    
-    // Defined in src/level_gen.hpp / src/level_gen.cpp
-    generateWorld(ctx);
+}
+
+static EpisodeState initEpisodeState()
+{
+    return EpisodeState {
+        .curStep = 0,
+        .curLevel = 0,
+        .isDead = false,
+        .reachedExit = false,
+        .episodeFinished = false,
+    };
 }
 
 inline void loadCheckpointSystem(Engine &ctx, CheckpointReset &reset) 
 {
+#if 0
     // Decide if we should load a checkpoint.
     if (reset.reset == 0) {
         return;
@@ -274,10 +298,12 @@ inline void loadCheckpointSystem(Engine &ctx, CheckpointReset &reset)
             }
         );
     }
+#endif
 }
 
 inline void checkpointSystem(Engine &ctx, CheckpointSave &save)
 {
+#if 0
     if (save.save == 0) {
         // The viewer often zeros this to checkpoint a specific state.
         // Otherwise, we always checkpoint.
@@ -383,37 +409,55 @@ inline void checkpointSystem(Engine &ctx, CheckpointSave &save)
             }
         );
     }
+#endif
 }
-
-inline void 
 
 // This system runs each frame and checks if the current episode is complete
 // or if code external to the application has forced a reset by writing to the
 // WorldReset singleton.
 //
 // If a reset is needed, cleanup the existing world and generate a new one.
-inline void resetSystem(Engine &ctx, WorldReset &reset)
+inline void newEpisodeSystem(Engine &ctx, EpisodeState &episode_state)
 {
-    // Also reset if we are loading a checkpoint.
-    int32_t should_reset = reset.reset + ctx.singleton<CheckpointReset>().reset;
-    if (ctx.data().autoReset) {
-        for (CountT i = 0; i < consts::numAgents; i++) {
-            Entity agent = ctx.data().agents[i];
-            Done done = ctx.get<Done>(agent);
-            if (done.v) {
-                should_reset = 1;
-            }
-        }
+    if (!episode_state.episodeFinished) {
+        return;
     }
 
+    episode_state = initEpisodeState();
 
+    // Set this to true to cause cleanupLevelSystem / generateLevelSystem 
+    // to destroy this level and create a new one
+    episode_state.reachedExit = true;
 
-    if (should_reset != 0) {
-        reset.reset = 0;
-        
-        cleanupWorld(ctx);
-        initWorld(ctx);
+    initEpisodeRNG(ctx);
+}
+
+inline void cleanupLevelSystem(Engine &ctx, const EpisodeState &episode_state)
+{
+    if (!episode_state.reachedExit) {
+        return;
     }
+
+    destroyLevel(ctx);
+}
+
+inline void deferredDeleteSystem(Engine &ctx, DeferredDelete deferred_delete)
+{
+    ctx.destroyEntity(deferred_delete.e);
+}
+
+inline void generateLevelSystem(Engine &ctx, EpisodeState &episode_state)
+{
+    if (!episode_state.reachedExit) {
+        return;
+    }
+    episode_state.reachedExit = false;
+
+    phys::RigidBodyPhysicsSystem::reset(ctx);
+    LevelType level_type = generateLevel(ctx);
+    ctx.get<AgentLevelTypeObs>(ctx.data().agent) = AgentLevelTypeObs {
+        .type = level_type,
+    };
 }
 
 // Implements a jump action by casting a short ray below the agent
@@ -553,24 +597,6 @@ inline void grabSystem(Engine &ctx,
 }
 
 // Animates the doors opening and closing based on OpenState
-inline void setKeyPositionSystem(Engine &,
-                                 Position &pos,
-                                 KeyState &key_state)
-{
-    if (key_state.claimed) {
-        // Put underground
-        if (pos.z > -std::sqrt(3.0f) * consts::keyWidth) {
-            pos.z += -consts::doorSpeed * consts::deltaT;
-        }
-    }
-    else if (pos.z < std::sqrt(3.0f) * consts::keyWidth) {
-        // Put back on surface
-        pos.z += consts::doorSpeed * consts::deltaT;
-    }
-    
-}
-
-// Animates the doors opening and closing based on OpenState
 inline void setDoorPositionSystem(Engine &,
                                   Position &pos,
                                   OpenState &open_state)
@@ -598,15 +624,17 @@ inline void buttonSystem(Engine &ctx,
                          Position pos,
                          ButtonState &state)
 {
+    const float button_width = ctx.data().buttonWidth;
+
     AABB button_aabb {
         .pMin = pos + Vector3 { 
-            -consts::buttonWidth / 2.f, 
-            -consts::buttonWidth / 2.f,
+            -button_width / 2.f, 
+            -button_width / 2.f,
             0.f,
         },
         .pMax = pos + Vector3 { 
-            consts::buttonWidth / 2.f, 
-            consts::buttonWidth / 2.f,
+            button_width / 2.f, 
+            button_width / 2.f,
             0.25f
         },
     };
@@ -620,86 +648,49 @@ inline void buttonSystem(Engine &ctx,
     state.isPressed = button_pressed;
 }
 
-// Checks if there is an entity standing on the button and updates
-// ButtonState if so.
-inline void keySystem(Engine &ctx,
-                         Position pos,
-                         KeyState &state)
-{
-    if (state.claimed) {
-        return;
-    }
-
-    AABB button_aabb {
-        .pMin = pos + Vector3 { 
-            -consts::keyWidth / 2.f, 
-            -consts::keyWidth / 2.f,
-            0.f,
-        },
-        .pMax = pos + Vector3 { 
-            consts::keyWidth / 2.f, 
-            consts::keyWidth / 2.f,
-            0.25f
-        },
-    };
-
-    RigidBodyPhysicsSystem::findEntitiesWithinAABB(
-            ctx, button_aabb, [&](Entity e)
-        {
-            if (ctx.get<EntityType>(e) == EntityType::Agent && !state.claimed) {
-                ctx.get<KeyCode>(e).code |= state.code.code;
-                state.claimed = true;
-            } 
-        });
-}
-
-
 // Check if all the buttons linked to the door are pressed and open if so.
 // Optionally, close the door if the buttons aren't pressed.
 inline void doorOpenSystem(Engine &ctx,
                            Position &pos,
                            OpenState &open_state,
-                           KeyCode &key_code,
-                           const DoorProperties &props)
+                           const DoorButtons &door_buttons)
 {
     bool all_pressed = true;
-    for (int32_t i = 0; i < props.numButtons; i++) {
-        Entity button = props.buttons[i];
-        all_pressed = all_pressed && ctx.get<ButtonState>(button).isPressed;
+
+    Entity cur_button = door_buttons.linkedButton.next;
+    while (cur_button != Entity::none()) {
+        if (!ctx.get<ButtonState>(cur_button).isPressed) {
+            all_pressed = false;
+            break;
+        }
+
+        cur_button = ctx.get<ButtonListElem>(cur_button).next;
     }
 
-    bool key_present = true;
-    if (key_code.code != 0)
-    {
-        key_present = false;
-        // Check for a nearby agent that has the key
-        AABB door_aabb{
-            .pMin = pos + Vector3{
-                -consts::doorWidth / 2.f,
-                -consts::wallWidth / 2.f,
-                0.f,
-            },
-            .pMax = pos + Vector3{
-                consts::doorWidth / 2.f, 
-                consts::wallWidth / 2.f, 
-                0.25f
-            },
-        };
-        RigidBodyPhysicsSystem::findEntitiesWithinAABB(
-        ctx, door_aabb, [&](Entity &e)
-        {
-            if (ctx.get<EntityType>(e) == EntityType::Agent) {
-                key_present = key_present ||
-                ((ctx.get<KeyCode>(e).code & key_code.code) == key_code.code);
-            } 
-        });
-    }
-
-    if (all_pressed && key_present) {
+    if (all_pressed) {
         open_state.isOpen = true;
-    } else if (!props.isPersistent) {
+    } else if (!door_buttons.isPersistent) {
         open_state.isOpen = false;
     }
+}
+
+inline void checkExitSystem(Engine &ctx, const Level &lvl)
+{
+    Vector3 exit_pos = lvl.exitPos;
+    Vector3 agent_pos = ctx.get<Position>(ctx.data().agent);
+
+    const float exit_tolerance = consts::wallWidth / 4.f;
+
+    if (agent_pos.distance2(exit_pos) > exit_tolerance * exit_tolerance) {
+        return;
+    }
+
+    EpisodeState &episode_state = ctx.singleton<EpisodeState>();
+    if (episode_state.isDead) {
+        return;
+    }
+
+    episode_state.reachedExit = true;
 }
 
 // Make the agents easier to control by zeroing out their velocity
@@ -715,169 +706,150 @@ inline void agentZeroVelSystem(Engine &,
     vel.angular = Vector3::zero();
 }
 
-static inline float distObs(float v, int32_t numRooms)
-{
-    return v / (numRooms * consts::roomLength);
-}
-
-static inline float globalPosObs(float v, int32_t numRooms)
-{
-    return v / (numRooms * consts::roomLength);
-}
-
-// Translate xy delta to polar observations for learning.
-static inline PolarObservation xyToPolar(Vector3 v, int32_t numRooms)
-{
-    Vector2 xy { v.x, v.y };
-
-    float r = xy.length();
-
-    // Note that this is angle off y-forward
-    float theta = atan2f(xy.x, xy.y);
-
-    return PolarObservation {
-        .r = distObs(r, numRooms),
-        .theta = angleObs(theta),
-    };
-}
-
-static inline float encodeType(EntityType type)
-{
-    return (float)type / (float)EntityType::NumTypes;
-}
-
 // This system packages all the egocentric observations together 
 // for the policy inputs.
 inline void collectObservationsSystem(
     Engine &ctx,
     Position pos,
     Rotation rot,
-    const Progress &progress,
     const GrabState &grab,
-    SelfObservation &self_obs,
+    AgentTxfmObs &agent_txfm_obs,
+    AgentInteractObs &agent_interact_obs,
+    AgentExitObs &agent_exit_obs,
     StepsRemainingObservation &steps_remaining_obs,
-    PartnerObservations &partner_obs,
-    RoomEntityObservations &room_ent_obs,
-    RoomDoorObservations &room_door_obs)
+    EntityPhysicsStateObsArray &entity_physics_obs,
+    EntityTypeObsArray &entity_type_obs,
+    EntityAttributesObsArray &entity_attr_obs)
 {
-    const int32_t numRooms = ctx.singleton<RoomCount>().count;
+    const Level &level = ctx.singleton<Level>();
 
-    // Calls old roomIndex if not using the complexRoom.
-    // Note that for the complex room this roomIndex does NOT
-    // correspond to the actual room index in terms of placement.
-    // It is just an index that is consistent for every point in 
-    // any given room, so can be used to check for membership.
-    const CountT cur_room_idx = proxyRoomIndex(ctx, pos);
+    Entity agent_room;
+    {
+        Entity cur_room = level.rooms.next;
+        agent_room = cur_room; // default to first room
 
-    self_obs.roomX = pos.x / (consts::worldWidth / 2.f);
-    self_obs.roomY = (pos.y - cur_room_idx * consts::roomLength) /
-        consts::roomLength;
-    self_obs.globalX = globalPosObs(pos.x, numRooms);
-    self_obs.globalY = globalPosObs(pos.y, numRooms);
-    self_obs.globalZ = globalPosObs(pos.z, numRooms);
-    self_obs.maxY = globalPosObs(progress.maxY, numRooms);
-    self_obs.theta = angleObs(computeZAngle(rot));
-    self_obs.isGrabbing = grab.constraintEntity != Entity::none() ?
-        1.f : 0.f;
-    self_obs.keyCode = float(keyCode.code);
+        while (cur_room != Entity::none()) {
+            AABB room_aabb = ctx.get<RoomAABB>(cur_room);
 
-    assert(!isnan(self_obs.roomX));
-    assert(!isnan(self_obs.roomY));
-    assert(!isnan(self_obs.globalX));
-    assert(!isnan(self_obs.globalY));
-    assert(!isnan(self_obs.globalZ));
-    assert(!isnan(self_obs.maxY));
-    assert(!isnan(self_obs.theta));
-    assert(!isnan(self_obs.isGrabbing));
+            if (room_aabb.contains(pos)) {
+                agent_room = cur_room;
+                break;
+            }
 
-    steps_remaining_obs.t =
-        ctx.data().episodeLen - ctx.get<EpisodeState>.curStep;
+            cur_room = ctx.get<RoomListElem>(cur_room).next;
+        }
+    }
+
+    AABB room_aabb = ctx.get<RoomAABB>(agent_room);
+    Vector3 room_center = (room_aabb.pMin + room_aabb.pMax) / 2.f;
+    Vector3 local_room_pos = pos - room_center;
+
+    agent_txfm_obs = AgentTxfmObs {
+        .localRoomPos = local_room_pos,
+        .roomAABB = room_aabb,
+        .theta = computeZAngle(rot),
+    };
+
+    agent_interact_obs = AgentInteractObs {
+        .isGrabbing = grab.constraintEntity != Entity::none() ? 1 : 0,
+    };
 
     Quat to_view = rot.inv();
 
-    // Context::iterateQuery() runs serially over archteypes
-    // matching the components on which it is templated.
+    agent_exit_obs = {
+        .toExitPolar = xyzToPolar(to_view.rotateVec(
+            level.exitPos - pos)),
+    };
+
+    steps_remaining_obs.t =
+        ctx.data().episodeLen - ctx.singleton<EpisodeState>().curStep;
+
+    CountT cur_obs_idx = 0;
+    RigidBodyPhysicsSystem::findEntitiesWithinAABB(ctx, room_aabb, [&]
+    (Entity e)
     {
-        int idx = 0; // Context::iterateQuery() is serial, so this is safe.
-        ctx.iterateQuery(ctx.data().otherAgentQuery,
-            [&](Position &other_pos, GrabState &other_grab) {
-                Vector3 to_other = other_pos - pos;
-
-                // Detect whether or not the other agent is the current agent.
-                if (to_other.length() == 0.0f) {
-                    return;
-                }
-
-                partner_obs.obs[idx++] = {
-                    .polar = xyToPolar(to_view.rotateVec(to_other), numRooms),
-                    .isGrabbing = other_grab.constraintEntity != Entity::none() ? 1.f : 0.f,
-                };
-            });
-    }
-
-    // Becase we iterate by component matching, we can encounter entities
-    // that are in the current room, have EntityType::None, but were never 
-    // Cubes or Buttons, so shouldn't be allowed to zero entries of the 
-    // RoomEntityObservations table. Therefore, we zero the table manually 
-    // here, and let only the current Cubes and Buttons that exist update it.
-    EntityObservation ob;
-    ob.polar = { 0.f, 1.f };
-    ob.encodedType = encodeType(EntityType::None);
-    for (int i = 0; i < consts::maxObservationsPerAgent; ++i) {
-       room_ent_obs.obs[i] = ob;
-    }
-    
-    {
-       int idx = 0;
-        ctx.iterateQuery(ctx.data().roomEntityQuery, [&](Position &p, EntityType &e) {
-            // We want information on cubes and buttons in the current room.
-            if (proxyRoomIndex(ctx, p) != cur_room_idx ||
-                (e != EntityType::Cube && e != EntityType::Button && e != EntityType::Key)) {
-                return;
-            }
-
-            EntityObservation ob;
-            Vector3 to_entity = p - pos;
-            ob.polar = xyToPolar(to_view.rotateVec(to_entity), numRooms);
-            ob.encodedType = encodeType(e);
-
-            if (idx < consts::maxObservationsPerAgent) {
-                room_ent_obs.obs[idx++] = ob;
-            }
-        });
-    }
-
-    {
-        DoorObservation door_ob;
-        door_ob.polar = {0.f, 1.f};
-        door_ob.isOpen = -1.0f;
-        for (int i = 0; i < consts::doorsPerRoom; ++i)
-        {
-            room_door_obs.obs[i] = door_ob;
+        if (cur_obs_idx == consts::maxObservationsPerAgent) {
+            return;
         }
 
-        // Context.query() version.
-        int doorIdx = 0;
-        ctx.iterateQuery(ctx.data().doorQuery, [&](Position &p, OpenState &os)
-                         {
-            CountT firstIdx = proxyRoomIndex(ctx, p);
-            CountT secondIdx = proxyRoomIndex(ctx, p);
+        EntityType type = ctx.get<EntityType>(e);
 
-            if ((ctx.data().simFlags & SimFlags::UseComplexLevel) ==
-                SimFlags::UseComplexLevel)
-            {
-                // For complex room, slight offset from door because membership
-                // is not easily determined by y position.
-                firstIdx = proxyRoomIndex(ctx, p + Vector3(0.5, 0.5, 0.0f));
-                secondIdx = proxyRoomIndex(ctx, p - Vector3(0.5, 0.5, 0.0f));
+        if (type == EntityType::None ||
+                type == EntityType::Agent ||
+                type == EntityType::Wall) {
+            return;
+        }
+
+        Vector3 entity_pos = ctx.get<Position>(e);
+        Quat entity_rot = ctx.get<Rotation>(e);
+
+        // FIXME: should transform to agent space
+        Vector3 entity_extents = ctx.get<EntityExtents>(e);
+
+        // FIXME angular velocity
+        Vector3 linear_velocity;
+        {
+            auto vel_ref = ctx.getSafe<Velocity>(e);
+
+            if (!vel_ref.valid()) {
+                linear_velocity = Vector3::zero();
+            } else {
+                linear_velocity = vel_ref.value().linear;
             }
-            if (firstIdx != cur_room_idx && secondIdx != cur_room_idx) {
-                return;
-            }
-            room_door_obs.obs[doorIdx].polar = xyToPolar(to_view.rotateVec(p - pos), numRooms);
-            room_door_obs.obs[doorIdx].isOpen = os.isOpen ? 1.f : 0.f;
-            doorIdx++; 
-            });
+        }
+
+        entity_physics_obs.obs[cur_obs_idx] = EntityPhysicsStateObs {
+            .positionPolar = xyzToPolar(to_view.rotateVec(entity_pos - pos)),
+            .velocityPolar = xyzToPolar(to_view.rotateVec(linear_velocity)),
+            .extents = entity_extents,
+            .entityRotation = quatToEuler(
+                (to_view * entity_rot).normalize()),
+        };
+
+        entity_type_obs.obs[cur_obs_idx] = EntityTypeObs {
+            .entityType = type,
+        };
+
+        int32_t attr1, attr2;
+        switch (type) {
+        case EntityType::Door: {
+            attr1 = ctx.get<OpenState>(e).isOpen ? 1 : 0;
+            attr2 = 0;
+        } break;
+        case EntityType::Button: {
+            attr1 = ctx.get<ButtonState>(e).isPressed ? 1 : 0;
+            attr2 = 0;
+        } break;
+        default: {
+            attr1 = 0;
+            attr2 = 0;
+        } break;
+        }
+
+        entity_attr_obs.obs[cur_obs_idx] = EntityAttributesObs {
+            .attr1 = attr1,
+            .attr2 = attr2,
+        };
+
+        cur_obs_idx += 1;
+    });
+
+    for (; cur_obs_idx < consts::maxObservationsPerAgent; cur_obs_idx++) {
+        entity_physics_obs.obs[cur_obs_idx] = EntityPhysicsStateObs {
+            .positionPolar = { 0.f, 0.f, 0.f },
+            .velocityPolar = { 0.f, 0.f, 0.f },
+            .extents = Vector3::zero(),
+            .entityRotation = Vector3::zero(),
+        };
+
+        entity_type_obs.obs[cur_obs_idx] = EntityTypeObs {
+            .entityType = EntityType::None,
+        };
+
+        entity_attr_obs.obs[cur_obs_idx] = EntityAttributesObs {
+            .attr1 = 0,
+            .attr2 = 0,
+        };
     }
 }
 
@@ -887,13 +859,12 @@ inline void collectObservationsSystem(
 // and each thread in the warp traces one lidar ray for the agent.
 inline void lidarSystem(Engine &ctx,
                         Entity e,
-                        Lidar &lidar)
+                        LidarDepth &lidar_depth,
+                        LidarHitType &lidar_hit_type)
 {
     Vector3 pos = ctx.get<Position>(e);
     Quat rot = ctx.get<Rotation>(e);
     auto &bvh = ctx.singleton<broadphase::BVH>();
-
-    const int32_t numRooms = ctx.singleton<RoomCount>().count;
 
     Vector3 agent_fwd = rot.rotateVec(math::fwd);
     Vector3 right = rot.rotateVec(math::right);
@@ -913,20 +884,15 @@ inline void lidarSystem(Engine &ctx,
                          &hit_normal, 200.f);
 
         if (hit_entity == Entity::none()) {
-            lidar.samples[idx] = {
-                .depth = 0.f,
-                .encodedType = encodeType(EntityType::None),
-            };
+            lidar_depth.samples[idx] = 0.f;
+            lidar_hit_type.samples[idx] = EntityType::None;
         } else {
             EntityType entity_type = ctx.get<EntityType>(hit_entity);
 
-            lidar.samples[idx] = {
-                .depth = distObs(hit_t, numRooms),
-                .encodedType = encodeType(entity_type),
-            };
+            lidar_depth.samples[idx] = hit_t;
+            lidar_hit_type.samples[idx] = entity_type;
         }
     };
-
 
     // MADRONA_GPU_MODE guards GPU specific logic
 #ifdef MADRONA_GPU_MODE
@@ -944,348 +910,111 @@ inline void lidarSystem(Engine &ctx,
 #endif
 }
 
-// Computes reward for each agent and keeps track of the max distance achieved
-// so far through the challenge. Continuous reward is provided for any new
-// distance achieved.
-/*
-inline void denseRewardSystem(Engine &e,
-                         Position pos,
-                         Progress &progress,
-                         Reward &out_reward)
-{
-    const int32_t numRooms = ctx.singleton<RoomCount>().count;
-    // Just in case agents do something crazy, clamp total reward
-    float reward_pos = fminf(pos.y, (consts::roomLength * numRooms) * 2);
+inline void dense1RewardSystem(Engine &ctx,
+                               Position pos,
+                               Progress &progress,
+                               Reward &out_reward)
+{ 
+    const auto &lvl = ctx.singleton<Level>();
+    const auto &episode_state = ctx.singleton<EpisodeState>();
 
-    float old_max_y = progress.maxY;
+    float dist_to_exit = pos.distance(lvl.exitPos);
 
-    float reward = 0.0f;
+    float min_dist = progress.minDistToExit;
 
-    if (reward_pos > 14.0f && old_max_y < 14.0f) {
-        // Passed the first room
-        reward += 1.0f;
-    } else if (reward_pos > 28.0f && old_max_y < 28.0f) {
-        reward += 10.0f;
-    } else if (reward_pos > 41.0f && old_max_y < 41.0f) {
-        reward += 100.0f;
+    float reward = 0.f;
+
+    if (dist_to_exit < min_dist) {
+        float diff = min_dist - dist_to_exit;
+        reward += diff * ctx.data().rewardPerDist;
+
+        progress.minDistToExit = dist_to_exit;
     }
 
-    // Update maxY
-    if (reward_pos > old_max_y) {
-        reward += (reward_pos * 0.025) * consts::rewardPerDist;
-        progress.maxY = reward_pos;
+    if (episode_state.isDead) {
+        reward -= 1.f;
     }
 
-    out_reward.v = reward;
-}
-*/
+    if (episode_state.reachedExit) {
+        reward += 1.f;
 
-// Computes reward for each agent and keeps track of the max distance achieved
-// so far through the challenge. Continuous reward is provided for any new
-// distance achieved.
-inline void denseRewardSystem2(Engine &ctx,
-                         Position pos,
-                         Progress &progress,
-                         Reward &out_reward)
-{
-    (void)progress;
-
-    const int32_t numRooms = ctx.singleton<RoomCount>().count;
-    // Just in case agents do something crazy, clamp total reward
-    float reward_pos = fminf(pos.y, (consts::roomLength * numRooms) * 2);
-    if (reward_pos < 14.0f && reward_pos > 9.0f) {
-        // Passed the first room
-        reward_pos = 10.0f;
-    } else if (reward_pos < 27.0f && reward_pos > 22.0f) {
-        reward_pos = 22.0f;
-    } else if (reward_pos < 41.0f && reward_pos > 36.0f) {
-        reward_pos = 36.0f;
-    }
-
-    float reward = 0.05 * exp(reward_pos / 10);
-
-    out_reward.v = reward;
-}
-
-// Computes reward for each agent and keeps track of the max distance achieved
-// so far through the challenge. Continuous reward is provided for any new
-// distance achieved.
-inline void denseRewardSystem3(Engine &ctx,
-                         Position pos,
-                         Progress &progress,
-                         Reward &out_reward)
-{
-    // TODO:  restore
-    out_reward.v = 10.f;
-    progress.maxY = 100.0f;
-    return;
-    const int32_t numRooms = ctx.singleton<RoomCount>().count;
-    // Just in case agents do something crazy, clamp total reward
-    float reward_pos = fminf(pos.y, (consts::roomLength * numRooms) * 2);
-    if (reward_pos < 14.0f && reward_pos > 9.0f) {
-        // Passed the first room
-        reward_pos = 10.0f;
-    } else if (reward_pos < 27.0f && reward_pos > 22.0f) {
-        reward_pos = 22.0f;
-    } else if (reward_pos < 40.0f && reward_pos > 36.0f) {
-        reward_pos = 36.0f;
-    } else if (reward_pos >= 40.0f) {
-        reward_pos += 10.0f; // Not sure if this one is necessary
-    }
-
-    // Provide reward for open doors
-    CountT cur_room_idx = CountT(pos.y / consts::roomLength);
-    reward_pos += cur_room_idx*5;
-    if (cur_room_idx < 3) {
-        // Still in a room
-        const LevelState &level = ctx.singleton<LevelState>();
-        const Room &room = level.rooms[cur_room_idx];
-        Entity cur_door = room.door[0];
-        //Vector3 door_pos = ctx.get<Position>(cur_door); // Could provide reward for approaching open door
-        OpenState door_open_state = ctx.get<OpenState>(cur_door);
-        //door_obs.polar = xyToPolar(to_view.rotateVec(door_pos - pos));
-        float isOpen = door_open_state.isOpen ? 1.f : 0.f;
-        reward_pos += isOpen*5; // Maybe add scaling to this
-    }
-
-    float reward = 0.0f;
-    float old_max_y = progress.maxY;
-    float new_progress = reward_pos - old_max_y;
-    if (new_progress > 0) {
-        reward = new_progress * consts::rewardPerDist;
-        progress.maxY = reward_pos;
+        if (episode_state.curLevel == ctx.data().levelsPerEpisode) {
+            reward += 10.f;
+        }
     }
 
     out_reward.v = reward;
 }
 
-// Computes reward for each agent and keeps track of the max distance achieved
-// so far through the challenge. Continuous reward is provided for any new
-// distance achieved.
-inline void sparseRewardSystem(Engine &ctx,
-                         Position pos,
-                         Progress &progress,
-                         Reward &out_reward)
-{
-    const int32_t numRooms = ctx.singleton<RoomCount>().count;
-    // Just in case agents do something crazy, clamp total reward
-    float reward_pos = fminf(pos.y, (consts::roomLength * numRooms) * 2);
+inline void perLevelRewardSystem(Engine &ctx,
+                                 Reward &out_reward)
+{ 
+    const auto &episode_state = ctx.singleton<EpisodeState>();
 
-    float old_max_y = progress.maxY;
+    float reward = 0.f;
 
-    float reward = 0.0f;
-    if (reward_pos > 14.0f && old_max_y < 14.0f) {
-        // Passed the first room
-        reward += 1.0f;
-    } else if (reward_pos > 28.0f && old_max_y < 28.0f) {
-        reward += 1.0f;
-    } else if (reward_pos > 41.0f && old_max_y < 41.0f) {
-        reward += 1.0f;
-    }
+    if (episode_state.reachedExit) {
+        reward += 1.f;
 
-    // Update maxY
-    if (reward_pos > old_max_y) {
-        progress.maxY = reward_pos;
+        if (episode_state.curLevel == ctx.data().levelsPerEpisode) {
+            reward += 10.f;
+        }
     }
 
     out_reward.v = reward;
 }
 
-// Computes reward for each agent and keeps track of the max distance achieved
-// so far through the challenge. Continuous reward is provided for any new
-// distance achieved.
-inline void sparseRewardSystem2(Engine &ctx,
-                         Position pos,
-                         Progress &progress,
-                         Reward &out_reward)
-{
-    (void)progress;
-
-    const int32_t numRooms = ctx.singleton<RoomCount>().count;
-    // Just in case agents do something crazy, clamp total reward
-    float reward_pos = fminf(pos.y, (consts::roomLength * numRooms) * 2);
-
-    float reward = 0.0f;
-    CountT cur_room_idx = CountT(pos.y / consts::roomLength);
-    reward += cur_room_idx*0.02f;
-
-    // Provide reward for open doors
-    if (cur_room_idx < 3) {
-        const LevelState &level = ctx.singleton<LevelState>();
-        const Room &room = level.rooms[cur_room_idx];
-        Entity cur_door = room.door[0];
-        //Vector3 door_pos = ctx.get<Position>(cur_door); // Could provide reward for approaching open door
-        OpenState door_open_state = ctx.get<OpenState>(cur_door);
-        //door_obs.polar = xyToPolar(to_view.rotateVec(door_pos - pos));
-        float isOpen = door_open_state.isOpen ? 1.f : 0.f;
-        reward += isOpen*0.01f; // Maybe add scaling to this
-    }
-    
-    out_reward.v = reward;
-}
-
-// Computes reward for each agent and keeps track of the max distance achieved
-// so far through the challenge. Continuous reward is provided for any new
-// distance achieved.
-inline void sparseRewardSystem3(Engine &,
-                         Position pos,
-                         Progress &progress,
-                         Reward &out_reward)
-{
-    // Just in case agents do something crazy, clamp total reward
-    float reward_pos = fminf(pos.y, consts::worldLength * 2);
-
-    float old_max_y = progress.maxY;
-
-    float reward = 0.0f;
-    if (reward_pos > 41.0f){// && old_max_y < 41.0f) {
-        reward += 0.1f;
-    }
-
-    // Update maxY
-    if (reward_pos > old_max_y) {
-        progress.maxY = reward_pos;
-    }
-
-    out_reward.v = reward;
-}
-
-
-// Provides a reward for all open doors.
-inline void complexSparseRewardSystem(Engine &ctx,
-                                Position pos,
-                                Progress &progress,
+inline void endOnlyRewardSystem(Engine &ctx,
                                 Reward &out_reward)
+{ 
+    const auto &episode_state = ctx.singleton<EpisodeState>();
+
+    float reward = 0.f;
+
+    if (episode_state.reachedExit && 
+            episode_state.curLevel == ctx.data().levelsPerEpisode) {
+        reward += 10.f;
+    }
+
+    out_reward.v = reward;
+}
+
+inline void updateEpisodeStateSystem(Engine &ctx,
+                                     EpisodeState &episode_state)
 {
+    episode_state.curStep += 1;
 
-    (void)progress;
+    if (episode_state.reachedExit) {
+        episode_state.curLevel += 1;
+    }
 
-    float reward = consts::slackReward;
+    WorldReset force_reset = ctx.singleton<WorldReset>();
+    CheckpointReset ckpt_reset = ctx.singleton<CheckpointReset>();
 
+    episode_state.episodeFinished =
+        force_reset.reset == 1 ||
+        ckpt_reset.reset == 1 ||
+        episode_state.isDead ||
+        episode_state.curLevel == ctx.data().levelsPerEpisode
+    ;
 
-    LevelState &level = ctx.singleton<LevelState>();
-    int32_t numRooms = ctx.singleton<RoomCount>().count;
-    for (int32_t i = 0; i < numRooms; i++) {
-        Room &room = level.rooms[i];
-        for (int32_t j = 0; j < consts::doorsPerRoom; ++j) {
-            if (room.door[j] != Entity::none()) {
-                DoorProperties &props = ctx.get<DoorProperties>(room.door[j]);
-                OpenState &open = ctx.get<OpenState>(room.door[j]);
-                if (props.isExit && open.isOpen) {
-                    // Reward of 1 for any open exit door.
-                    reward = 1.0f;
-                }
-            }
+    if ((ctx.data().simFlags & SimFlags::IgnoreEpisodeLength) !=
+            SimFlags::IgnoreEpisodeLength) {
+        if (episode_state.curStep == ctx.data().episodeLen) {
+            episode_state.episodeFinished = true;
         }
     }
-
-    out_reward.v = reward;
 }
-
-// Computes reward for each agent and keeps track of the max distance achieved
-// so far through the challenge. Continuous reward is provided for any new
-// distance achieved.
-inline void rewardSystem(Engine &ctx,
-                         Position pos,
-                         Progress &progress,
-                         Reward &out_reward)
-{
-    const int32_t numRooms = ctx.singleton<RoomCount>().count;
-    // Just in case agents do something crazy, clamp total reward
-    float reward_pos = fminf(pos.y, (consts::roomLength * numRooms) * 2);
-
-    float old_max_y = progress.maxY;
-
-    float new_progress = reward_pos - old_max_y;
-
-    float reward;
-    if (new_progress > 0) {
-        reward = new_progress * consts::rewardPerDist;
-        progress.maxY = reward_pos;
-    } else {
-        reward = consts::slackReward;
-    }
-
-    out_reward.v = reward;
-}
-
-// Computes reward for each agent and keeps track of the max distance achieved
-// so far through the challenge. Continuous reward is provided for any new
-// distance achieved.
-inline void denseRewardSystem(Engine &ctx,
-                         Position pos,
-                         Progress &progress,
-                         Reward &out_reward)
-{
-    const int32_t numRooms = ctx.singleton<RoomCount>().count;
-    // Just in case agents do something crazy, clamp total reward
-    float reward_pos = fminf(pos.y, (consts::roomLength * numRooms) * 2);
-
-    float old_max_y = progress.maxY;
-
-    float new_progress = reward_pos - old_max_y;
-
-    float reward = 0.0f;
-    if (new_progress > 0) {
-        reward = new_progress * consts::rewardPerDist;
-        progress.maxY = reward_pos;
-    } 
-    
-    out_reward.v = reward;
-}
-
-// Each agent gets a small bonus to it's reward if the other agent has
-// progressed a similar distance, to encourage them to cooperate.
-// This system reads the values of the Progress component written by
-// rewardSystem for other agents, so it must run after.
-inline void bonusRewardSystem(Engine &ctx,
-                              OtherAgents &others,
-                              Progress &progress,
-                              Reward &reward)
-{
-    bool partners_close = true;
-    for (CountT i = 0; i < consts::numAgents - 1; i++) {
-        Entity other = others.e[i];
-        Progress other_progress = ctx.get<Progress>(other);
-
-        if (fabsf(other_progress.maxY - progress.maxY) > 2.f) {
-            partners_close = false;
-        }
-    }
-
-    if (partners_close && reward.v > 0.f) {
-        reward.v *= 1.25f;
-    }
-}
-
-// Done system is now on whether I've exited the last room
-inline void exitRoomSystem(Engine &,
-                           Position pos,
-                           Done &done)
-{
-    if (pos.y > 44) {
-        done.v = 1;
-    } else {
-        done.v = 0;
-    }
-}
-
-inline void stepCounterSystem(Engine &ctx,
 
 // Keep track of the number of steps remaining in the episode and
 // notify training that an episode has completed by
 // setting done = 1 on the final step of the episode
-inline void stepTrackerSystem(Engine &,
-                              StepsRemaining &steps_remaining,
-                              Done &done)
+inline void writeDoneSystem(Engine &ctx,
+                            Done &done)
 {
-    int32_t num_remaining = --steps_remaining.t;
-    //printf("Steps remaining: %d\n", num_remaining);
-    if (num_remaining == consts::episodeLen - 1) {
-        done.v = 0;
-    } else if (num_remaining == 0) {
-        done.v = 1;
-    }
+    const EpisodeState &episode_state = ctx.singleton<EpisodeState>();
+
+    done.v = episode_state.episodeFinished ? 1 : 0;
 }
 
 static TaskGraphNodeID queueRewardSystem(const Sim::Config &cfg,
@@ -1294,76 +1023,24 @@ static TaskGraphNodeID queueRewardSystem(const Sim::Config &cfg,
 {
     TaskGraphNodeID reward_sys;
     switch (cfg.rewardMode) {
-    case RewardMode::OG: {
+    case RewardMode::Dense1: {
         // Compute initial reward now that physics has updated the world state
         reward_sys = builder.addToGraph<ParallelForNode<Engine,
-             rewardSystem,
-                Position,
-                Progress,
-                Reward
-            >>(deps);
-
-        // Assign partner's reward
-        reward_sys = builder.addToGraph<ParallelForNode<Engine,
-             bonusRewardSystem,
-                OtherAgents,
-                Progress,
-                Reward
-            >>({reward_sys});
-    } break;
-    case RewardMode::Dense1: {
-        reward_sys = builder.addToGraph<ParallelForNode<Engine,
-             denseRewardSystem,
+             dense1RewardSystem,
                 Position,
                 Progress,
                 Reward
             >>(deps);
     } break;
-    case RewardMode::Dense2: {
+    case RewardMode::PerLevel: {
         reward_sys = builder.addToGraph<ParallelForNode<Engine,
-             denseRewardSystem2,
-                Position,
-                Progress,
+             perLevelRewardSystem,
                 Reward
             >>(deps);
     } break;
-    case RewardMode::Dense3: {
+    case RewardMode::EndOnly: {
         reward_sys = builder.addToGraph<ParallelForNode<Engine,
-             denseRewardSystem3,
-                Position,
-                Progress,
-                Reward
-            >>(deps);
-    } break;
-    case RewardMode::Sparse1: {
-        reward_sys = builder.addToGraph<ParallelForNode<Engine,
-             sparseRewardSystem,
-                Position,
-                Progress,
-                Reward
-            >>(deps);
-    } break;
-    case RewardMode::Sparse2: {
-        reward_sys = builder.addToGraph<ParallelForNode<Engine,
-             sparseRewardSystem2,
-                Position,
-                Progress,
-                Reward
-            >>(deps);
-    } break;
-    case RewardMode::Complex: {
-        reward_sys = builder.addToGraph<ParallelForNode<Engine,
-             complexSparseRewardSystem,
-                Position,
-                Progress,
-                Reward
-            >>(deps);
-    } break;
-    case RewardMode::Sparse3: {
-        reward_sys = builder.addToGraph<ParallelForNode<Engine,
-             sparseRewardSystem3,
-                Position,
-                Progress,
+             endOnlyRewardSystem,
                 Reward
             >>(deps);
     } break;
@@ -1413,16 +1090,10 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
             OpenState
         >>({move_sys});
     
-    auto set_key_pos_sys = builder.addToGraph<ParallelForNode<Engine,
-        setKeyPositionSystem,
-            Position,
-            KeyState
-        >>({set_door_pos_sys});
-
     // Build BVH for broadphase / raycasting
     auto broadphase_setup_sys =
         phys::RigidBodyPhysicsSystem::setupBroadphaseTasks(builder, 
-                                                           {set_key_pos_sys});
+                                                           {set_door_pos_sys});
 
     // Grab action, post BVH build to allow raycasting
     auto grab_sys = builder.addToGraph<ParallelForNode<Engine,
@@ -1465,79 +1136,89 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
             ButtonState
         >>({phys_done});
     
-    auto key_sys = builder.addToGraph<ParallelForNode<Engine,
-            keySystem,
-            Position,
-            KeyState
-        >>({button_sys});
-
     // Set door to start opening if button conditions are met
     auto door_open_sys = builder.addToGraph<ParallelForNode<Engine,
         doorOpenSystem,
             Position,
             OpenState,
-            KeyCode,
-            DoorProperties
-        >>({key_sys});
+            DoorButtons
+        >>({button_sys});
 
-    TaskGraphNodeID reward_sys = queueRewardSystem(cfg, builder, {door_open_sys});
+    auto check_exit_sys = builder.addToGraph<ParallelForNode<Engine,
+        checkExitSystem,
+            Level
+        >>({door_open_sys});
 
     // Check if the episode is over
+    auto update_episode_state_sys = builder.addToGraph<ParallelForNode<Engine,
+        updateEpisodeStateSystem,
+            EpisodeState
+        >>({check_exit_sys});
+
+    TaskGraphNodeID reward_sys =
+        queueRewardSystem(cfg, builder, {update_episode_state_sys});
+
     auto done_sys = builder.addToGraph<ParallelForNode<Engine,
-        stepTrackerSystem,
-            StepsRemaining,
+        writeDoneSystem,
             Done
         >>({reward_sys});
 
     // Conditionally reset the world if the episode is over
-    auto reset_sys = builder.addToGraph<ParallelForNode<Engine,
-        resetSystem,
-            WorldReset
+    auto new_episode_sys = builder.addToGraph<ParallelForNode<Engine,
+        newEpisodeSystem,
+           EpisodeState 
         >>({done_sys});
 
     // FIXME
-    auto cleanup_level_sys = builder.addToGraph<ParallelForNode<Engine,
+    auto cleanup_level = builder.addToGraph<ParallelForNode<Engine,
         cleanupLevelSystem,
-            Level
-        >>({reset_sys});
+            EpisodeState 
+        >>({new_episode_sys});
 
-    auto deferred_delete_sys = builder.addToGraph<ParallelForNode<Engine,
+    cleanup_level = builder.addToGraph<ParallelForNode<Engine,
         deferredDeleteSystem,
             DeferredDelete
-        >>({cleanup_level_sys});
+        >>({cleanup_level});
+
+    cleanup_level = builder.addToGraph<
+        ClearTmpNode<DeferredDeleteEntity>>({cleanup_level});
+
+#ifdef MADRONA_GPU_MODE
+    // RecycleEntitiesNode is required on the GPU backend in order to reclaim
+    // deleted entity IDs.
+    cleanup_level = builder.addToGraph<RecycleEntitiesNode>({cleanup_level});
+#endif
 
     auto gen_level_sys = builder.addToGraph<ParallelForNode<Engine,
         generateLevelSystem,
-            Level
-        >>({deferred_delete_sys});
+            EpisodeState
+        >>({cleanup_level});
 
+    auto post_gen = gen_level_sys;
 #ifdef MADRONA_GPU_MODE
     // Sort entities, this could be conditional on reset like the second
     // BVH build above.
-    auto sort_agents = queueSortByWorld<Agent>(
+    auto sort_sys = queueSortByWorld<Agent>(
         builder, {gen_level_sys});
-    auto sort_phys_objects = queueSortByWorld<PhysicsEntity>(
-        builder, {sort_agents});
-    auto sort_buttons = queueSortByWorld<ButtonEntity>(
-        builder, {sort_phys_objects});
-    auto sort_keys = queueSortByWorld<KeyEntity>(
-        builder, {sort_buttons});
-    auto sort_walls = queueSortByWorld<DoorEntity>(
-        builder, {sort_keys});
+    sort_sys = queueSortByWorld<PhysicsEntity>(
+        builder, {sort_sys});
+    sort_sys = queueSortByWorld<ButtonEntity>(
+        builder, {sort_sys});
+    sort_sys = queueSortByWorld<DoorEntity>(
+        builder, {sort_sys});
+    sort_sys = queueSortByWorld<RoomEntity>(
+        builder, {sort_sys});
+
+    post_gen = sort_sys;
 #endif
     // Conditionally load the checkpoint here including Done, Reward, 
     // and StepsRemaining. With Observations this should reconstruct 
     // all state that the training code needs.
     // This runs after the reset system resets the world.
     auto load_checkpoint_sys = builder.addToGraph<ParallelForNode<Engine,
-                                                                  loadCheckpointSystem,
-                                                                  CheckpointReset>>({
-#ifdef MADRONA_GPU_MODE
-        sort_walls
-#else
-        gen_level_sys
-#endif
-    });
+        loadCheckpointSystem,
+            CheckpointReset
+        >>({post_gen});
 
     // Conditionally checkpoint the state of the system if we are on the Nth step.
     auto checkpoint_sys = builder.addToGraph<ParallelForNode<Engine,
@@ -1545,23 +1226,11 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
             CheckpointSave
         >>({load_checkpoint_sys});
 
-
-#ifdef MADRONA_GPU_MODE
-    // RecycleEntitiesNode is required on the GPU backend in order to reclaim
-    // deleted entity IDs.
-    auto recycle_sys = builder.addToGraph<RecycleEntitiesNode>({
-        checkpoint_sys
-    });
-    (void)recycle_sys;
-#endif
-
     // This second BVH build is a limitation of the current taskgraph API.
     // It's only necessary if the world was reset, but we don't have a way
     // to conditionally queue taskgraph nodes yet.
     auto post_reset_broadphase = phys::RigidBodyPhysicsSystem::setupBroadphaseTasks(
-        builder, {
-        checkpoint_sys
-        });
+        builder, {checkpoint_sys});
 
     // The lidar system
 #ifdef MADRONA_GPU_MODE
@@ -1576,7 +1245,8 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
         lidarSystem,
 #endif
             Entity,
-            Lidar
+            LidarDepth,
+            LidarHitType
         >>({post_reset_broadphase});
 
     if (cfg.renderBridge) {
@@ -1594,13 +1264,14 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
         collectObservationsSystem,
             Position,
             Rotation,
-            Progress,
             GrabState,
-            KeyCode,
-            SelfObservation,
-            PartnerObservations,
-            RoomEntityObservations,
-            RoomDoorObservations
+            AgentTxfmObs,
+            AgentInteractObs,
+            AgentExitObs,
+            StepsRemainingObservation,
+            EntityPhysicsStateObsArray,
+            EntityTypeObsArray,
+            EntityAttributesObsArray
         >>({checkpoint_sys});
 }
 
@@ -1612,9 +1283,8 @@ Sim::Sim(Engine &ctx,
     // Currently the physics system needs an upper bound on the number of
     // entities that will be stored in the BVH. We plan to fix this in
     // a future release.
-    constexpr CountT max_total_entities = consts::numAgents +
-        consts::maxRooms * (consts::maxEntitiesPerRoom + 3) +
-        4 * 3 * consts::maxRooms; // side walls + floor
+    constexpr CountT max_total_entities = 
+        consts::maxObjectsPerLevel + 10;
 
     phys::RigidBodyPhysicsSystem::init(ctx, cfg.rigidBodyObjMgr,
         consts::deltaT, consts::numPhysicsSubsteps, -9.8f * math::up,
@@ -1631,8 +1301,8 @@ Sim::Sim(Engine &ctx,
 
     curWorldEpisode = 0;
 
-    // Set the door and button width
     episodeLen = cfg.episodeLen;
+    levelsPerEpisode = cfg.levelsPerEpisode;
     doorWidth = cfg.doorWidth;
     buttonWidth = cfg.buttonWidth;
     rewardPerDist = cfg.rewardPerDist;
@@ -1640,28 +1310,18 @@ Sim::Sim(Engine &ctx,
 
     simFlags = cfg.simFlags;
 
-    // Creates agents, walls, etc.
-    createPersistentEntities(ctx);
+    agent = createAgent(ctx);
 
-    // Generate initial world state
-    initWorld(ctx);
+    ctx.singleton<EpisodeState>() = initEpisodeState();
+    initEpisodeRNG(ctx);
 
-    // Create the queries for collectObservations
-    ctx.data().simEntityQuery = ctx.query<Entity, EntityType>();
+    phys::RigidBodyPhysicsSystem::reset(ctx);
+    LevelType level_type = generateLevel(ctx);
+    ctx.get<AgentLevelTypeObs>(agent) = AgentLevelTypeObs {
+        .type = level_type,
+    };
 
-
-    ctx.data().otherAgentQuery = ctx.query<Position, GrabState>();
-    ctx.data().doorQuery       = ctx.query<Position, OpenState>();
-
-    // Create the queries for checkpointing.
-    ctx.data().ckptAgentQuery = ctx.query<
-        Entity, Position, Rotation, Velocity, GrabState, Reward, Done,
-        StepsRemainingObservation, Progress, KeyCode>();
-    ctx.data().ckptDoorQuery = ctx.query<Position, Rotation, Velocity, OpenState, KeyCode>();
-    ctx.data().ckptCubeQuery = ctx.query<Position, Rotation, Velocity, EntityType, Entity>();
-    ctx.data().ckptButtonQuery = ctx.query<Position, Rotation, ButtonState>();
-    ctx.data().ckptWallQuery = ctx.query<Position, Scale, EntityType>();
-    ctx.data().ckptKeyQuery = ctx.query<Position, Rotation, KeyState>();
+    simEntityQuery = ctx.query<Entity, EntityType>();
 
     ctx.singleton<CheckpointReset>().reset = 0;
     ctx.singleton<CheckpointSave>().save = 1;

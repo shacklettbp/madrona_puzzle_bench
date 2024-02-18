@@ -200,7 +200,7 @@ struct Manager::CUDAImpl final : Manager::Impl {
 static void loadRenderObjects(render::RenderManager &render_mgr)
 {
     std::array<std::string, (size_t)SimObject::NumObjects> render_asset_paths;
-    render_asset_paths[(size_t)SimObject::Cube] =
+    render_asset_paths[(size_t)SimObject::Block] =
         (std::filesystem::path(DATA_DIR) / "cube_render.obj").string();
     render_asset_paths[(size_t)SimObject::Wall] =
         (std::filesystem::path(DATA_DIR) / "wall_render.obj").string();
@@ -254,7 +254,7 @@ static void loadRenderObjects(render::RenderManager &render_mgr)
     });
 
     // Override materials
-    render_assets->objects[(CountT)SimObject::Cube].meshes[0].materialIDX = 0;
+    render_assets->objects[(CountT)SimObject::Block].meshes[0].materialIDX = 0;
     render_assets->objects[(CountT)SimObject::Wall].meshes[0].materialIDX = 1;
 
     render_assets->objects[(CountT)SimObject::Door].meshes[0].materialIDX = 5;
@@ -289,7 +289,7 @@ static void loadRenderObjects(render::RenderManager &render_mgr)
 static void loadPhysicsObjects(PhysicsLoader &loader)
 {
     std::array<std::string, (size_t)SimObject::NumObjects - 1> asset_paths;
-    asset_paths[(size_t)SimObject::Cube] =
+    asset_paths[(size_t)SimObject::Block] =
         (std::filesystem::path(DATA_DIR) / "cube_collision.obj").string();
     asset_paths[(size_t)SimObject::Wall] =
         (std::filesystem::path(DATA_DIR) / "wall_collision.obj").string();
@@ -360,7 +360,7 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
         };
     };
 
-    setupHull(SimObject::Cube, 0.075f, {
+    setupHull(SimObject::Block, 0.075f, {
         .muS = 0.5f,
         .muD = 0.75f,
     });
@@ -462,11 +462,11 @@ Manager::Impl * Manager::Impl::init(
     const Manager::Config &mgr_cfg)
 {
     Sim::Config sim_cfg;
-    sim_cfg.autoReset = mgr_cfg.autoReset;
     sim_cfg.simFlags = mgr_cfg.simFlags;
     sim_cfg.rewardMode = mgr_cfg.rewardMode;
     sim_cfg.initRandKey = rand::initKey(mgr_cfg.randSeed);
     sim_cfg.episodeLen = mgr_cfg.episodeLen;
+    sim_cfg.levelsPerEpisode = mgr_cfg.levelsPerEpisode;
     sim_cfg.buttonWidth = mgr_cfg.buttonWidth;
     sim_cfg.doorWidth = mgr_cfg.doorWidth;
     sim_cfg.rewardPerDist = mgr_cfg.rewardPerDist;
@@ -721,6 +721,16 @@ Tensor Manager::agentLevelTypeObsTensor() const
                                });
 }
 
+Tensor Manager::agentExitObsTensor() const
+{
+    return impl_->exportTensor(ExportID::AgentExitObs,
+                               TensorElementType::Float32,
+                               {
+                                   impl_->cfg.numWorlds,
+                                   sizeof(AgentExitObs) / sizeof(float),
+                               });
+}
+
 Tensor Manager::entityPhysicsStateObsTensor() const
 {
     return impl_->exportTensor(ExportID::EntityPhysicsStateObsArray,
@@ -782,7 +792,8 @@ Tensor Manager::stepsRemainingTensor() const
                                TensorElementType::Int32,
                                {
                                    impl_->cfg.numWorlds,
-                                   sizeof(StepsRemaining) / sizeof(int32_t),
+                                   sizeof(StepsRemainingObservation) /
+                                       sizeof(int32_t),
                                });
 }
 
@@ -842,8 +853,10 @@ void Manager::setAction(int32_t world_idx,
         .interact = interact
     };
 
+    const CountT num_agents = 1;
+
     auto *action_ptr = impl_->agentActionsBuffer +
-        world_idx * consts::numAgents + agent_idx;
+        world_idx * num_agents + agent_idx;
 
     if (impl_->cfg.execMode == ExecMode::CUDA) {
 #ifdef MADRONA_CUDA_SUPPORT
