@@ -556,6 +556,8 @@ static void singleBlockButtonLevel(Engine &ctx)
     const float button_width = ctx.data().buttonWidth;
     const float half_button_width = button_width / 2.f;
 
+    makeFloor(ctx);
+
     AABB room_aabb = {
         .pMin = Vector3 { -level_size / 2.f, 0.f, 0.f },
         .pMax = Vector3 { level_size / 2.f, level_size, 2.f },
@@ -637,6 +639,7 @@ LevelType generateLevel(Engine &ctx)
     case LevelType::SingleBlockButton: {
         singleBlockButtonLevel(ctx);
     } break;
+    default: MADRONA_UNREACHABLE();
     }
 
     return level_type;

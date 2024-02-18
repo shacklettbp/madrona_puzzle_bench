@@ -2,6 +2,7 @@ set(SIMULATOR_SRCS
     sim_flags.hpp sim_flags.inl
     sim.hpp sim.inl sim.cpp
     level_gen.hpp level_gen.cpp
+    types.hpp types.cpp
 )
 
 add_library(mad_escape_cpu_impl STATIC
