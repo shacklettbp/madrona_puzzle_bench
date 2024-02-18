@@ -605,15 +605,10 @@ Manager::Impl * Manager::Impl::init(
 Manager::Manager(const Config &cfg)
     : impl_(Impl::init(cfg))
 {
-    // Currently, there is no way to populate the initial set of observations
-    // without stepping the simulations in order to execute the taskgraph.
-    // Therefore, after setup, we step all the simulations with a forced reset
-    // that ensures the first real step will have valid observations at the
-    // start of a fresh episode in order to compute actions.
-    //
-    // This will be improved in the future with support for multiple task
-    // graphs, allowing a small task graph to be executed after initialization.
+    // Need to run one step before force reset so generated entities are sorted
+    step();
     
+    // Force reset and step so obs are populated at beginning of fresh episode
     for (int32_t i = 0; i < (int32_t)cfg.numWorlds; i++) {
         triggerReset(i);
     }

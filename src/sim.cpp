@@ -332,6 +332,8 @@ inline void newEpisodeSystem(Engine &ctx, EpisodeState &episode_state)
         return;
     }
 
+    ctx.singleton<WorldReset>().reset = 0;
+
     episode_state = initEpisodeState();
 
     // Set this to true to cause cleanupLevelSystem / generateLevelSystem 

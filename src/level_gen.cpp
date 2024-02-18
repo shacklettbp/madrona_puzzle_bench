@@ -508,7 +508,7 @@ static void makeSpawn(Engine &ctx, Vector3 spawn_pos)
             spawn_size,
             2.f,
         });
-    registerRigidBodyEntity(ctx, back_wall, SimObject::Wall);
+    registerRigidBodyEntity(ctx, left_wall, SimObject::Wall);
 
     Entity right_wall = ctx.makeRenderableEntity<PhysicsEntity>();
     setupRigidBodyEntity(
@@ -528,12 +528,23 @@ static void makeSpawn(Engine &ctx, Vector3 spawn_pos)
             spawn_size,
             2.f,
         });
-    registerRigidBodyEntity(ctx, back_wall, SimObject::Wall);
+    registerRigidBodyEntity(ctx, right_wall, SimObject::Wall);
 }
 
 static void chaseLevel(Engine &ctx)
 {
-    (void)ctx;
+    Vector3 exit_door_pos { 0, 5, 0 };
+
+    Level &level = ctx.singleton<Level>();
+    level.exitPos = exit_door_pos;
+
+    makeFloor(ctx);
+    resetAgent(ctx, Vector3::zero(), exit_door_pos);
+
+    RoomList room_list = RoomList::init(&level.rooms);
+
+    Entity room = room_list.add(ctx);
+    ctx.get<RoomAABB>(room) = AABB::invalid();
 }
 
 static void lavaPathLevel(Engine &ctx)
@@ -637,6 +648,7 @@ LevelType generateLevel(Engine &ctx)
         singleButtonLevel(ctx);
     } break;
     case LevelType::SingleBlockButton: {
+        printf("LVL GEN\n");
         singleBlockButtonLevel(ctx);
     } break;
     default: MADRONA_UNREACHABLE();

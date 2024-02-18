@@ -91,6 +91,8 @@ int main(int argc, char *argv[])
         .enableBatchRenderer = enable_batch_renderer,
         .extRenderAPI = wm.gpuAPIManager().backend(),
         .extRenderDev = render_gpu.device(),
+        .episodeLen = 200,
+        .levelsPerEpisode = 3,
         .buttonWidth = 1.3f,
         .doorWidth = 20.0f/3.0f,
         .rewardPerDist = 0.05f,
