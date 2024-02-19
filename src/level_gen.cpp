@@ -555,6 +555,7 @@ static void singleBlockButtonLevel(Engine &ctx)
     const float half_wall_width = consts::wallWidth;
     const float button_width = ctx.data().buttonWidth;
     const float half_button_width = button_width / 2.f;
+    const float spawn_size = 1.5f * ctx.data().doorWidth;
 
     makeFloor(ctx);
 
@@ -576,10 +577,11 @@ static void singleBlockButtonLevel(Engine &ctx)
                       { WallType::Solid },
                   }, doors, entrance_positions);
 
-    Level &level = ctx.singleton<Level>();
-    level.exitPos = entrance_positions[0];
+    Vector3 exit_pos = entrance_positions[0];
+    exit_pos.y += 5.f;
 
-    const float spawn_size = 1.5f * ctx.data().doorWidth;
+    Level &level = ctx.singleton<Level>();
+    level.exitPos = exit_pos;
 
     Vector3 spawn_pos = entrance_positions[2];
     spawn_pos.y -= spawn_size / 2.f;

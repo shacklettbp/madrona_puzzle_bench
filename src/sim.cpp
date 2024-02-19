@@ -590,7 +590,7 @@ inline void checkExitSystem(Engine &ctx, const Level &lvl)
     Vector3 exit_pos = lvl.exitPos;
     Vector3 agent_pos = ctx.get<Position>(ctx.data().agent);
 
-    const float exit_tolerance = consts::wallWidth / 4.f;
+    const float exit_tolerance = consts::agentRadius;
 
     if (agent_pos.distance2(exit_pos) > exit_tolerance * exit_tolerance) {
         return;
