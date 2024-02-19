@@ -214,8 +214,14 @@ static void loadRenderObjects(render::RenderManager &render_mgr)
         (std::filesystem::path(DATA_DIR) / "wall_render.obj").string();
     render_asset_paths[(size_t)SimObject::Agent] =
         (std::filesystem::path(DATA_DIR) / "agent_render.obj").string();
+    render_asset_paths[(size_t)SimObject::Enemy] =
+        (std::filesystem::path(DATA_DIR) / "agent_render.obj").string();
     render_asset_paths[(size_t)SimObject::Button] =
         (std::filesystem::path(DATA_DIR) / "cube_render.obj").string();
+    render_asset_paths[(size_t)SimObject::Lava] =
+        (std::filesystem::path(DATA_DIR) / "cube_render.obj").string();
+    render_asset_paths[(size_t)SimObject::Exit] =
+        (std::filesystem::path(DATA_DIR) / "exit.obj").string();
     render_asset_paths[(size_t)SimObject::Plane] =
         (std::filesystem::path(DATA_DIR) / "plane.obj").string();
     render_asset_paths[(size_t)SimObject::Key] =
@@ -251,6 +257,7 @@ static void loadRenderObjects(render::RenderManager &render_mgr)
         { render::rgb8ToFloat(20, 20, 230),   -1, 0.8f, 1.0f }, // blue
         { render::rgb8ToFloat(230, 20, 230),   -1, 0.8f, 1.0f }, // purple
         { render::rgb8ToFloat(20, 230, 230),   -1, 0.8f, 1.0f }, // cyan
+        { render::rgb8ToFloat(230, 20, 20),   2, 0.8f, 1.0f }, //  Enemy
     });
 
     // Override materials
@@ -270,13 +277,22 @@ static void loadRenderObjects(render::RenderManager &render_mgr)
     render_assets->objects[(CountT)SimObject::Agent].meshes[0].materialIDX = 2;
     render_assets->objects[(CountT)SimObject::Agent].meshes[1].materialIDX = 3;
     render_assets->objects[(CountT)SimObject::Agent].meshes[2].materialIDX = 3;
+
+    render_assets->objects[(CountT)SimObject::Enemy].meshes[0].materialIDX = 10;
+    render_assets->objects[(CountT)SimObject::Enemy].meshes[1].materialIDX = 3;
+    render_assets->objects[(CountT)SimObject::Enemy].meshes[2].materialIDX = 3;
+
     render_assets->objects[(CountT)SimObject::Button].meshes[0].materialIDX = 6;
+    render_assets->objects[(CountT)SimObject::Lava].meshes[0].materialIDX = 5;
+    render_assets->objects[(CountT)SimObject::Exit].meshes[0].materialIDX = 7;
 
     render_assets->objects[(CountT)SimObject::Plane].meshes[0].materialIDX = 4;
 
     render_mgr.loadObjects(render_assets->objects, materials, {
         { (std::filesystem::path(DATA_DIR) /
            "green_grid.png").string().c_str() },
+        { (std::filesystem::path(DATA_DIR) /
+           "smile.png").string().c_str() },
         { (std::filesystem::path(DATA_DIR) /
            "smile.png").string().c_str() },
     });
@@ -303,7 +319,13 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
         (std::filesystem::path(DATA_DIR) / "wall_collision.obj").string();
     asset_paths[(size_t)SimObject::Agent] =
         (std::filesystem::path(DATA_DIR) / "agent_collision_simplified.obj").string();
+    asset_paths[(size_t)SimObject::Enemy] =
+        (std::filesystem::path(DATA_DIR) / "agent_collision_simplified.obj").string();
     asset_paths[(size_t)SimObject::Button] =
+        (std::filesystem::path(DATA_DIR) / "cube_collision.obj").string();
+    asset_paths[(size_t)SimObject::Lava] =
+        (std::filesystem::path(DATA_DIR) / "cube_collision.obj").string();
+    asset_paths[(size_t)SimObject::Exit] =
         (std::filesystem::path(DATA_DIR) / "cube_collision.obj").string();
     asset_paths[(size_t)SimObject::Key] =
         (std::filesystem::path(DATA_DIR) / "cube_collision.obj").string();
@@ -393,7 +415,22 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
         .muD = 0.5f,
     });
 
+    setupHull(SimObject::Enemy, 1.f, {
+        .muS = 0.5f,
+        .muD = 0.5f,
+    });
+
     setupHull(SimObject::Button, 1.f, {
+        .muS = 0.5f,
+        .muD = 0.5f,
+    });
+
+    setupHull(SimObject::Exit, 1.f, {
+        .muS = 0.5f,
+        .muD = 0.5f,
+    });
+
+    setupHull(SimObject::Lava, 1.f, {
         .muS = 0.5f,
         .muD = 0.5f,
     });
@@ -454,6 +491,11 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
     rigid_body_assets.metadatas[
         (CountT)SimObject::Agent].mass.invInertiaTensor.y = 0.f;
 
+    rigid_body_assets.metadatas[
+        (CountT)SimObject::Enemy].mass.invInertiaTensor.x = 0.f;
+    rigid_body_assets.metadatas[
+        (CountT)SimObject::Enemy].mass.invInertiaTensor.y = 0.f;
+
     loader.loadRigidBodies(rigid_body_assets);
     free(rigid_body_data);
 }
@@ -478,7 +520,8 @@ Manager::Impl * Manager::Impl::init(
         CUcontext cu_ctx = MWCudaExecutor::initCUDA(mgr_cfg.gpuID);
 
         // TODO: restore, 20
-        PhysicsLoader phys_loader(ExecMode::CUDA, 13);
+        PhysicsLoader phys_loader(ExecMode::CUDA,
+                                  (uint32_t)SimObject::NumObjects);
         loadPhysicsObjects(phys_loader);
 
         ObjectManager *phys_obj_mgr = &phys_loader.getObjectManager();
@@ -542,7 +585,8 @@ Manager::Impl * Manager::Impl::init(
 #endif
     } break;
     case ExecMode::CPU: {
-        PhysicsLoader phys_loader(ExecMode::CPU, 13);
+        PhysicsLoader phys_loader(ExecMode::CPU,
+                                  (uint32_t)SimObject::NumObjects);
         loadPhysicsObjects(phys_loader);
 
         ObjectManager *phys_obj_mgr = &phys_loader.getObjectManager();

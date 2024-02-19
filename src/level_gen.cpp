@@ -171,7 +171,6 @@ static void linkDoorButtons(Engine &ctx,
     DoorButtons &door_buttons = ctx.get<DoorButtons>(door);
 
     ButtonListElem *button_list_elem = &door_buttons.linkedButton;
-    button_list_elem->next = Entity::none();
 
     auto linkButton = [&](Entity button) {
         button_list_elem->next = button;
@@ -276,6 +275,10 @@ static Entity makeDoor(Engine &ctx,
         Diag3x3::fromVec(door_dims));
     registerRigidBodyEntity(ctx, door, SimObject::Door);
     ctx.get<OpenState>(door).isOpen = false;
+    ctx.get<DoorButtons>(door) = {
+        .linkedButton = { Entity::none() },
+        .isPersistent = true,
+    };
 
     ctx.get<EntityExtents>(door) = door_dims;
 
@@ -522,42 +525,54 @@ static void makeSpawn(Engine &ctx, float spawn_size, Vector3 spawn_pos)
     registerRigidBodyEntity(ctx, right_wall, SimObject::Wall);
 }
 
-static void chaseLevel(Engine &ctx)
+static Entity makeExit(Engine &ctx, Vector3 p)
 {
-    Vector3 exit_door_pos { 0, 5, 0 };
+    Entity e = ctx.makeRenderableEntity<ExitEntity>();
+    ctx.get<Position>(e) = p;
+    ctx.get<Rotation>(e) = Quat { 1, 0, 0, 0 };
+    ctx.get<Scale>(e) = Diag3x3 { 1, 1, 1 };
+    ctx.get<ObjectID>(e) = ObjectID { (int32_t)SimObject::Exit };
 
-    Level &level = ctx.singleton<Level>();
-    level.exitPos = exit_door_pos;
-
-    makeFloor(ctx);
-    resetAgent(ctx, Vector3::zero(), 5.f, exit_door_pos);
-
-    RoomList room_list = RoomList::init(&level.rooms);
-
-    Entity room = room_list.add(ctx);
-    ctx.get<RoomAABB>(room) = AABB::invalid();
+    return e;
 }
 
-static void lavaPathLevel(Engine &ctx)
+static Entity makeEnemy(Engine &ctx, Vector3 position, 
+                        float move_force = 200.f,
+                        float move_torque = 200.f)
 {
-    (void)ctx;
+    Entity enemy = ctx.makeRenderableEntity<EnemyEntity>();
+    setupRigidBodyEntity(
+        ctx,
+        enemy,
+        position,
+        Quat::angleAxis(randBetween(ctx, 0, 2.f * math::pi), math::up),
+        SimObject::Enemy,
+        EntityType::Enemy,
+        ResponseType::Dynamic,
+        Diag3x3 { 1, 1, 1 });
+    registerRigidBodyEntity(ctx, enemy, SimObject::Enemy);
+
+    ctx.get<EnemyState>(enemy) = EnemyState {
+        .moveForce = move_force,
+        .moveTorque = move_torque,
+    };
+
+    ctx.get<EntityExtents>(enemy) = Vector3 {
+        2.f * consts::agentRadius,
+        2.f * consts::agentRadius,
+        2.f * consts::agentRadius,
+    };
+
+    return enemy;
 }
 
-static void singleButtonLevel(Engine &ctx)
+static void setupSingleRoomLevel(Engine &ctx,
+                                 float level_size,
+                                 Entity *exit_door_out,
+                                 AABB *room_aabb_out)
 {
-    (void)ctx;
-}
-
-static void singleBlockButtonLevel(Engine &ctx)
-{
-    const float level_size = 20.f;
-    const float block_scale = 1.5f;
-    const float block_size = 2.f * block_scale;
-
-    const float half_wall_width = consts::wallWidth;
-    const float button_width = ctx.data().buttonWidth;
-    const float half_button_width = button_width / 2.f;
     const float spawn_size = 1.5f * ctx.data().doorWidth;
+    const float half_wall_width = consts::wallWidth / 2.f;
 
     makeFloor(ctx);
 
@@ -572,44 +587,121 @@ static void singleBlockButtonLevel(Engine &ctx)
     Entity doors[4];
     Vector3 entrance_positions[4];
     makeRoomWalls(ctx, room_aabb,
-                  {
-                      { WallType::Door, exit_t },
-                      { WallType::Solid },
-                      { WallType::Entrance, spawn_t },
-                      { WallType::Solid },
-                  }, doors, entrance_positions);
+        {
+            { exit_door_out ? WallType::Door : WallType::Entrance, exit_t },
+            { WallType::Solid },
+            { WallType::Entrance, spawn_t },
+            { WallType::Solid },
+        }, doors, entrance_positions);
 
     Vector3 exit_pos = entrance_positions[0];
     exit_pos.y += 5.f;
 
     Level &level = ctx.singleton<Level>();
-    level.exitPos = exit_pos;
+    level.exit = makeExit(ctx, exit_pos);
 
     Vector3 spawn_pos = entrance_positions[2];
     spawn_pos.y -= spawn_size / 2.f;
 
     makeSpawn(ctx, spawn_size, spawn_pos);
 
-    resetAgent(ctx, spawn_pos, spawn_size, level.exitPos);
+    resetAgent(ctx, spawn_pos, spawn_size, exit_pos);
 
     RoomList room_list = RoomList::init(&level.rooms);
 
     Entity room = room_list.add(ctx);
     ctx.get<RoomAABB>(room) = room_aabb;
 
-    Entity exit_door = doors[0];
-    ctx.get<DoorRooms>(exit_door) = {
-        .linkedRooms = { room, Entity::none() },
-    };
+    // Shrink returned AABB to account for walls
+    room_aabb.pMin.x += half_wall_width;
+    room_aabb.pMin.y += half_wall_width;
+    room_aabb.pMax.x -= half_wall_width;
+    room_aabb.pMax.y -= half_wall_width;
+
+    *room_aabb_out = room_aabb;
+
+    if (exit_door_out) {
+        Entity exit_door = doors[0];
+        ctx.get<DoorRooms>(exit_door) = {
+            .linkedRooms = { room, Entity::none() },
+        };
+
+        *exit_door_out = exit_door;
+    }
+}
+
+static void chaseLevel(Engine &ctx)
+{
+    const float level_size = 20.f;
+
+    AABB room_aabb;
+    setupSingleRoomLevel(ctx, level_size, nullptr, &room_aabb);
+
+    Vector3 enemy_spawn = room_aabb.pMin;
+    enemy_spawn.y += level_size / 2.f;
+    enemy_spawn.y += randBetween(ctx, 0.f, room_aabb.pMax.y - enemy_spawn.y);
+    enemy_spawn.x = randBetween(ctx, room_aabb.pMin.x, room_aabb.pMax.x);
+
+    makeEnemy(ctx, enemy_spawn);
+}
+
+static void lavaPathLevel(Engine &ctx)
+{
+    const float level_size = 20.f;
+
+    AABB room_aabb;
+    setupSingleRoomLevel(ctx, level_size, nullptr, &room_aabb);
+}
+
+static void singleButtonLevel(Engine &ctx)
+{
+    const float level_size = 20.f;
+
+    const float button_width = ctx.data().buttonWidth;
+    const float half_button_width = button_width / 2.f;
+
+    Entity exit_door;
+    AABB room_aabb;
+    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb);
 
     {
         float button_x = randBetween(ctx,
-            room_aabb.pMin.x + half_wall_width + half_button_width,
-            room_aabb.pMax.x - half_wall_width - half_button_width);
+            room_aabb.pMin.x + half_button_width,
+            room_aabb.pMax.x - half_button_width);
 
         float button_y = randBetween(ctx,
-            room_aabb.pMin.y + half_wall_width + half_button_width,
-            room_aabb.pMax.y - half_wall_width - half_button_width);
+            room_aabb.pMin.y + half_button_width,
+            room_aabb.pMax.y - half_button_width);
+
+        Entity button = makeButton(ctx, button_x, button_y);
+
+        linkDoorButtons(ctx, exit_door, { button }, true);
+    }
+}
+
+static void singleBlockButtonLevel(Engine &ctx)
+{
+    const float level_size = 20.f;
+    const float block_scale = 1.5f;
+    const float block_size = 2.f * block_scale;
+
+    const float button_width = ctx.data().buttonWidth;
+
+    const float half_button_width = button_width / 2.f;
+    const float half_block_size = block_size / 2.f;
+
+    Entity exit_door;
+    AABB room_aabb;
+    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb);
+
+    {
+        float button_x = randBetween(ctx,
+            room_aabb.pMin.x + half_button_width,
+            room_aabb.pMax.x - half_button_width);
+
+        float button_y = randBetween(ctx,
+            room_aabb.pMin.y + half_button_width,
+            room_aabb.pMax.y - half_button_width);
 
         Entity button = makeButton(ctx, button_x, button_y);
 
@@ -618,14 +710,14 @@ static void singleBlockButtonLevel(Engine &ctx)
 
     {
         float block_x = randBetween(ctx,
-            room_aabb.pMin.x + half_wall_width + block_size / 2.f,
-            room_aabb.pMax.x - half_wall_width - block_size / 2.f);
+            room_aabb.pMin.x + half_block_size,
+            room_aabb.pMax.x - half_block_size);
 
         float block_y = randBetween(ctx,
-            room_aabb.pMin.y + half_wall_width + block_size / 2.f,
-            room_aabb.pMax.y - half_wall_width - block_size / 2.f);
+            room_aabb.pMin.y + block_size,
+            room_aabb.pMax.y - block_size);
 
-        makeBlock(ctx, block_x, block_y, 1.5f);
+        makeBlock(ctx, block_x, block_y, block_scale);
     }
 }
 
@@ -634,7 +726,7 @@ LevelType generateLevel(Engine &ctx)
     LevelType level_type = (LevelType)(
         ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes));
 
-    level_type = LevelType::SingleBlockButton;
+    level_type = LevelType::Chase;
 
     switch (level_type) {
     case LevelType::Chase: {
@@ -669,8 +761,9 @@ void destroyLevel(Engine &ctx)
         ctx.get<DeferredDelete>(l).e = e;
     });
 
+    Level &lvl = ctx.singleton<Level>();
     {
-        Entity cur_room = ctx.singleton<Level>().rooms.next;
+        Entity cur_room = lvl.rooms.next;
 
         while (cur_room != Entity::none()) {
             Entity next_room = ctx.get<RoomListElem>(cur_room).next;
@@ -679,7 +772,11 @@ void destroyLevel(Engine &ctx)
 
             cur_room = next_room;
         }
+
+        lvl.rooms.next = Entity::none();
     }
+
+    ctx.destroyRenderableEntity(lvl.exit);
 }
 
 }

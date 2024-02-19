@@ -21,15 +21,21 @@ static inline float computeZAngle(Quat q)
 
 static inline Vector3 quatToEuler(Quat q)
 {
+    float sinp = 2.f * (q.w * q.y - q.z * q.z);
+    float pitch;
+    if (fabsf(sinp) >= 1.f) {
+        pitch = copysignf(math::pi / 2.f, sinp);
+    } else {
+        pitch = asinf(sinp);
+    }
+
     float sinr_cosp = 2.f * (q.w * q.z + q.y * q.z);
     float cosr_cosp = 1.f - 2.f * (q.x * q.x + q.y * q.y);
-
-    float sinp = 2.f * (q.w * q.y - q.z * q.z);
 
     float siny_cosp = 2.f * (q.w * q.z + q.x * q.y);
     float cosy_cosp = 1.f - 2.f * (q.y * q.y + q.z * q.z);
     return Vector3 {
-        .x = asinf(sinp),
+        .x = pitch,
         .y = atan2f(sinr_cosp, cosr_cosp),
         .z = atan2f(siny_cosp, cosy_cosp),
     };
@@ -528,6 +534,55 @@ inline void setDoorPositionSystem(Engine &,
     }
 }
 
+inline void enemyActSystem(Engine &ctx,
+                           Position pos,
+                           Rotation rot,
+                           EnemyState enemy_state,
+                           ExternalForce &ext_force,
+                           ExternalTorque &ext_torque)
+{
+    Vector3 agent_pos = ctx.get<Position>(ctx.data().agent);
+
+    Vector3 to_agent = agent_pos - pos;
+    float dist_to_agent = to_agent.length();
+
+    if (dist_to_agent <= 1e-5f) {
+        return;
+    }
+     
+    to_agent /= dist_to_agent;
+
+    ext_force = enemy_state.moveForce * rot.rotateVec(math::fwd);
+
+    Vector3 to_agent_local = rot.inv().rotateVec(to_agent);
+
+    float theta = -atan2f(to_agent_local.x, to_agent_local.y);
+
+    ext_torque = Vector3 {
+        0.f,
+        0.f,
+        theta * enemy_state.moveTorque,
+    };
+}
+
+inline void enemyPostPhysicsSystem(Engine &ctx,
+                                   Position pos,
+                                   Velocity &vel,
+                                   EnemyState)
+{
+    vel = { Vector3::zero(), Vector3::zero() };
+
+    Vector3 agent_pos = ctx.get<Position>(ctx.data().agent);
+    Vector3 to_agent = agent_pos - pos;
+
+    float dist_to_agent = to_agent.length();
+
+    if (dist_to_agent > 2.5f * consts::agentRadius) {
+        return;
+    }
+    
+    ctx.singleton<EpisodeState>().isDead = true;
+}
 
 // Checks if there is an entity standing on the button and updates
 // ButtonState if so.
@@ -585,9 +640,8 @@ inline void doorOpenSystem(Engine &ctx,
     }
 }
 
-inline void checkExitSystem(Engine &ctx, const Level &lvl)
+inline void checkExitSystem(Engine &ctx, Position exit_pos, IsExit)
 {
-    Vector3 exit_pos = lvl.exitPos;
     Vector3 agent_pos = ctx.get<Position>(ctx.data().agent);
 
     const float exit_tolerance = consts::agentRadius;
@@ -667,9 +721,9 @@ inline void collectObservationsSystem(
 
     Quat to_view = rot.inv();
 
+    Vector3 to_exit = ctx.get<Position>(level.exit) - pos;
     agent_exit_obs = {
-        .toExitPolar = xyzToPolar(to_view.rotateVec(
-            level.exitPos - pos)),
+        .toExitPolar = xyzToPolar(to_view.rotateVec(to_exit)),
     };
 
     steps_remaining_obs.t =
@@ -829,7 +883,7 @@ inline void dense1RewardSystem(Engine &ctx,
     const auto &lvl = ctx.singleton<Level>();
     const auto &episode_state = ctx.singleton<EpisodeState>();
 
-    float dist_to_exit = pos.distance(lvl.exitPos);
+    float dist_to_exit = pos.distance(ctx.get<Position>(lvl.exit));
 
     float min_dist = progress.minDistToExit;
 
@@ -993,6 +1047,10 @@ static TaskGraphNodeID sortEntities(TaskGraphBuilder &builder,
         builder, {sort_sys});
     sort_sys = queueSortByWorld<RoomEntity>(
         builder, {sort_sys});
+    sort_sys = queueSortByWorld<ExitEntity>(
+        builder, {sort_sys});
+    sort_sys = queueSortByWorld<EnemyEntity>(
+        builder, {sort_sys});
 
     return sort_sys;
 }
@@ -1042,9 +1100,18 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
             ExternalForce
         >>({grab_sys});
 
+    auto enemy_act_sys = builder.addToGraph<ParallelForNode<Engine,
+        enemyActSystem,
+            Position,
+            Rotation,
+            EnemyState,
+            ExternalForce,
+            ExternalTorque
+        >>({jump_sys});
+
     // Physics collision detection and solver
     auto substep_sys = phys::RigidBodyPhysicsSystem::setupSubstepTasks(builder,
-        {jump_sys}, consts::numPhysicsSubsteps);
+        {enemy_act_sys}, consts::numPhysicsSubsteps);
 
     // Improve controllability of agents by setting their velocity to 0
     // after physics is done.
@@ -1056,12 +1123,16 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
     auto phys_done = phys::RigidBodyPhysicsSystem::setupCleanupTasks(
         builder, {agent_zero_vel});
 
+    auto enemy_post_phys_sys = builder.addToGraph<ParallelForNode<Engine,
+        enemyPostPhysicsSystem, Position, Velocity, EnemyState>>(
+            {phys_done});
+
     // Check buttons
     auto button_sys = builder.addToGraph<ParallelForNode<Engine,
         buttonSystem,
             Position,
             ButtonState
-        >>({phys_done});
+        >>({enemy_post_phys_sys});
     
     // Set door to start opening if button conditions are met
     auto door_open_sys = builder.addToGraph<ParallelForNode<Engine,
@@ -1073,7 +1144,8 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
 
     auto check_exit_sys = builder.addToGraph<ParallelForNode<Engine,
         checkExitSystem,
-            Level
+            Position,
+            IsExit 
         >>({door_open_sys});
 
     // Check if the episode is over
@@ -1233,7 +1305,11 @@ Sim::Sim(Engine &ctx,
     agent = createAgent(ctx);
     resetAgent(ctx, Vector3::zero(), 0.f, Vector3::zero());
 
-    ctx.singleton<Level>().rooms.next = Entity::none();
+    ctx.singleton<Level>() = {
+        .rooms = { Entity::none() },
+        .exit = ctx.makeRenderableEntity<ExitEntity>(),
+    };
+
     ctx.singleton<EpisodeState>() = initEpisodeState();
 
     simEntityQuery = ctx.query<Entity, EntityType>();

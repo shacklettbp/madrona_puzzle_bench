@@ -46,6 +46,9 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
 
     registry.registerComponent<ButtonListElem>();
 
+    registry.registerComponent<IsExit>();
+    registry.registerComponent<EnemyState>();
+
     registry.registerSingleton<WorldReset>();
     registry.registerSingleton<Level>();
     registry.registerSingleton<EpisodeState>();
@@ -60,6 +63,8 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
     registry.registerArchetype<DoorEntity>();
     registry.registerArchetype<ButtonEntity>();
     registry.registerArchetype<RoomEntity>();
+    registry.registerArchetype<ExitEntity>();
+    registry.registerArchetype<EnemyEntity>();
 
     registry.registerArchetype<DeferredDeleteEntity>();
 

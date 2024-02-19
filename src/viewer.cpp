@@ -154,6 +154,9 @@ int main(int argc, char *argv[])
     auto agent_lvl_type_printer = mgr.agentLevelTypeObsTensor().makePrinter();
     auto agent_exit_printer = mgr.agentExitObsTensor().makePrinter();
 
+    auto entity_phys_printer = mgr.entityPhysicsStateObsTensor().makePrinter();
+    auto entity_type_printer = mgr.entityTypeObsTensor().makePrinter();
+
     auto reward_printer = mgr.rewardTensor().makePrinter();
 
     auto printObs = [&]() {
@@ -168,6 +171,12 @@ int main(int argc, char *argv[])
 
         printf("To Exit\n");
         agent_exit_printer.print();
+
+        printf("Entity Physics States\n");
+        entity_phys_printer.print();
+
+        printf("Entity Types\n");
+        entity_type_printer.print();
 
         printf("Reward\n");
         reward_printer.print();

@@ -203,7 +203,7 @@ struct ButtonListElem : EntityLinkedListElem {};
 
 struct Level {
     RoomListElem rooms;
-    Vector3 exitPos;
+    Entity exit;
 };
 
 // Linked buttons that control the door opening and whether or not the door
@@ -255,6 +255,13 @@ struct CheckpointReset {
 // For connection to the viewer.
 struct CheckpointSave {
     int32_t save;
+};
+
+struct IsExit {};
+
+struct EnemyState {
+    float moveForce;
+    float moveTorque;
 };
 
 struct RoomEntity : public madrona::Archetype<
@@ -375,5 +382,39 @@ struct PhysicsEntity : public madrona::Archetype<
     EntityExtents,
     madrona::render::Renderable
 > {};
+
+// Archetype for the button objects that open the doors
+// Buttons don't have collision but are rendered
+struct ExitEntity : public madrona::Archetype<
+    Position,
+    Rotation,
+    Scale,
+    ObjectID,
+    madrona::render::Renderable,
+    IsExit
+> {};
+
+// Generic archetype for entities that need physics but don't have custom
+// logic associated with them.
+struct EnemyEntity : public madrona::Archetype<
+    Position, 
+    Rotation,
+    Scale,
+    Velocity,
+    ObjectID,
+    ResponseType,
+    madrona::phys::solver::SubstepPrevState,
+    madrona::phys::solver::PreSolvePositional,
+    madrona::phys::solver::PreSolveVelocity,
+    ExternalForce,
+    ExternalTorque,
+    madrona::phys::broadphase::LeafID,
+
+    EntityType,
+    EntityExtents,
+    EnemyState,
+    madrona::render::Renderable
+> {};
+
 
 }
