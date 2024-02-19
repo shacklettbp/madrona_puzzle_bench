@@ -291,6 +291,23 @@ static Entity makeDoor(Engine &ctx,
     return door;
 }
 
+static Entity makeWall(Engine &ctx, Vector3 center, Diag3x3 scale)
+{
+    Entity wall = ctx.makeRenderableEntity<PhysicsEntity>();
+    setupRigidBodyEntity(
+        ctx,
+        wall,
+        center,
+        Quat { 1, 0, 0, 0 },
+        SimObject::Wall, 
+        EntityType::Wall,
+        ResponseType::Static,
+        scale);
+    registerRigidBodyEntity(ctx, wall, SimObject::Wall);
+
+    return wall;
+}
+
 static void makeRoomWalls(Engine &ctx,
                           AABB room_aabb,
                           Span<const WallConfig> wall_cfgs,
@@ -318,17 +335,7 @@ static void makeRoomWalls(Engine &ctx,
 
         Vector3 center = (p0 + p1) / 2.f;
 
-        Entity wall = ctx.makeRenderableEntity<PhysicsEntity>();
-        setupRigidBodyEntity(
-            ctx,
-            wall,
-            center,
-            Quat { 1, 0, 0, 0 },
-            SimObject::Wall, 
-            EntityType::Wall,
-            ResponseType::Static,
-            scale);
-        registerRigidBodyEntity(ctx, wall, SimObject::Wall);
+        makeWall(ctx, center, scale);
     };
 
     const float entrance_width = ctx.data().doorWidth;
@@ -380,18 +387,7 @@ static void makeRoomWalls(Engine &ctx,
 
         before_center -= len_axis * consts::wallWidth / 4.f;
 
-        Entity before_wall = ctx.makeRenderableEntity<PhysicsEntity>();
-        setupRigidBodyEntity(
-            ctx,
-            before_wall,
-            before_center,
-            Quat { 1, 0, 0, 0 },
-            SimObject::Wall, 
-            EntityType::Wall,
-            ResponseType::Static,
-            Diag3x3::fromVec(before_dims));
-        registerRigidBodyEntity(ctx, before_wall, SimObject::Wall);
-
+        makeWall(ctx, before_center, Diag3x3::fromVec(before_dims));
 
         Vector3 after_center = (after_entrance + p1) / 2.f;
         Vector3 after_dims = consts::wallWidth * width_axis + 
@@ -401,17 +397,7 @@ static void makeRoomWalls(Engine &ctx,
 
         after_center += len_axis * consts::wallWidth / 4.f;
 
-        Entity after_wall = ctx.makeRenderableEntity<PhysicsEntity>();
-        setupRigidBodyEntity(
-            ctx,
-            after_wall,
-            after_center,
-            Quat { 1, 0, 0, 0 },
-            SimObject::Wall, 
-            EntityType::Wall,
-            ResponseType::Static,
-            Diag3x3::fromVec(after_dims));
-        registerRigidBodyEntity(ctx, after_wall, SimObject::Wall);
+        makeWall(ctx, after_center, Diag3x3::fromVec(after_dims));
     };
 
     const Vector3 corners[4] {
@@ -470,65 +456,41 @@ static void makeFloor(Engine &ctx)
 
 static void makeSpawn(Engine &ctx, float spawn_size, Vector3 spawn_pos)
 {
-    Entity back_wall = ctx.makeRenderableEntity<PhysicsEntity>();
-    setupRigidBodyEntity(
-        ctx,
-        back_wall,
+    makeWall(ctx, 
         spawn_pos + Vector3 {
             0.f,
             -spawn_size / 2.f,
             0.f,
         },
-        Quat { 1, 0, 0, 0 },
-        SimObject::Wall,
-        EntityType::Wall,
-        ResponseType::Static,
-        Diag3x3 {
+        {
             spawn_size + consts::wallWidth,
             consts::wallWidth,
             2.f,
         });
-    registerRigidBodyEntity(ctx, back_wall, SimObject::Wall);
 
-    Entity left_wall = ctx.makeRenderableEntity<PhysicsEntity>();
-    setupRigidBodyEntity(
-        ctx,
-        left_wall,
+    makeWall(ctx,
         spawn_pos + Vector3 {
             -spawn_size / 2.f,
             0.f,
             0.f,
         },
-        Quat { 1, 0, 0, 0 },
-        SimObject::Wall, 
-        EntityType::Wall,
-        ResponseType::Static,
-        Diag3x3 {
+        {
             consts::wallWidth,
             spawn_size,
             2.f,
         });
-    registerRigidBodyEntity(ctx, left_wall, SimObject::Wall);
 
-    Entity right_wall = ctx.makeRenderableEntity<PhysicsEntity>();
-    setupRigidBodyEntity(
-        ctx,
-        right_wall,
+    makeWall(ctx,
         spawn_pos + Vector3 {
             spawn_size / 2.f,
             0.f,
             0.f,
         },
-        Quat { 1, 0, 0, 0 },
-        SimObject::Wall, 
-        EntityType::Wall,
-        ResponseType::Static,
-        Diag3x3 {
+        {
             consts::wallWidth,
             spawn_size,
             2.f,
         });
-    registerRigidBodyEntity(ctx, right_wall, SimObject::Wall);
 }
 
 static Entity makeExit(Engine &ctx, float room_size, Vector3 exit_pos)
@@ -814,7 +776,7 @@ static void obstructedBlockButtonLevel(Engine &ctx)
 
     {
         float button_x = randBetween(ctx,
-            room_aabb.pMin.x + half_button_width,
+            0.f,
             room_aabb.pMax.x - half_button_width);
 
         float button_y = randBetween(ctx,
