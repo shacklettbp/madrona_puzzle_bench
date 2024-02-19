@@ -93,7 +93,7 @@ int main(int argc, char *argv[])
         .extRenderDev = render_gpu.device(),
         .episodeLen = 200,
         .levelsPerEpisode = 3,
-        .buttonWidth = 1.3f,
+        .buttonWidth = 2.6f,
         .doorWidth = 20.0f/3.0f,
         .rewardPerDist = 0.05f,
         .slackReward = -0.005f,

@@ -40,6 +40,7 @@ enum class LevelType : uint32_t {
     LavaPath,
     SingleButton,
     SingleBlockButton,
+    ObstructedBlockButton,
     NumTypes,
 };
 
@@ -354,7 +355,16 @@ struct ButtonEntity : public madrona::Archetype<
     Position,
     Rotation,
     Scale,
+    Velocity,
     ObjectID,
+    ResponseType,
+    madrona::phys::solver::SubstepPrevState,
+    madrona::phys::solver::PreSolvePositional,
+    madrona::phys::solver::PreSolveVelocity,
+    ExternalForce,
+    ExternalTorque,
+    madrona::phys::broadphase::LeafID,
+
     ButtonState,
     EntityType,
     EntityExtents,

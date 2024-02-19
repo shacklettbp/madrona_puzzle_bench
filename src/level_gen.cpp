@@ -189,28 +189,34 @@ static Entity makeButton(Engine &ctx,
                          float button_y)
 {
     const float button_width = ctx.data().buttonWidth;
-    const float button_height = 0.2f;
 
     Entity button = ctx.makeRenderableEntity<ButtonEntity>();
-    ctx.get<Position>(button) = Vector3 {
-        button_x,
-        button_y,
-        0.f,
-    };
-    ctx.get<Rotation>(button) = Quat { 1, 0, 0, 0 };
-    ctx.get<Scale>(button) = Diag3x3 {
-        button_width,
-        button_width,
-        button_height,
-    };
-    ctx.get<ObjectID>(button) = ObjectID { (int32_t)SimObject::Button };
+
+    setupRigidBodyEntity(
+        ctx,
+        button,
+        Vector3 {
+            button_x,
+            button_y,
+            0.f,
+        },
+        Quat { 1, 0, 0, 0 },
+        SimObject::Button,
+        EntityType::Button,
+        ResponseType::Static,
+        Diag3x3 {
+            button_width,
+            button_width,
+            1.f,
+        });
+    registerRigidBodyEntity(ctx, button, SimObject::Button);
+
     ctx.get<ButtonState>(button).isPressed = false;
-    ctx.get<EntityType>(button) = EntityType::Button;
 
     ctx.get<EntityExtents>(button) = Vector3 {
         .x = button_width,
         .y = button_width,
-        .z = button_height,
+        .z = 0.25f,
     };
 
     return button;
@@ -219,7 +225,7 @@ static Entity makeButton(Engine &ctx,
 static Entity makeBlock(Engine &ctx,
                        float block_x,
                        float block_y,
-                       float scale = 1.f)
+                       float block_size = 1.f)
 {
     Entity block = ctx.makeRenderableEntity<PhysicsEntity>();
     setupRigidBodyEntity(
@@ -228,23 +234,23 @@ static Entity makeBlock(Engine &ctx,
         Vector3 {
             block_x,
             block_y,
-            1.f * scale,
+            block_size / 2.f,
         },
         Quat { 1, 0, 0, 0 },
         SimObject::Block,
         EntityType::Block,
         ResponseType::Dynamic,
         Diag3x3 {
-            scale,
-            scale,
-            scale,
+            block_size,
+            block_size,
+            block_size,
         });
     registerRigidBodyEntity(ctx, block, SimObject::Block);
 
     ctx.get<EntityExtents>(block) = Vector3 {
-        .x = 2.f * scale,
-        .y = 2.f * scale,
-        .z = 2.f * scale,
+        .x = block_size,
+        .y = block_size,
+        .z = block_size,
     };
 
     return block;
@@ -525,13 +531,73 @@ static void makeSpawn(Engine &ctx, float spawn_size, Vector3 spawn_pos)
     registerRigidBodyEntity(ctx, right_wall, SimObject::Wall);
 }
 
-static Entity makeExit(Engine &ctx, Vector3 p)
+static Entity makeExit(Engine &ctx, float room_size, Vector3 exit_pos)
 {
     Entity e = ctx.makeRenderableEntity<ExitEntity>();
-    ctx.get<Position>(e) = p;
+    ctx.get<Position>(e) = exit_pos;
     ctx.get<Rotation>(e) = Quat { 1, 0, 0, 0 };
     ctx.get<Scale>(e) = Diag3x3 { 1, 1, 1 };
     ctx.get<ObjectID>(e) = ObjectID { (int32_t)SimObject::Exit };
+
+    Entity back_wall = ctx.makeRenderableEntity<PhysicsEntity>();
+    setupRigidBodyEntity(
+        ctx,
+        back_wall,
+        exit_pos + Vector3 {
+            0.f,
+            room_size / 2.f,
+            0.f,
+        },
+        Quat { 1, 0, 0, 0 },
+        SimObject::Wall,
+        EntityType::Wall,
+        ResponseType::Static,
+        Diag3x3 {
+            room_size + consts::wallWidth,
+            consts::wallWidth,
+            2.f,
+        });
+    registerRigidBodyEntity(ctx, back_wall, SimObject::Wall);
+
+    Entity left_wall = ctx.makeRenderableEntity<PhysicsEntity>();
+    setupRigidBodyEntity(
+        ctx,
+        left_wall,
+        exit_pos + Vector3 {
+            -room_size / 2.f,
+            0.f,
+            0.f,
+        },
+        Quat { 1, 0, 0, 0 },
+        SimObject::Wall, 
+        EntityType::Wall,
+        ResponseType::Static,
+        Diag3x3 {
+            consts::wallWidth,
+            room_size,
+            2.f,
+        });
+    registerRigidBodyEntity(ctx, left_wall, SimObject::Wall);
+
+    Entity right_wall = ctx.makeRenderableEntity<PhysicsEntity>();
+    setupRigidBodyEntity(
+        ctx,
+        right_wall,
+        exit_pos + Vector3 {
+            room_size / 2.f,
+            0.f,
+            0.f,
+        },
+        Quat { 1, 0, 0, 0 },
+        SimObject::Wall, 
+        EntityType::Wall,
+        ResponseType::Static,
+        Diag3x3 {
+            consts::wallWidth,
+            room_size,
+            2.f,
+        });
+    registerRigidBodyEntity(ctx, right_wall, SimObject::Wall);
 
     return e;
 }
@@ -595,30 +661,42 @@ static void setupSingleRoomLevel(Engine &ctx,
         }, doors, entrance_positions);
 
     Vector3 exit_pos = entrance_positions[0];
-    exit_pos.y += 5.f;
-
-    Level &level = ctx.singleton<Level>();
-    level.exit = makeExit(ctx, exit_pos);
-
     Vector3 spawn_pos = entrance_positions[2];
+
     spawn_pos.y -= spawn_size / 2.f;
 
     makeSpawn(ctx, spawn_size, spawn_pos);
 
     resetAgent(ctx, spawn_pos, spawn_size, exit_pos);
 
+    exit_pos.y += spawn_size / 2.f;
+
+    Level &level = ctx.singleton<Level>();
+    level.exit = makeExit(ctx, spawn_size, exit_pos);
+
     RoomList room_list = RoomList::init(&level.rooms);
 
+    // Save a larger AABB in the room list that contains
+    // the exit and spawn rooms so they're picked up
+    // for observations
+    AABB obs_aabb = room_aabb;
+    obs_aabb.pMax.y += spawn_size;
+    obs_aabb.pMin.y -= spawn_size;
+
+    // Grow downwards so closed doors are still in obs
+    obs_aabb.pMin.z -= 1.f;
+
     Entity room = room_list.add(ctx);
-    ctx.get<RoomAABB>(room) = room_aabb;
+    ctx.get<RoomAABB>(room) = obs_aabb;
 
     // Shrink returned AABB to account for walls
-    room_aabb.pMin.x += half_wall_width;
-    room_aabb.pMin.y += half_wall_width;
-    room_aabb.pMax.x -= half_wall_width;
-    room_aabb.pMax.y -= half_wall_width;
+    AABB safe_aabb = room_aabb;
+    safe_aabb.pMin.x += half_wall_width;
+    safe_aabb.pMin.y += half_wall_width;
+    safe_aabb.pMax.x -= half_wall_width;
+    safe_aabb.pMax.y -= half_wall_width;
 
-    *room_aabb_out = room_aabb;
+    *room_aabb_out = safe_aabb;
 
     if (exit_door_out) {
         Entity exit_door = doors[0];
@@ -682,8 +760,7 @@ static void singleButtonLevel(Engine &ctx)
 static void singleBlockButtonLevel(Engine &ctx)
 {
     const float level_size = 20.f;
-    const float block_scale = 1.5f;
-    const float block_size = 2.f * block_scale;
+    const float block_size = 3;
 
     const float button_width = ctx.data().buttonWidth;
 
@@ -717,7 +794,48 @@ static void singleBlockButtonLevel(Engine &ctx)
             room_aabb.pMin.y + block_size,
             room_aabb.pMax.y - block_size);
 
-        makeBlock(ctx, block_x, block_y, block_scale);
+        makeBlock(ctx, block_x, block_y, block_size);
+    }
+}
+
+static void obstructedBlockButtonLevel(Engine &ctx)
+{
+    const float level_size = 20.f;
+    const float block_size = 3.f;
+
+    const float button_width = ctx.data().buttonWidth;
+
+    const float half_button_width = button_width / 2.f;
+    const float half_block_size = block_size / 2.f;
+
+    Entity exit_door;
+    AABB room_aabb;
+    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb);
+
+    {
+        float button_x = randBetween(ctx,
+            room_aabb.pMin.x + half_button_width,
+            room_aabb.pMax.x - half_button_width);
+
+        float button_y = randBetween(ctx,
+            room_aabb.pMin.y + half_button_width,
+            room_aabb.pMax.y - half_button_width);
+
+        Entity button = makeButton(ctx, button_x, button_y);
+
+        linkDoorButtons(ctx, exit_door, { button }, false);
+    }
+
+    {
+        float block_x = randBetween(ctx,
+            room_aabb.pMin.x + half_block_size,
+            room_aabb.pMax.x - half_block_size);
+
+        float block_y = randBetween(ctx,
+            room_aabb.pMin.y + block_size,
+            room_aabb.pMax.y - block_size);
+
+        makeBlock(ctx, block_x, block_y, block_size);
     }
 }
 
@@ -738,6 +856,9 @@ LevelType generateLevel(Engine &ctx)
     } break;
     case LevelType::SingleBlockButton: {
         singleBlockButtonLevel(ctx);
+    } break;
+    case LevelType::ObstructedBlockButton: {
+        obstructedBlockButtonLevel(ctx);
     } break;
     default: MADRONA_UNREACHABLE();
     }

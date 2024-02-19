@@ -591,23 +591,31 @@ inline void buttonSystem(Engine &ctx,
                          ButtonState &state)
 {
     const float button_width = ctx.data().buttonWidth;
+    const float button_press_size = 0.4f * button_width;
 
     AABB button_aabb {
         .pMin = pos + Vector3 { 
-            -button_width / 2.f, 
-            -button_width / 2.f,
+            -button_press_size, 
+            -button_press_size,
             0.f,
         },
         .pMax = pos + Vector3 { 
-            button_width / 2.f, 
-            button_width / 2.f,
-            0.25f
+            button_press_size, 
+            button_press_size,
+            0.3f
         },
     };
 
     bool button_pressed = false;
     RigidBodyPhysicsSystem::findEntitiesWithinAABB(
-            ctx, button_aabb, [&](Entity) {
+            ctx, button_aabb, [&](Entity e) {
+        auto response_type_ref = ctx.getSafe<ResponseType>(e);
+
+        if (!response_type_ref.valid() ||
+                response_type_ref.value() != ResponseType::Dynamic) {
+            return;
+        }
+
         button_pressed = true;
     });
 

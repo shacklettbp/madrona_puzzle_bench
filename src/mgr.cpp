@@ -201,7 +201,7 @@ static void loadRenderObjects(render::RenderManager &render_mgr)
 {
     std::array<std::string, (size_t)SimObject::NumObjects> render_asset_paths;
     render_asset_paths[(size_t)SimObject::Block] =
-        (std::filesystem::path(DATA_DIR) / "cube_render.obj").string();
+        (std::filesystem::path(DATA_DIR) / "unit_cube_render.obj").string();
     render_asset_paths[(size_t)SimObject::Wall] =
         (std::filesystem::path(DATA_DIR) / "wall_render.obj").string();
     render_asset_paths[(size_t)SimObject::Door] =
@@ -217,7 +217,7 @@ static void loadRenderObjects(render::RenderManager &render_mgr)
     render_asset_paths[(size_t)SimObject::Enemy] =
         (std::filesystem::path(DATA_DIR) / "agent_render.obj").string();
     render_asset_paths[(size_t)SimObject::Button] =
-        (std::filesystem::path(DATA_DIR) / "cube_render.obj").string();
+        (std::filesystem::path(DATA_DIR) / "button_render.obj").string();
     render_asset_paths[(size_t)SimObject::Lava] =
         (std::filesystem::path(DATA_DIR) / "cube_render.obj").string();
     render_asset_paths[(size_t)SimObject::Exit] =
@@ -306,7 +306,7 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
 {
     std::array<std::string, (size_t)SimObject::NumObjects - 1> asset_paths;
     asset_paths[(size_t)SimObject::Block] =
-        (std::filesystem::path(DATA_DIR) / "cube_collision.obj").string();
+        (std::filesystem::path(DATA_DIR) / "unit_cube_collision.obj").string();
     asset_paths[(size_t)SimObject::Wall] =
         (std::filesystem::path(DATA_DIR) / "wall_collision.obj").string();
     asset_paths[(size_t)SimObject::Door] =
@@ -322,7 +322,7 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
     asset_paths[(size_t)SimObject::Enemy] =
         (std::filesystem::path(DATA_DIR) / "agent_collision_simplified.obj").string();
     asset_paths[(size_t)SimObject::Button] =
-        (std::filesystem::path(DATA_DIR) / "cube_collision.obj").string();
+        (std::filesystem::path(DATA_DIR) / "button_collision.obj").string();
     asset_paths[(size_t)SimObject::Lava] =
         (std::filesystem::path(DATA_DIR) / "cube_collision.obj").string();
     asset_paths[(size_t)SimObject::Exit] =
