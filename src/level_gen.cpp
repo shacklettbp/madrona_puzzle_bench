@@ -726,8 +726,6 @@ LevelType generateLevel(Engine &ctx)
     LevelType level_type = (LevelType)(
         ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes));
 
-    level_type = LevelType::Chase;
-
     switch (level_type) {
     case LevelType::Chase: {
         chaseLevel(ctx);
