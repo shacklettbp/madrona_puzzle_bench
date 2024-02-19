@@ -636,7 +636,6 @@ LevelType generateLevel(Engine &ctx)
         singleButtonLevel(ctx);
     } break;
     case LevelType::SingleBlockButton: {
-        printf("LVL GEN\n");
         singleBlockButtonLevel(ctx);
     } break;
     default: MADRONA_UNREACHABLE();
