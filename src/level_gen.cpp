@@ -501,65 +501,41 @@ static Entity makeExit(Engine &ctx, float room_size, Vector3 exit_pos)
     ctx.get<Scale>(e) = Diag3x3 { 1, 1, 1 };
     ctx.get<ObjectID>(e) = ObjectID { (int32_t)SimObject::Exit };
 
-    Entity back_wall = ctx.makeRenderableEntity<PhysicsEntity>();
-    setupRigidBodyEntity(
-        ctx,
-        back_wall,
+    makeWall(ctx,
         exit_pos + Vector3 {
             0.f,
             room_size / 2.f,
             0.f,
         },
-        Quat { 1, 0, 0, 0 },
-        SimObject::Wall,
-        EntityType::Wall,
-        ResponseType::Static,
-        Diag3x3 {
+        {
             room_size + consts::wallWidth,
             consts::wallWidth,
             2.f,
         });
-    registerRigidBodyEntity(ctx, back_wall, SimObject::Wall);
 
-    Entity left_wall = ctx.makeRenderableEntity<PhysicsEntity>();
-    setupRigidBodyEntity(
-        ctx,
-        left_wall,
+    makeWall(ctx,
         exit_pos + Vector3 {
             -room_size / 2.f,
             0.f,
             0.f,
         },
-        Quat { 1, 0, 0, 0 },
-        SimObject::Wall, 
-        EntityType::Wall,
-        ResponseType::Static,
-        Diag3x3 {
+        {
             consts::wallWidth,
             room_size,
             2.f,
         });
-    registerRigidBodyEntity(ctx, left_wall, SimObject::Wall);
 
-    Entity right_wall = ctx.makeRenderableEntity<PhysicsEntity>();
-    setupRigidBodyEntity(
-        ctx,
-        right_wall,
+    makeWall(ctx,
         exit_pos + Vector3 {
             room_size / 2.f,
             0.f,
             0.f,
         },
-        Quat { 1, 0, 0, 0 },
-        SimObject::Wall, 
-        EntityType::Wall,
-        ResponseType::Static,
-        Diag3x3 {
+        {
             consts::wallWidth,
             room_size,
             2.f,
         });
-    registerRigidBodyEntity(ctx, right_wall, SimObject::Wall);
 
     return e;
 }
@@ -774,9 +750,11 @@ static void obstructedBlockButtonLevel(Engine &ctx)
     AABB room_aabb;
     setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb);
 
+    float button_min_x = 
+        0.25f * room_aabb.pMin.x + 0.75f * room_aabb.pMax.x;
     {
         float button_x = randBetween(ctx,
-            0.f,
+            button_min_x,
             room_aabb.pMax.x - half_button_width);
 
         float button_y = randBetween(ctx,
@@ -790,14 +768,49 @@ static void obstructedBlockButtonLevel(Engine &ctx)
 
     {
         float block_x = randBetween(ctx,
-            room_aabb.pMin.x + half_block_size,
-            room_aabb.pMax.x - half_block_size);
+            // Agent needs to be able to get in to get block out
+            room_aabb.pMin.x +
+                consts::agentRadius * 2.5f + block_size, 
+            button_min_x - half_block_size - consts::wallWidth);
 
         float block_y = randBetween(ctx,
-            room_aabb.pMin.y + block_size,
-            room_aabb.pMax.y - block_size);
+            room_aabb.pMin.y + block_size + consts::wallWidth,
+            room_aabb.pMax.y - block_size - consts::wallWidth);
 
         makeBlock(ctx, block_x, block_y, block_size);
+
+        makeWall(ctx, {
+            block_x + block_size / 2.f + consts::wallWidth / 2.f,
+            block_y,
+            0.f,
+        },
+        {
+            consts::wallWidth,
+            block_size + consts::wallWidth * 2.f,
+            2.f,
+        });
+
+        makeWall(ctx, {
+            block_x,
+            block_y + block_size / 2.f + consts::wallWidth / 2.f,
+            0.f,
+        },
+        {
+            block_size,
+            consts::wallWidth,
+            2.f,
+        });
+
+        makeWall(ctx, {
+            block_x,
+            block_y - block_size / 2.f - consts::wallWidth / 2.f,
+            0.f,
+        },
+        {
+            block_size,
+            consts::wallWidth,
+            2.f,
+        });
     }
 }
 
