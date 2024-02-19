@@ -332,6 +332,7 @@ struct DoorEntity : public madrona::Archetype<
     ExternalForce,
     ExternalTorque,
     madrona::phys::broadphase::LeafID,
+
     OpenState,
     DoorButtons,
     DoorRooms,
@@ -369,6 +370,7 @@ struct PhysicsEntity : public madrona::Archetype<
     ExternalForce,
     ExternalTorque,
     madrona::phys::broadphase::LeafID,
+
     EntityType,
     EntityExtents,
     madrona::render::Renderable

@@ -605,9 +605,6 @@ Manager::Impl * Manager::Impl::init(
 Manager::Manager(const Config &cfg)
     : impl_(Impl::init(cfg))
 {
-    // Need to run one step before force reset so generated entities are sorted
-    step();
-    
     // Force reset and step so obs are populated at beginning of fresh episode
     for (int32_t i = 0; i < (int32_t)cfg.numWorlds; i++) {
         triggerReset(i);

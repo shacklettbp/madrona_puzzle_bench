@@ -7,7 +7,7 @@ madrona::Entity Engine::makeRenderableEntity()
     if (data().enableRender) {
         madrona::render::RenderingSystem::makeEntityRenderable(*this, e);
     }
-    
+
     return e;
 }
 

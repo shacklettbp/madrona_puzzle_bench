@@ -354,7 +354,7 @@ inline void cleanupLevelSystem(Engine &ctx, const EpisodeState &episode_state)
 
 inline void deferredDeleteSystem(Engine &ctx, DeferredDelete deferred_delete)
 {
-    ctx.destroyEntity(deferred_delete.e);
+    ctx.destroyRenderableEntity(deferred_delete.e);
 }
 
 inline void generateLevelSystem(Engine &ctx, EpisodeState &episode_state)
@@ -979,12 +979,28 @@ TaskGraphNodeID queueSortByWorld(TaskGraphBuilder &builder,
 
     return post_sort_reset_tmp;
 }
+
+static TaskGraphNodeID sortEntities(TaskGraphBuilder &builder,
+                                    Span<const TaskGraphNodeID> deps)
+{
+    auto sort_sys = queueSortByWorld<Agent>(
+        builder, deps);
+    sort_sys = queueSortByWorld<PhysicsEntity>(
+        builder, {sort_sys});
+    sort_sys = queueSortByWorld<ButtonEntity>(
+        builder, {sort_sys});
+    sort_sys = queueSortByWorld<DoorEntity>(
+        builder, {sort_sys});
+    sort_sys = queueSortByWorld<RoomEntity>(
+        builder, {sort_sys});
+
+    return sort_sys;
+}
 #endif
 
 // Build the task graph
 void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
 {
-
     // Turn policy actions into movement
     auto move_sys = builder.addToGraph<ParallelForNode<Engine,
         movementSystem,
@@ -1074,11 +1090,17 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
             Done
         >>({reward_sys});
 
+    auto sim_done = done_sys;
+#ifdef MADRONA_GPU_MODE
+    // A sort is currently necessary so cleanupLevelSystem works properly
+    sim_done = sortEntities(builder, {sim_done});
+#endif
+
     // Conditionally reset the world if the episode is over
     auto new_episode_sys = builder.addToGraph<ParallelForNode<Engine,
         newEpisodeSystem,
            EpisodeState 
-        >>({done_sys});
+        >>({sim_done});
 
     // FIXME
     auto cleanup_level = builder.addToGraph<ParallelForNode<Engine,
@@ -1107,20 +1129,7 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
 
     auto post_gen = gen_level_sys;
 #ifdef MADRONA_GPU_MODE
-    // Sort entities, this could be conditional on reset like the second
-    // BVH build above.
-    auto sort_sys = queueSortByWorld<Agent>(
-        builder, {gen_level_sys});
-    sort_sys = queueSortByWorld<PhysicsEntity>(
-        builder, {sort_sys});
-    sort_sys = queueSortByWorld<ButtonEntity>(
-        builder, {sort_sys});
-    sort_sys = queueSortByWorld<DoorEntity>(
-        builder, {sort_sys});
-    sort_sys = queueSortByWorld<RoomEntity>(
-        builder, {sort_sys});
-
-    post_gen = sort_sys;
+    post_gen = sortEntities(builder, {post_gen});
 #endif
     // Conditionally load the checkpoint here including Done, Reward, 
     // and StepsRemaining. With Observations this should reconstruct 
@@ -1222,15 +1231,10 @@ Sim::Sim(Engine &ctx,
     simFlags = cfg.simFlags;
 
     agent = createAgent(ctx);
+    resetAgent(ctx, Vector3::zero(), 0.f, Vector3::zero());
 
+    ctx.singleton<Level>().rooms.next = Entity::none();
     ctx.singleton<EpisodeState>() = initEpisodeState();
-    initEpisodeRNG(ctx);
-
-    phys::RigidBodyPhysicsSystem::reset(ctx);
-    LevelType level_type = generateLevel(ctx);
-    ctx.get<AgentLevelTypeObs>(agent) = AgentLevelTypeObs {
-        .type = level_type,
-    };
 
     simEntityQuery = ctx.query<Entity, EntityType>();
 

@@ -122,10 +122,10 @@ Entity createAgent(Engine &ctx)
 
 // Agents need to be re-registered them with the broadphase system and
 // have their transform / physics state reset to spawn.
-static void resetAgent(Engine &ctx,
-                       Vector3 spawn_pos,
-                       float spawn_size,
-                       Vector3 exit_pos)
+void resetAgent(Engine &ctx,
+                Vector3 spawn_pos,
+                float spawn_size,
+                Vector3 exit_pos)
 {
     Entity agent_entity = ctx.data().agent;
     registerRigidBodyEntity(ctx, agent_entity, SimObject::Agent);
@@ -264,6 +264,7 @@ static Entity makeDoor(Engine &ctx,
         math::up * door_height + len_axis * door_obj_len;
 
     Entity door = ctx.makeRenderableEntity<DoorEntity>();
+
     setupRigidBodyEntity(
         ctx,
         door,
@@ -445,6 +446,7 @@ static void makeFloor(Engine &ctx)
 {
     // Create the floor entity, just a simple static plane.
     Entity floor_plane = ctx.makeRenderableEntity<PhysicsEntity>();
+
     setupRigidBodyEntity(
         ctx,
         floor_plane,
@@ -587,6 +589,7 @@ static void singleBlockButtonLevel(Engine &ctx)
     spawn_pos.y -= spawn_size / 2.f;
 
     makeSpawn(ctx, spawn_size, spawn_pos);
+
     resetAgent(ctx, spawn_pos, spawn_size, level.exitPos);
 
     RoomList room_list = RoomList::init(&level.rooms);
