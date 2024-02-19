@@ -9,11 +9,16 @@ using namespace madrona::phys;
 
 namespace {
 
-enum class RoomWallType : uint32_t {
+enum class WallType : uint32_t {
     None,
     Solid,
     Entrance,
     Door,
+};
+
+struct WallConfig {
+    WallType type;
+    float entranceT = FLT_MAX;
 };
 
 struct RoomList {
@@ -271,8 +276,7 @@ static Entity makeDoor(Engine &ctx,
 
 static void makeRoomWalls(Engine &ctx,
                           AABB room_aabb,
-                          std::array<float, 4> door_ts,
-                          std::array<RoomWallType, 4> wall_types,
+                          Span<const WallConfig> wall_cfgs,
                           Entity *door_entities,
                           Vector3 *entrance_positions)
 {
@@ -404,22 +408,20 @@ static void makeRoomWalls(Engine &ctx,
     auto makeSide = [&]
     (CountT side_idx, CountT corner_i, CountT corner_j)
     {
-        RoomWallType wall_type = wall_types[side_idx];
+        WallConfig wall_cfg = wall_cfgs[side_idx];
 
-        if (wall_type == RoomWallType::None) {
+        if (wall_cfg.type == WallType::None) {
             return;
         }
 
         Vector3 cur_corner = corners[corner_i];
         Vector3 next_corner = corners[corner_j];
 
-        float door_t = door_ts[side_idx];
-        
-        bool make_door = wall_type == RoomWallType::Door;
+        bool make_door = wall_cfg.type == WallType::Door;
 
-        if (make_door || wall_type == RoomWallType::Entrance) {
+        if (make_door || wall_cfg.type == WallType::Entrance) {
             makeEntranceWall(
-                cur_corner, next_corner, door_t,
+                cur_corner, next_corner, wall_cfg.entranceT,
                 make_door ? &door_entities[side_idx] : nullptr,
                 &entrance_positions[side_idx]);
         } else {
@@ -560,14 +562,12 @@ static void singleBlockButtonLevel(Engine &ctx)
 
     Entity doors[4];
     Vector3 entrance_positions[4];
-    makeRoomWalls(ctx,
-                  room_aabb,
-                  { exit_t, 0.f, spawn_t, 0.f },
+    makeRoomWalls(ctx, room_aabb,
                   {
-                      RoomWallType::Door,
-                      RoomWallType::Solid,
-                      RoomWallType::Entrance,
-                      RoomWallType::Solid,
+                      { WallType::Door, exit_t },
+                      { WallType::Solid },
+                      { WallType::Entrance, spawn_t },
+                      { WallType::Solid },
                   }, doors, entrance_positions);
 
     Level &level = ctx.singleton<Level>();
