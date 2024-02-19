@@ -7,6 +7,15 @@ using namespace madrona;
 using namespace madrona::math;
 using namespace madrona::phys;
 
+namespace {
+
+enum class RoomWallType : uint32_t {
+    None,
+    Solid,
+    Entrance,
+    Door,
+};
+
 struct RoomList {
     RoomListElem *cur;
 
@@ -31,6 +40,7 @@ struct RoomList {
         return e;
     }
 };
+}
 
 static inline float randInRangeCentered(Engine &ctx, float range)
 {
@@ -229,200 +239,17 @@ static Entity makeBlock(Engine &ctx,
     return block;
 }
 
-static void makeRoomWalls(Engine &ctx,
-                          AABB room_aabb,
-                          const float *n_door,
-                          const float *e_door,
-                          const float *s_door,
-                          const float *w_door,
-                          Vector3 *n_door_pos_out,
-                          Vector3 *e_door_pos_out,
-                          Vector3 *s_door_pos_out,
-                          Vector3 *w_door_pos_out)
-{
-    Vector2 sw_corner = { room_aabb.pMin.x, room_aabb.pMin.y };
-    Vector2 ne_corner = { room_aabb.pMax.x, room_aabb.pMax.y };
-
-    auto makeFullWall = [
-        &ctx
-    ](Vector2 p0, Vector2 p1)
-    {
-        Vector2 diff = p1 - p0;
-
-        Vector2 scale;
-        if (diff.x == 0) {
-            scale.x = consts::wallWidth;
-            scale.y = diff.y;
-        } else if (diff.y == 0) {
-            scale.x = diff.x;
-            scale.y = consts::wallWidth;
-        }
-
-        Vector2 center = (p0 + p1) / 2.f;
-
-        Entity wall = ctx.makeRenderableEntity<PhysicsEntity>();
-        setupRigidBodyEntity(
-            ctx,
-            wall,
-            Vector3 {
-                center.x,
-                center.y,
-                0.f,
-            },
-            Quat { 1, 0, 0, 0 },
-            SimObject::Wall, 
-            EntityType::Wall,
-            ResponseType::Static,
-            Diag3x3 {
-                scale.x,
-                scale.y,
-                2.f,
-            });
-        registerRigidBodyEntity(ctx, wall, SimObject::Wall);
-    };
-
-    auto makeDoorWall = [
-        &ctx
-    ](Vector2 p0, Vector2 p1, float door_t, Vector3 *out_door_center)
-    {
-        const float door_width = ctx.data().doorWidth;
-
-        Vector2 diff = p1 - p0;
-
-        float wall_len;
-        bool y_axis;
-        if (diff.x == 0) {
-            wall_len = diff.y;
-            y_axis = true;
-        } else if (diff.y == 0) {
-            wall_len = diff.x;
-            y_axis = false;
-        } else {
-            assert(false);
-        }
-
-        float door_dist = 0.25f * door_width +
-            door_t * (wall_len - 0.5f * door_width);
-
-        float before_len = door_dist - 0.75f * door_width;
-        float after_len = wall_len - door_dist - 0.5f * door_width;
-
-        Vector2 door_center = p0;
-        Vector2 before_center = p0;
-        if (y_axis) {
-            before_center.y += before_len / 2.f;
-            door_center.y += door_dist;
-        } else {
-            before_center.x += before_len / 2.f;
-            door_center.x += door_dist;
-        }
-
-        if (out_door_center != nullptr) {
-            *out_door_center = {
-                door_center.x,
-                door_center.y,
-                0.f,
-            };
-        }
-
-        Entity before_wall = ctx.makeRenderableEntity<PhysicsEntity>();
-        setupRigidBodyEntity(
-            ctx,
-            before_wall,
-            Vector3 {
-                before_center.x,
-                before_center.y,
-                0.f,
-            },
-            Quat { 1, 0, 0, 0 },
-            SimObject::Wall, 
-            EntityType::Wall,
-            ResponseType::Static,
-            Diag3x3 {
-                y_axis ? consts::wallWidth : before_len,
-                y_axis ? before_len : consts::wallWidth,
-                2.f,
-            });
-        registerRigidBodyEntity(ctx, before_wall, SimObject::Wall);
-
-        Vector2 after_center = p0;
-        if (y_axis) {
-            after_center.y -= after_len / 2.f;
-        } else {
-            after_center.x -= after_len / 2.f;
-        }
-
-        Entity after_wall = ctx.makeRenderableEntity<PhysicsEntity>();
-        setupRigidBodyEntity(
-            ctx,
-            after_wall,
-            Vector3 {
-                after_center.x,
-                after_center.y,
-                0.f,
-            },
-            Quat { 1, 0, 0, 0 },
-            SimObject::Wall, 
-            EntityType::Wall,
-            ResponseType::Static,
-            Diag3x3 {
-                y_axis ? consts::wallWidth : after_len,
-                y_axis ? after_len : consts::wallWidth,
-                2.f,
-            });
-        registerRigidBodyEntity(ctx, after_wall, SimObject::Wall);
-    };
-
-    Vector2 corners[4] {
-        Vector2(sw_corner.x, ne_corner.y),
-        ne_corner,
-        Vector2(ne_corner.x, sw_corner.y),
-        sw_corner,
-    };
-
-    if (n_door != nullptr) {
-        makeDoorWall(corners[0], corners[1], *n_door,
-                     n_door_pos_out);
-    } else {
-        makeFullWall(corners[0], corners[1]);
-    }
-
-    if (e_door != nullptr) {
-        makeDoorWall(corners[1], corners[2], *e_door,
-                     e_door_pos_out);
-    } else {
-        makeFullWall(corners[1], corners[2]);
-    }
-
-    if (s_door != nullptr) {
-        makeDoorWall(corners[2], corners[3], *s_door,
-                     s_door_pos_out);
-    } else {
-        makeFullWall(corners[2], corners[3]);
-    }
-
-    if (w_door != nullptr) {
-        makeDoorWall(corners[3], corners[0], *w_door,
-                     w_door_pos_out);
-    } else {
-        makeFullWall(corners[3], corners[0]);
-    }
-}
-
 static Entity makeDoor(Engine &ctx,
-                     Vector3 door_center,
-                     bool y_axis)
+                       Vector3 door_center,
+                       Vector3 len_axis,
+                       Vector3 width_axis,
+                       const float door_height = 1.75f)
 
 {
-    const float door_obj_width = 0.8f * ctx.data().doorWidth;
+    const float door_obj_len = 0.8f * ctx.data().doorWidth;
 
-    const float door_x_len = 
-        y_axis ? door_obj_width : consts::wallWidth;
-
-    const float door_y_len = 
-        y_axis ? consts::wallWidth : door_obj_width;
-
-    const float door_height = 1.75f;
+    Vector3 door_dims = width_axis * consts::wallWidth +
+        math::up * door_height + len_axis * door_obj_len;
 
     Entity door = ctx.makeRenderableEntity<DoorEntity>();
     setupRigidBodyEntity(
@@ -433,21 +260,177 @@ static Entity makeDoor(Engine &ctx,
         SimObject::Door,
         EntityType::Door,
         ResponseType::Static,
-        Diag3x3 {
-            door_x_len,
-            door_y_len,
-            door_height,
-        });
+        Diag3x3::fromVec(door_dims));
     registerRigidBodyEntity(ctx, door, SimObject::Door);
     ctx.get<OpenState>(door).isOpen = false;
 
-    ctx.get<EntityExtents>(door) = Vector3 {
-        .x = door_x_len,
-        .y = door_y_len,
-        .z = door_height,
-    };
+    ctx.get<EntityExtents>(door) = door_dims;
 
     return door;
+}
+
+static void makeRoomWalls(Engine &ctx,
+                          AABB room_aabb,
+                          std::array<float, 4> door_ts,
+                          std::array<RoomWallType, 4> wall_types,
+                          Entity *door_entities,
+                          Vector3 *entrance_positions)
+{
+    auto makeSolidWall = [
+        &ctx
+    ](Vector3 p0, Vector3 p1)
+    {
+        Vector3 diff = p1 - p0;
+        assert(diff.z == 0);
+
+        Diag3x3 scale;
+        if (diff.x == 0) {
+            scale.d0 = consts::wallWidth;
+            scale.d1 = diff.y + consts::wallWidth;
+        } else if (diff.y == 0) {
+            scale.d0 = diff.x + consts::wallWidth;
+            scale.d1 = consts::wallWidth;
+        } else {
+            assert(false);
+        }
+        scale.d2 = 2.f;
+
+        Vector3 center = (p0 + p1) / 2.f;
+
+        Entity wall = ctx.makeRenderableEntity<PhysicsEntity>();
+        setupRigidBodyEntity(
+            ctx,
+            wall,
+            center,
+            Quat { 1, 0, 0, 0 },
+            SimObject::Wall, 
+            EntityType::Wall,
+            ResponseType::Static,
+            scale);
+        registerRigidBodyEntity(ctx, wall, SimObject::Wall);
+    };
+
+    auto makeEntranceWall = [
+        &ctx
+    ](Vector3 p0, Vector3 p1, float entrance_t,
+      Entity *door_entity_out, Vector3 *entrance_pos_out)
+    {
+        const float entrance_width = ctx.data().doorWidth;
+
+        Vector3 diff = p1 - p0;
+        assert(diff.z == 0.f);
+
+        float wall_len;
+        Vector3 len_axis;
+        Vector3 width_axis;
+        if (diff.x == 0) {
+            wall_len = diff.y;
+            len_axis = math::fwd;
+            width_axis = math::right;
+        } else if (diff.y == 0) {
+            wall_len = diff.x;
+            len_axis = math::right;
+            width_axis = math::fwd;
+        } else {
+            assert(false);
+        }
+
+        float entrance_padding = 0.55f * entrance_width;
+        float safe_entrance_len = wall_len - 2 * entrance_padding;
+
+        float entrance_dist = entrance_padding + safe_entrance_len * entrance_t;
+
+        Vector3 entrance_center = p0 + len_axis * entrance_dist;
+        *entrance_pos_out = entrance_center;
+
+        Vector3 before_entrance =
+            entrance_center - len_axis * entrance_width / 2.f;
+        Vector3 after_entrance =
+            entrance_center + len_axis * entrance_width / 2.f;
+
+        if (door_entity_out) {
+            *door_entity_out = makeDoor(ctx, entrance_center, len_axis, width_axis);
+        }
+
+        Vector3 before_center = (p0 + before_entrance) / 2.f;
+        Vector3 before_dims = consts::wallWidth * width_axis + 
+            Diag3x3::fromVec(len_axis) * 
+                (before_entrance - p0 + consts::wallWidth / 2.f) +
+            2.f * math::up;
+
+        before_center -= len_axis * consts::wallWidth / 4.f;
+
+        Entity before_wall = ctx.makeRenderableEntity<PhysicsEntity>();
+        setupRigidBodyEntity(
+            ctx,
+            before_wall,
+            before_center,
+            Quat { 1, 0, 0, 0 },
+            SimObject::Wall, 
+            EntityType::Wall,
+            ResponseType::Static,
+            Diag3x3::fromVec(before_dims));
+        registerRigidBodyEntity(ctx, before_wall, SimObject::Wall);
+
+
+        Vector3 after_center = (after_entrance + p1) / 2.f;
+        Vector3 after_dims = consts::wallWidth * width_axis + 
+            Diag3x3::fromVec(len_axis) *
+                (p1 - after_entrance + consts::wallWidth / 2.f) +
+            2.f * math::up;
+
+        after_center += len_axis * consts::wallWidth / 4.f;
+
+        Entity after_wall = ctx.makeRenderableEntity<PhysicsEntity>();
+        setupRigidBodyEntity(
+            ctx,
+            after_wall,
+            after_center,
+            Quat { 1, 0, 0, 0 },
+            SimObject::Wall, 
+            EntityType::Wall,
+            ResponseType::Static,
+            Diag3x3::fromVec(after_dims));
+        registerRigidBodyEntity(ctx, after_wall, SimObject::Wall);
+    };
+
+    const Vector3 corners[4] {
+        Vector3(room_aabb.pMin.x, room_aabb.pMax.y, room_aabb.pMin.z),
+        Vector3(room_aabb.pMax.x, room_aabb.pMax.y, room_aabb.pMin.z),
+        Vector3(room_aabb.pMax.x, room_aabb.pMin.y, room_aabb.pMin.z),
+        room_aabb.pMin,
+    };
+
+    auto makeSide = [&]
+    (CountT side_idx, CountT corner_i, CountT corner_j)
+    {
+        RoomWallType wall_type = wall_types[side_idx];
+
+        if (wall_type == RoomWallType::None) {
+            return;
+        }
+
+        Vector3 cur_corner = corners[corner_i];
+        Vector3 next_corner = corners[corner_j];
+
+        float door_t = door_ts[side_idx];
+        
+        bool make_door = wall_type == RoomWallType::Door;
+
+        if (make_door || wall_type == RoomWallType::Entrance) {
+            makeEntranceWall(
+                cur_corner, next_corner, door_t,
+                make_door ? &door_entities[side_idx] : nullptr,
+                &entrance_positions[side_idx]);
+        } else {
+            makeSolidWall(cur_corner, next_corner);
+        }
+    };
+
+    makeSide(0, 0, 1);
+    makeSide(1, 2, 1);
+    makeSide(2, 3, 2);
+    makeSide(3, 3, 0);
 }
 
 static void makeFloor(Engine &ctx)
@@ -466,10 +449,8 @@ static void makeFloor(Engine &ctx)
     registerRigidBodyEntity(ctx, floor_plane, SimObject::Plane);
 }
 
-static void makeSpawn(Engine &ctx, Vector3 spawn_pos)
+static void makeSpawn(Engine &ctx, float spawn_size, Vector3 spawn_pos)
 {
-    const float spawn_size = ctx.data().doorWidth + 1.5f;
-
     Entity back_wall = ctx.makeRenderableEntity<PhysicsEntity>();
     setupRigidBodyEntity(
         ctx,
@@ -484,7 +465,7 @@ static void makeSpawn(Engine &ctx, Vector3 spawn_pos)
         EntityType::Wall,
         ResponseType::Static,
         Diag3x3 {
-            spawn_size,
+            spawn_size + consts::wallWidth,
             consts::wallWidth,
             2.f,
         });
@@ -495,7 +476,7 @@ static void makeSpawn(Engine &ctx, Vector3 spawn_pos)
         ctx,
         left_wall,
         spawn_pos + Vector3 {
-            -spawn_size,
+            -spawn_size / 2.f,
             0.f,
             0.f,
         },
@@ -515,7 +496,7 @@ static void makeSpawn(Engine &ctx, Vector3 spawn_pos)
         ctx,
         right_wall,
         spawn_pos + Vector3 {
-            spawn_size,
+            spawn_size / 2.f,
             0.f,
             0.f,
         },
@@ -574,31 +555,38 @@ static void singleBlockButtonLevel(Engine &ctx)
         .pMax = Vector3 { level_size / 2.f, level_size, 2.f },
     };
 
-    float spawn_t = ctx.data().rng.sampleUniform();
     float exit_t = ctx.data().rng.sampleUniform();
+    float spawn_t = ctx.data().rng.sampleUniform();
 
-    Vector3 spawn_door_pos;
-    Vector3 exit_door_pos;
+    Entity doors[4];
+    Vector3 entrance_positions[4];
     makeRoomWalls(ctx,
                   room_aabb,
-                  &spawn_t, nullptr, &exit_t, nullptr,
-                  &spawn_door_pos, nullptr, &exit_door_pos, nullptr);
+                  { exit_t, 0.f, spawn_t, 0.f },
+                  {
+                      RoomWallType::Door,
+                      RoomWallType::Solid,
+                      RoomWallType::Entrance,
+                      RoomWallType::Solid,
+                  }, doors, entrance_positions);
 
     Level &level = ctx.singleton<Level>();
-    level.exitPos = exit_door_pos;
+    level.exitPos = entrance_positions[0];
 
-    Vector3 spawn_pos = spawn_door_pos;
-    spawn_pos.y -= ctx.data().doorWidth / 2.f;
+    const float spawn_size = 1.2f * ctx.data().doorWidth;
 
-    makeSpawn(ctx, spawn_pos);
-    resetAgent(ctx, spawn_pos, exit_door_pos);
+    Vector3 spawn_pos = entrance_positions[2];
+    spawn_pos.y -= spawn_size / 2.f;
+
+    makeSpawn(ctx, spawn_size, spawn_pos);
+    resetAgent(ctx, spawn_pos, level.exitPos);
 
     RoomList room_list = RoomList::init(&level.rooms);
 
     Entity room = room_list.add(ctx);
     ctx.get<RoomAABB>(room) = room_aabb;
 
-    Entity exit_door = makeDoor(ctx, exit_door_pos, false);
+    Entity exit_door = doors[0];
     ctx.get<DoorRooms>(exit_door) = {
         .linkedRooms = { room, Entity::none() },
     };
