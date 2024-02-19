@@ -122,10 +122,17 @@ Entity createAgent(Engine &ctx)
 
 // Agents need to be re-registered them with the broadphase system and
 // have their transform / physics state reset to spawn.
-static void resetAgent(Engine &ctx, Vector3 spawn_pos, Vector3 exit_pos)
+static void resetAgent(Engine &ctx,
+                       Vector3 spawn_pos,
+                       float spawn_size,
+                       Vector3 exit_pos)
 {
     Entity agent_entity = ctx.data().agent;
     registerRigidBodyEntity(ctx, agent_entity, SimObject::Agent);
+
+    float safe_spawn_range = spawn_size / 2.f - consts::agentRadius;
+    spawn_pos.x += randInRangeCentered(ctx, safe_spawn_range);
+    spawn_pos.y += randInRangeCentered(ctx, safe_spawn_range);
 
     ctx.get<Position>(agent_entity) = spawn_pos;
     ctx.get<Rotation>(agent_entity) = Quat::angleAxis(
@@ -314,13 +321,12 @@ static void makeRoomWalls(Engine &ctx,
         registerRigidBodyEntity(ctx, wall, SimObject::Wall);
     };
 
+    const float entrance_width = ctx.data().doorWidth;
     auto makeEntranceWall = [
-        &ctx
+        &ctx, entrance_width
     ](Vector3 p0, Vector3 p1, float entrance_t,
       Entity *door_entity_out, Vector3 *entrance_pos_out)
     {
-        const float entrance_width = ctx.data().doorWidth;
-
         Vector3 diff = p1 - p0;
         assert(diff.z == 0.f);
 
@@ -339,8 +345,8 @@ static void makeRoomWalls(Engine &ctx,
             assert(false);
         }
 
-        float entrance_padding = 0.55f * entrance_width;
-        float safe_entrance_len = wall_len - 2 * entrance_padding;
+        float entrance_padding = 0.65f * entrance_width;
+        float safe_entrance_len = wall_len - 2.f * entrance_padding;
 
         float entrance_dist = entrance_padding + safe_entrance_len * entrance_t;
 
@@ -522,7 +528,7 @@ static void chaseLevel(Engine &ctx)
     level.exitPos = exit_door_pos;
 
     makeFloor(ctx);
-    resetAgent(ctx, Vector3::zero(), exit_door_pos);
+    resetAgent(ctx, Vector3::zero(), 5.f, exit_door_pos);
 
     RoomList room_list = RoomList::init(&level.rooms);
 
@@ -573,13 +579,13 @@ static void singleBlockButtonLevel(Engine &ctx)
     Level &level = ctx.singleton<Level>();
     level.exitPos = entrance_positions[0];
 
-    const float spawn_size = 1.2f * ctx.data().doorWidth;
+    const float spawn_size = 1.5f * ctx.data().doorWidth;
 
     Vector3 spawn_pos = entrance_positions[2];
     spawn_pos.y -= spawn_size / 2.f;
 
     makeSpawn(ctx, spawn_size, spawn_pos);
-    resetAgent(ctx, spawn_pos, level.exitPos);
+    resetAgent(ctx, spawn_pos, spawn_size, level.exitPos);
 
     RoomList room_list = RoomList::init(&level.rooms);
 
