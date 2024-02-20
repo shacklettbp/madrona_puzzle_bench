@@ -105,7 +105,6 @@ static EpisodeState initEpisodeState()
 
 inline void loadCheckpointSystem(Engine &ctx, CheckpointReset &reset) 
 {
-#if 0
     // Decide if we should load a checkpoint.
     if (reset.reset == 0) {
         return;
@@ -115,110 +114,68 @@ inline void loadCheckpointSystem(Engine &ctx, CheckpointReset &reset)
 
     Checkpoint& ckpt = ctx.singleton<Checkpoint>();
 
-    {
-        // Keys
-        int idx = 0;
-        ctx.iterateQuery(ctx.data().ckptKeyQuery, 
-            [&](Position &p, Rotation &r, KeyState &k)
-            {
-                p = ckpt.keyStates[idx].p;
-                r = ckpt.keyStates[idx].r;
-                k = ckpt.keyStates[idx].k;
-                idx++;
+    Entity agent_grab_entity = Entity::none();
+    { // Load entities
+        const Checkpoint::EntityState *entity_states = &ckpt.entityStates[0];
+
+        CountT load_idx = 0;
+        ctx.iterateQuery(ctx.data().simEntityQuery,
+        [&](Entity e, EntityType type) {
+            if (type == EntityType::None || type == EntityType::Agent ||
+                    type == EntityType::Wall) {
+                return;
             }
-        );
-    }
 
-
-    Entity tempCubeEntities[consts::maxRooms * 3];
-    {
-        // Cubes
-        int idx = 0;
-        ctx.iterateQuery(ctx.data().ckptCubeQuery, 
-            [&](Position &p, Rotation &r, Velocity &v, EntityType &eType, Entity &e)
-            {
-                if (eType == EntityType::Cube) {
-                    p = ckpt.cubeStates[idx].p;
-                    r = ckpt.cubeStates[idx].r;
-                    v = ckpt.cubeStates[idx].v;
-                    tempCubeEntities[idx] = e;
-                    idx++;
-                }
+            if (load_idx == (CountT)ckpt.agentState.grabIdx) {
+                agent_grab_entity = e;
             }
-        );
-    }
 
-    {
-        // Agent parameters: physics state, grabstate
-        int idx = 0;
-        ctx.iterateQuery(ctx.data().ckptAgentQuery, 
-            [&](Entity agent_e, Position &p, Rotation &r, Velocity &v,
-                GrabState &g, Reward &re, Done &d,
-                StepsRemaining &s, Progress &pr, KeyCode &k)
-            {
-                p  = ckpt.agentStates[idx].p;
-                r  = ckpt.agentStates[idx].r;
-                v  = ckpt.agentStates[idx].v;
-                re = ckpt.agentStates[idx].re;
-                d  = ckpt.agentStates[idx].d;
-                s  = ckpt.agentStates[idx].s;
-                pr = ckpt.agentStates[idx].pr;
-                k = ckpt.agentStates[idx].k;
+            const auto &state_in = entity_states[load_idx];
+            assert(state_in.entityType == type);
 
-                const int32_t &grabIdx = ckpt.agentStates[idx].grabIdx;
-                if (grabIdx != -1) {
-                    // Find the new entity at the grab index;
-                    Entity constraint_entity = ctx.makeEntity<Joint>();
-                    g.constraintEntity = constraint_entity;
+            ctx.get<Position>(e) = state_in.position;
+            ctx.get<Rotation>(e) = state_in.rotation;
+            ctx.get<Velocity>(e) = state_in.velocity;
 
-                    // Need to update agent entity ID because this checkpoint
-                    // doesn't necessarily correspond to the world where it
-                    // was created. Need to update e2 to point to the new cube.
-                    JointConstraint j = ckpt.agentStates[idx].j;
-                    j.e1 = agent_e;
-                    j.e2 = tempCubeEntities[grabIdx];
-                    ctx.get<JointConstraint>(constraint_entity) = j;
-                }
-                idx++;
+            switch (type) {
+            case EntityType::Door: {
+                ctx.get<OpenState>(e) = state_in.doorOpen;
+            } break;
+            case EntityType::Button: {
+                ctx.get<ButtonState>(e) = state_in.button;
+            } break;
+            default: break;
             }
-        );
+
+            load_idx += 1;
+        });
     }
 
     {
-        // Door parameters
-        int idx = 0;
-        ctx.iterateQuery(ctx.data().ckptDoorQuery, 
-            [&](Position &p, Rotation &r, Velocity &v, OpenState& o, KeyCode &k)
-            {
-                p = ckpt.doorStates[idx].p;
-                r = ckpt.doorStates[idx].r;
-                v = ckpt.doorStates[idx].v;
-                o = ckpt.doorStates[idx].o;
-                k = ckpt.doorStates[idx].k;
-                idx++;
-            }
-        );
-    }
+        Entity agent = ctx.data().agent;
+        const auto &state_in = ckpt.agentState;
 
-    {
-        // Buttons
-        int idx = 0;
-        ctx.iterateQuery(ctx.data().ckptButtonQuery, 
-            [&](Position &p, Rotation &r, ButtonState &b)
-            {
-                p = ckpt.buttonStates[idx].p;
-                r = ckpt.buttonStates[idx].r;
-                b = ckpt.buttonStates[idx].b;
-                idx++;
-            }
-        );
+        ctx.get<Position>(agent) = state_in.position;
+        ctx.get<Rotation>(agent) = state_in.rotation;
+        ctx.get<Velocity>(agent) = state_in.velocity;
+
+        if (state_in.grabIdx != -1) {
+            assert(agent_grab_entity != Entity::none());
+
+            Entity joint_entity = ctx.makeEntity<Joint>();
+
+            JointConstraint joint_constraint = state_in.grabJoint;
+            joint_constraint.e1 = agent;
+            joint_constraint.e2 = agent_grab_entity;
+
+            ctx.get<JointConstraint>(joint_entity) = joint_constraint;
+
+        }
     }
-#endif
 }
 
 inline void checkpointSystem(Engine &ctx, CheckpointSave &save)
 {
-#if 0
     if (save.save == 0) {
         // The viewer often zeros this to checkpoint a specific state.
         // Otherwise, we always checkpoint.
@@ -227,104 +184,78 @@ inline void checkpointSystem(Engine &ctx, CheckpointSave &save)
 
     Checkpoint &ckpt = ctx.singleton<Checkpoint>();
 
+    EpisodeState &episode_state = ctx.singleton<EpisodeState>();
     // Save the random seed.
     ckpt.initRNDCounter = ctx.data().curEpisodeRNDCounter;
-    {
-        // Keys
-        int idx = 0;
-        ctx.iterateQuery(ctx.data().ckptKeyQuery, 
-            [&](Position &p, Rotation &r, KeyState &k)
-            {
-                ckpt.keyStates[idx].p = p;
-                ckpt.keyStates[idx].r = r;
-                ckpt.keyStates[idx].k = k;
-                idx++;
-            }
-        );
-    }
+    ckpt.curEpisodeStep = episode_state.curStep;
+    ckpt.curEpisodeLevel = episode_state.curLevel;
 
-    Entity tempCubeEntities[consts::maxRooms * 3];
-    CountT num_cubes = 0;
-    // Cubes, run before agents to track IDs.
-    ctx.iterateQuery(ctx.data().ckptCubeQuery,
-        [&](Position &p, Rotation &r, Velocity &v, EntityType &eType, Entity &e)
-        {
-            if (eType == EntityType::Cube) {
-                ckpt.cubeStates[num_cubes].p = p;
-                ckpt.cubeStates[num_cubes].r = r;
-                ckpt.cubeStates[num_cubes].v = v;
-                tempCubeEntities[num_cubes] = e;
-                num_cubes += 1;
-            }
+    Entity agent = ctx.data().agent;
+    Optional<JointConstraint> agent_grab_joint =
+        Optional<JointConstraint>::none();
+    {
+        Entity grab_constraint = ctx.get<GrabState>(agent).constraintEntity;
+        if (grab_constraint != Entity::none()) {
+            agent_grab_joint = ctx.get<JointConstraint>(grab_constraint);
         }
-    );
-
-    {
-        // Agent parameters: physics state, reward, done.
-        int idx = 0;
-        ctx.iterateQuery(ctx.data().ckptAgentQuery, 
-            [&](Entity, Position &p, Rotation &r, Velocity &v,
-                GrabState &g, Reward &re, Done &d,
-            StepsRemaining &s, Progress &pr, KeyCode &k)
-            {
-                ckpt.agentStates[idx].p = p;
-                ckpt.agentStates[idx].r = r;
-                ckpt.agentStates[idx].v = v;
-                ckpt.agentStates[idx].re = re;
-                ckpt.agentStates[idx].d = d;
-                ckpt.agentStates[idx].s = s;
-                ckpt.agentStates[idx].pr = pr;
-                ckpt.agentStates[idx].k = k;
-                if (g.constraintEntity != Entity::none()) {
-                    ckpt.agentStates[idx].j = ctx.get<JointConstraint>(g.constraintEntity);
-                    // If the agent was grabbing, find where the info
-                    // for that entity was written in the previous step.
-                    for (CountT cube_idx = 0; cube_idx < num_cubes; cube_idx++) {
-                        if (ckpt.agentStates[idx].j.e2 ==
-                                tempCubeEntities[cube_idx]) {
-                            ckpt.agentStates[idx].grabIdx = cube_idx;
-                        }
-                    }
-                } else {
-                    ckpt.agentStates[idx].grabIdx = -1;
-                }
-                idx++;
-            }
-        );
     }
 
-    {
-        // Door parameters
-        int idx = 0;
-        ctx.iterateQuery(ctx.data().ckptDoorQuery,
-            [&](Position &p, Rotation &r, Velocity &v, OpenState &o, KeyCode &k)
-            {
-                ckpt.doorStates[idx].p = p;
-                ckpt.doorStates[idx].r = r;
-                ckpt.doorStates[idx].v = v;
-                ckpt.doorStates[idx].o = o;
-                ckpt.doorStates[idx].k = k;
-                idx++;
+    CountT agent_grab_idx = -1;
+    { // Save entities
+        Checkpoint::EntityState *entity_states = &ckpt.entityStates[0];
+
+        CountT out_idx = 0;
+        ctx.iterateQuery(ctx.data().simEntityQuery,
+        [&](Entity e, EntityType type) {
+            if (type == EntityType::None || type == EntityType::Agent ||
+                    type == EntityType::Wall) {
+                return;
             }
-        );
+
+            if (agent_grab_joint.has_value() && e == agent_grab_joint->e2) {
+                agent_grab_idx = out_idx;
+            }
+
+            auto &state_out = entity_states[out_idx];
+
+            state_out.entityType = type;
+            state_out.position = ctx.get<Position>(e);
+            state_out.rotation = ctx.get<Rotation>(e);
+            state_out.velocity = ctx.get<Velocity>(e);
+
+            switch (type) {
+            case EntityType::Door: {
+                state_out.doorOpen = ctx.get<OpenState>(e);
+            } break;
+            case EntityType::Button: {
+                state_out.button = ctx.get<ButtonState>(e);
+            } break;
+            default: break;
+            }
+
+            out_idx += 1;
+        });
+
+        for (CountT i = out_idx; i < consts::maxObjectsPerLevel; i++) {
+            entity_states[i].entityType = EntityType::None;
+        }
     }
 
+    { // Save agent
+        JointConstraint grab_joint_out;
+        if (agent_grab_joint.has_value()) {
+            grab_joint_out = *agent_grab_joint;
+        }
 
-
-    {
-        // Buttons
-        int idx = 0;
-        ctx.iterateQuery(ctx.data().ckptButtonQuery, 
-            [&](Position &p, Rotation &r, ButtonState &b)
-            {
-                ckpt.buttonStates[idx].p = p;
-                ckpt.buttonStates[idx].r = r;
-                ckpt.buttonStates[idx].b = b;
-                idx++;
-            }
-        );
+        ckpt.agentState = {
+            .position = ctx.get<Position>(agent),
+            .rotation = ctx.get<Rotation>(agent),
+            .velocity = ctx.get<Velocity>(agent),
+            .grabIdx = (int32_t)agent_grab_idx,
+            .taskProgress = ctx.get<Progress>(agent),
+            .grabJoint = grab_joint_out,
+        };
     }
-#endif
 }
 
 // This system runs each frame and checks if the current episode is complete
@@ -625,7 +556,6 @@ inline void buttonSystem(Engine &ctx,
 // Check if all the buttons linked to the door are pressed and open if so.
 // Optionally, close the door if the buttons aren't pressed.
 inline void doorOpenSystem(Engine &ctx,
-                           Position &pos,
                            OpenState &open_state,
                            const DoorButtons &door_buttons)
 {
@@ -1145,7 +1075,6 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
     // Set door to start opening if button conditions are met
     auto door_open_sys = builder.addToGraph<ParallelForNode<Engine,
         doorOpenSystem,
-            Position,
             OpenState,
             DoorButtons
         >>({button_sys});

@@ -221,10 +221,10 @@ struct DeferredDelete {
 struct Checkpoint {
     // Checkpoint structs.
     struct EntityState {
+        EntityType entityType;
         Position position;
         Rotation rotation;
         Velocity velocity;
-        EntityType entityType;
         union {
             OpenState doorOpen;
             ButtonState button;
@@ -239,14 +239,15 @@ struct Checkpoint {
         // grabbed entity. -1 if not grabbing.
         int32_t grabIdx;
         Progress taskProgress;
-        madrona::phys::JointConstraint j;
+        madrona::phys::JointConstraint grabJoint;
     };
 
     madrona::RandKey initRNDCounter;
     int32_t curEpisodeStep;
+    int32_t curEpisodeLevel;
 
-    AgentState agentState;
     EntityState entityStates[consts::maxObjectsPerLevel];
+    AgentState agentState;
 };
 
 struct CheckpointReset {
