@@ -14,66 +14,155 @@ import math
 import torch
 
 def setup_obs(sim):
-    self_obs_tensor = sim.self_observation_tensor().to_torch()
-    partner_obs_tensor = sim.partner_observations_tensor().to_torch()
-    room_ent_obs_tensor = sim.room_entity_observations_tensor().to_torch()
-    door_obs_tensor = sim.room_door_observation_tensor().to_torch()
-    lidar_tensor = sim.lidar_tensor().to_torch()
-    steps_remaining_tensor = sim.steps_remaining_tensor().to_torch()
+    # First define all the observation tensors
+    agent_txfm_obs_tensor = sim.agent_txfm_obs_tensor().to_torch() # Scalars
+    agent_interact_obs_tensor = sim.agent_interact_obs_tensor().to_torch() # Bool, whether or not grabbing
+    agent_level_type_obs_tensor = sim.agent_level_type_obs_tensor().to_torch() # Enum
+    agent_exit_obs_tensor = sim.agent_exit_obs_tensor().to_torch() # Scalars
+    entity_physics_state_obs_tensor = sim.entity_physics_state_obs_tensor().to_torch() # Scalars
+    entity_type_obs_tensor = sim.entity_type_obs_tensor().to_torch() # Enum
+    entity_attr_obs_tensor = sim.entity_attr_obs_tensor().to_torch() # Enum, but I don't know max
+    lidar_depth_tensor = sim.lidar_depth_tensor().to_torch() # Scalars
+    lidar_hit_type_tensor = sim.lidar_hit_type().to_torch() # Enum (EntityType)
+    steps_remaining_tensor = sim.steps_remaining_tensor().to_torch() # Int but dont' need to convert
 
-    A = 2
-    N = self_obs_tensor.shape[0] // A
+    # print all shapes for debugging purposes
+    '''
+    print("Agent txfm obs", agent_txfm_obs_tensor.shape)
+    print("Agent interact obs", agent_interact_obs_tensor.shape)
+    print("Agent level type obs", agent_level_type_obs_tensor.shape)
+    print("Agent exit obs", agent_exit_obs_tensor.shape)
+    print("Entity physics state obs", entity_physics_state_obs_tensor.shape)
+    print("Entity type obs", entity_type_obs_tensor.shape)
+    print("Entity attr obs", entity_attr_obs_tensor.shape)
+    print("Lidar depth", lidar_depth_tensor.shape)
+    print("Lidar hit type", lidar_hit_type_tensor.shape)
+    print("Steps remaining", steps_remaining_tensor.shape)
+    '''
 
-    # Add in an agent ID tensor
-    id_tensor = torch.arange(A).float()
-    if A > 1:
-        id_tensor = id_tensor / (A - 1)
+    # Now process the tensors into a form good for the policy
+    # Convert enums to one-hot
+    agent_level_type_obs_tensor_onehot = torch.nn.functional.one_hot(agent_level_type_obs_tensor.to(torch.int64), num_classes=6)
+    entity_type_obs_tensor_onehot = torch.nn.functional.one_hot(entity_type_obs_tensor.to(torch.int64), num_classes=11)
+    entity_attr_obs_tensor_onehot = torch.nn.functional.one_hot(entity_attr_obs_tensor.to(torch.int64), num_classes=1) # TODO: correct
+    lidar_hit_type_tensor_onehot = torch.nn.functional.one_hot(lidar_hit_type_tensor.to(torch.int64), num_classes=11)
 
-    id_tensor = id_tensor.to(device=self_obs_tensor.device)
-    id_tensor = id_tensor.view(1, 2).expand(N, 2).reshape(N * A, 1)
+    # Print all the changed object shapes
+    '''
+    print("Agent level type obs", agent_level_type_obs_tensor.shape)
+    print("Entity type obs", entity_type_obs_tensor.shape)
+    print("Entity attr obs", entity_attr_obs_tensor.shape)
+    print("Lidar hit type", lidar_hit_type_tensor.shape)
+    '''
 
-    obs_tensors = [
-        self_obs_tensor,
-        partner_obs_tensor,
-        room_ent_obs_tensor,
-        door_obs_tensor,
-        lidar_tensor,
+    # Reshape all non-entity observations to be (batch_size, -1)
+    agent_txfm_obs_tensor = agent_txfm_obs_tensor.view(agent_txfm_obs_tensor.shape[0], -1)
+    agent_interact_obs_tensor = agent_interact_obs_tensor.view(agent_interact_obs_tensor.shape[0], -1)
+    agent_level_type_obs_tensor_onehot = agent_level_type_obs_tensor_onehot.view(agent_level_type_obs_tensor.shape[0], -1)
+    agent_exit_obs_tensor = agent_exit_obs_tensor.view(agent_exit_obs_tensor.shape[0], -1)
+    lidar_depth_tensor = lidar_depth_tensor.view(lidar_depth_tensor.shape[0], -1)
+    lidar_hit_type_tensor_onehot = lidar_hit_type_tensor_onehot.view(lidar_hit_type_tensor.shape[0], -1)
+    steps_remaining_tensor = steps_remaining_tensor.view(steps_remaining_tensor.shape[0], -1)
+
+    # Reshape all entity observations to be (batch_size, num_entities, -1)
+    entity_physics_state_obs_tensor = entity_physics_state_obs_tensor.view(entity_physics_state_obs_tensor.shape[0], entity_physics_state_obs_tensor.shape[1], -1)
+    entity_type_obs_tensor_onehot = entity_type_obs_tensor_onehot.view(entity_type_obs_tensor.shape[0], entity_type_obs_tensor.shape[1], -1)
+    entity_attr_obs_tensor_onehot = entity_attr_obs_tensor_onehot.view(entity_attr_obs_tensor.shape[0], entity_attr_obs_tensor.shape[1], -1)
+
+    # Concatenate all non-entity observations
+    obs_tensor = torch.cat([
+        agent_txfm_obs_tensor,
+        agent_interact_obs_tensor,
+        agent_level_type_obs_tensor_onehot,
+        agent_exit_obs_tensor,
+        lidar_depth_tensor,
+        lidar_hit_type_tensor_onehot,
         steps_remaining_tensor,
-        id_tensor,
+    ], dim=1)
+
+    # Concatenate all entity observations
+    entity_tensor = torch.cat([
+        entity_physics_state_obs_tensor,
+        entity_type_obs_tensor_onehot,
+        entity_attr_obs_tensor_onehot,
+    ], dim=2)
+
+    num_obs_features = obs_tensor.shape[1] 
+    num_entity_features = entity_tensor.shape[2]
+
+    '''
+    print("Obs tensor", obs_tensor.shape)
+    print("Entity tensor", entity_tensor.shape)
+    '''
+
+    obs_list = [
+        agent_txfm_obs_tensor,
+        agent_interact_obs_tensor,
+        agent_level_type_obs_tensor,
+        agent_exit_obs_tensor,
+        entity_physics_state_obs_tensor,
+        entity_type_obs_tensor,
+        entity_attr_obs_tensor,
+        lidar_depth_tensor,
+        lidar_hit_type_tensor,
+        steps_remaining_tensor,
     ]
 
-    num_obs_features = 0
-    for tensor in obs_tensors:
-        num_obs_features += math.prod(tensor.shape[1:])
+    return obs_list, num_obs_features + num_entity_features*entity_tensor.shape[1]
 
-    return obs_tensors, num_obs_features
+def process_obs(agent_txfm_obs_tensor, agent_interact_obs_tensor, agent_level_type_obs_tensor, agent_exit_obs_tensor, entity_physics_state_obs_tensor, entity_type_obs_tensor, entity_attr_obs_tensor, lidar_depth_tensor, lidar_hit_type_tensor, steps_remaining_tensor):
 
-def process_obs(self_obs, partner_obs, room_ent_obs,
-                door_obs, lidar, steps_remaining, ids):
-    assert(not torch.isnan(self_obs).any())
-    assert(not torch.isinf(self_obs).any())
+    agent_level_type_obs_tensor_onehot = torch.nn.functional.one_hot(agent_level_type_obs_tensor.to(torch.int64), num_classes=6)
+    entity_type_obs_tensor_onehot = torch.nn.functional.one_hot(entity_type_obs_tensor.to(torch.int64), num_classes=11)
+    entity_attr_obs_tensor_onehot = torch.nn.functional.one_hot(entity_attr_obs_tensor.to(torch.int64), num_classes=1) # TODO: correct
+    lidar_hit_type_tensor_onehot = torch.nn.functional.one_hot(lidar_hit_type_tensor.to(torch.int64), num_classes=11)
 
-    assert(not torch.isnan(partner_obs).any())
-    assert(not torch.isinf(partner_obs).any())
+    # Print all the changed object shapes
+    '''
+    print("Agent level type obs", agent_level_type_obs_tensor.shape)
+    print("Entity type obs", entity_type_obs_tensor.shape)
+    print("Entity attr obs", entity_attr_obs_tensor.shape)
+    print("Lidar hit type", lidar_hit_type_tensor.shape)
+    '''
 
-    assert(not torch.isnan(room_ent_obs).any())
-    assert(not torch.isinf(room_ent_obs).any())
+    # Reshape all non-entity observations to be (batch_size, -1)
+    agent_txfm_obs_tensor = agent_txfm_obs_tensor.view(agent_txfm_obs_tensor.shape[0], -1)
+    agent_interact_obs_tensor = agent_interact_obs_tensor.view(agent_interact_obs_tensor.shape[0], -1)
+    agent_level_type_obs_tensor_onehot = agent_level_type_obs_tensor_onehot.view(agent_level_type_obs_tensor.shape[0], -1)
+    agent_exit_obs_tensor = agent_exit_obs_tensor.view(agent_exit_obs_tensor.shape[0], -1)
+    lidar_depth_tensor = lidar_depth_tensor.view(lidar_depth_tensor.shape[0], -1)
+    lidar_hit_type_tensor_onehot = lidar_hit_type_tensor_onehot.view(lidar_hit_type_tensor.shape[0], -1)
+    steps_remaining_tensor = steps_remaining_tensor.view(steps_remaining_tensor.shape[0], -1)
 
-    assert(not torch.isnan(lidar).any())
-    assert(not torch.isinf(lidar).any())
+    # Reshape all entity observations to be (batch_size, num_entities, -1)
+    entity_physics_state_obs_tensor = entity_physics_state_obs_tensor.view(entity_physics_state_obs_tensor.shape[0], entity_physics_state_obs_tensor.shape[1], -1)
+    entity_type_obs_tensor_onehot = entity_type_obs_tensor_onehot.view(entity_type_obs_tensor.shape[0], entity_type_obs_tensor.shape[1], -1)
+    entity_attr_obs_tensor_onehot = entity_attr_obs_tensor_onehot.view(entity_attr_obs_tensor.shape[0], entity_attr_obs_tensor.shape[1], -1)
 
-    assert(not torch.isnan(steps_remaining).any())
-    assert(not torch.isinf(steps_remaining).any())
-
-    return torch.cat([
-        self_obs.view(self_obs.shape[0], -1),
-        partner_obs.view(partner_obs.shape[0], -1),
-        room_ent_obs.view(room_ent_obs.shape[0], -1),
-        door_obs.view(door_obs.shape[0], -1),
-        lidar.view(lidar.shape[0], -1),
-        steps_remaining.float() / 200,
-        ids,
+    # Concatenate all non-entity observations
+    obs_tensor = torch.cat([
+        agent_txfm_obs_tensor,
+        agent_interact_obs_tensor,
+        agent_level_type_obs_tensor_onehot,
+        agent_exit_obs_tensor,
+        lidar_depth_tensor,
+        lidar_hit_type_tensor_onehot,
+        steps_remaining_tensor,
     ], dim=1)
+
+    # Concatenate all entity observations
+    entity_tensor = torch.cat([
+        entity_physics_state_obs_tensor,
+        entity_type_obs_tensor_onehot,
+        entity_attr_obs_tensor_onehot,
+    ], dim=2)
+
+    # Combine obs and entity tensors
+    combined_tensor = torch.cat([obs_tensor, entity_tensor.view(entity_tensor.shape[0], -1)], dim=1)
+    #print("Combined tensor", combined_tensor.shape)
+    #print("Entity tensor shape", entity_tensor.shape)
+
+    return combined_tensor
 
 def make_policy(num_obs_features, num_channels, separate_value):
     #encoder = RecurrentBackboneEncoder(
