@@ -162,6 +162,9 @@ def process_obs(agent_txfm_obs_tensor, agent_interact_obs_tensor, agent_level_ty
     #print("Combined tensor", combined_tensor.shape)
     #print("Entity tensor shape", entity_tensor.shape)
 
+    # Filter nans
+    combined_tensor[torch.isnan(combined_tensor)] = 0
+
     return combined_tensor
 
 def make_policy(num_obs_features, num_channels, separate_value):

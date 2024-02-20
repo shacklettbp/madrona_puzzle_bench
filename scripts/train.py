@@ -36,7 +36,7 @@ arg_parser.add_argument('--gpu-sim', action='store_true')
 # Learning args
 arg_parser.add_argument('--num-updates', type=int, required=True)
 arg_parser.add_argument('--steps-per-update', type=int, default=40)
-arg_parser.add_argument('--num-bptt-chunks', type=int, default=8)
+arg_parser.add_argument('--num-bptt-chunks', type=int, default=1)
 arg_parser.add_argument('--lr', type=float, default=1e-4)
 arg_parser.add_argument('--gamma', type=float, default=0.998)
 arg_parser.add_argument('--entropy-loss-coef', type=float, default=0.01)
@@ -94,15 +94,11 @@ class LearningCallback:
                 return_min = update_results.returns[update_results.dones == 1.0].min().cpu().item()
                 return_max = update_results.returns[update_results.dones == 1.0].max().cpu().item()
                 success_filter = (update_results.dones == 1.0)[...,0]
-                #print(success_filter.shape)
-                success_frac = (update_results.obs[0][...,3] > 1.00).reshape(-1, success_filter.shape[-1])[success_filter].float().mean().cpu().item()
-
-            # compute visits to second and third room
-            print("Update results shape", update_results.obs[0].shape, update_results.obs[3].shape)
-            second_room_count = (update_results.obs[0][...,3] > 0.34).sum()
-            third_room_count = (update_results.obs[0][...,3] > 0.67).sum()
-            exit_count = (update_results.obs[0][...,3] > 1.01).sum()
-            door_count = (update_results.obs[3][...,2] > 0.5).sum()
+                success_frac = (update_results.rewards >= 1.00).reshape(-1, success_filter.shape[-1])[success_filter].float().mean().cpu().item() # Reward of 1 for room, 10 for whole set of rooms
+                # Break this down for each level type, which is obs[2]
+                level_type_success_fracs = []
+                for i in range(6):
+                    level_type_success_fracs.append((update_results.rewards[(update_results.obs[2][0] == i)*(update_results.dones == 1.0)] >= 1.00).float().mean().cpu().item())
 
             value_mean = update_results.values.mean().cpu().item()
             value_min = update_results.values.min().cpu().item()
@@ -144,12 +140,15 @@ class LearningCallback:
             "returns_mean": return_mean,
             "returns_max": return_max,
             "done_count": done_count,
-            "second_room_count": second_room_count,
-            "third_room_count": third_room_count,
-            "exit_count": exit_count,
-            "door_count": door_count,
             "vnorm_mu": vnorm_mu,
             "success_frac": success_frac,
+            # Add logging of success frac for each level type
+            "success_frac_0": level_type_success_fracs[0],
+            "success_frac_1": level_type_success_fracs[1],
+            "success_frac_2": level_type_success_fracs[2],
+            "success_frac_3": level_type_success_fracs[3],
+            "success_frac_4": level_type_success_fracs[4],
+            "success_frac_5": level_type_success_fracs[5],
             }
         )
 
