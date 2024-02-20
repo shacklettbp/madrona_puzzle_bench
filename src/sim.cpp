@@ -170,6 +170,7 @@ inline void loadCheckpointSystem(Engine &ctx, CheckpointReset &reset)
 
             ctx.get<JointConstraint>(joint_entity) = joint_constraint;
 
+            ctx.get<GrabState>(agent).constraintEntity = joint_entity;
         }
     }
 }
