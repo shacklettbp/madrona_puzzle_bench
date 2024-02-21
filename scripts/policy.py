@@ -1,7 +1,7 @@
 from madrona_puzzle_bench_learn import (
     ActorCritic, DiscreteActor, Critic, 
     BackboneShared, BackboneSeparate,
-    BackboneEncoder, RecurrentBackboneEncoder,
+    BackboneEncoder, RecurrentBackboneEncoder, RNDModel
 )
 
 from madrona_puzzle_bench_learn.models import (
@@ -175,7 +175,7 @@ def process_obs(agent_txfm_obs_tensor, agent_interact_obs_tensor, agent_level_ty
 
     return combined_tensor
 
-def make_policy(num_obs_features, num_channels, separate_value):
+def make_policy(num_obs_features, num_channels, separate_value, intrinsic=False):
     #encoder = RecurrentBackboneEncoder(
     #    net = MLP(
     #        input_dim = num_obs_features,
@@ -220,6 +220,26 @@ def make_policy(num_obs_features, num_channels, separate_value):
             encoder = encoder,
         )
 
+    if intrinsic:
+        # Add the intrinsic reward module
+        critic_intrinsic = LinearLayerCritic(num_channels)
+        rnd_model = RNDModel(
+            process_obs = process_obs,
+            target_net = MLP(
+                input_dim = num_obs_features,
+                num_channels = num_channels,
+                num_layers = 4, # VISHNU TODO: try options, original was convs + 1
+            ),
+            predictor_net = MLP(
+                input_dim = num_obs_features,
+                num_channels = num_channels,
+                num_layers = 1, # VISHNU TODO: try options, original was convs + 3
+            ),
+        )
+    else:
+        critic_intrinsic = None
+        rnd_model = None
+
     return ActorCritic(
         backbone = backbone,
         actor = LinearLayerDiscreteActor(
@@ -227,4 +247,6 @@ def make_policy(num_obs_features, num_channels, separate_value):
             num_channels,
         ),
         critic = LinearLayerCritic(num_channels),
+        critic_intrinsic = critic_intrinsic,
+        rnd_model = rnd_model,
     )

@@ -49,7 +49,7 @@ arg_parser.add_argument('--no-advantages', action='store_true')
 arg_parser.add_argument('--value-normalizer-decay', type=float, default=0.999)
 arg_parser.add_argument('--restore', type=int)
 arg_parser.add_argument('--use-complex-level', action='store_true')
-
+arg_parser.add_argument('--use-intrinsic-loss', action='store_true')
 
 # Architecture args
 arg_parser.add_argument('--num-channels', type=int, default=256)
@@ -61,6 +61,11 @@ arg_parser.add_argument('--num-steps', type=int, required=True)
 arg_parser.add_argument('--num-bins', type=int, required=True)
 arg_parser.add_argument('--num-checkpoints', type=int, default=1)
 arg_parser.add_argument('--new-frac', type=float, default=0.5)
+arg_parser.add_argument('--bin-reward-type', type=str, default="none")
+arg_parser.add_argument('--bin-reward-boost', type=float, default=0.01)
+arg_parser.add_argument('--uncertainty-metric', type=str, default="none")
+arg_parser.add_argument('--buffer-strategy', type=str, default="fifo")
+arg_parser.add_argument('--sampling-strategy', type=str, default="uniform")
 
 # Binning diagnostic args
 arg_parser.add_argument('--bin-diagnostic', action='store_true')
@@ -140,9 +145,11 @@ class GoExplore:
             exec_mode = madrona_puzzle_bench.madrona.ExecMode.CUDA if args.gpu_sim else madrona_puzzle_bench.madrona.ExecMode.CPU,
             gpu_id = args.gpu_id,
             num_worlds = args.num_worlds,
-            auto_reset = True,
-            sim_flags = sim_flags,
+            rand_seed = 5,
+            sim_flags = (int)(sim_flags),
             reward_mode = reward_mode,
+            episode_len = 200,
+            levels_per_episode = 1,
             button_width = 1.3,
             door_width = 20.0 / 3.,
             reward_per_dist = 0.05,
@@ -169,7 +176,7 @@ class GoExplore:
                 steps_so_far += warm_up
 
         self.num_worlds = num_worlds
-        self.num_agents = 2
+        self.num_agents = 1
         self.curr_returns = torch.zeros(num_worlds, device = device) # For tracking cumulative return of each state/bin
         #print("Curr returns shape", self.curr_returns.shape)
         self.binning = args.binning
@@ -182,7 +189,7 @@ class GoExplore:
         self.max_progress = 0
 
         self.obs, num_obs_features = setup_obs(self.worlds)
-        self.policy = make_policy(num_obs_features, args.num_channels, args.separate_value)
+        self.policy = make_policy(num_obs_features, args.num_channels, args.separate_value, intrinsic=args.use_intrinsic_loss)
         self.actions = self.worlds.action_tensor().to_torch()
         self.dones = self.worlds.done_tensor().to_torch()
         self.rewards = self.worlds.reward_tensor().to_torch()
@@ -194,6 +201,10 @@ class GoExplore:
         self.start_bin_steps = torch.zeros((self.num_bins,), device=device).int() + 200
         self.world_steps = torch.zeros(self.num_worlds, device=device).int() + 200
         self.bin_reward_boost = 0.01
+        self.reward_type = args.bin_reward_type
+
+        # Add tracking for different types of uncertainties for resets
+        self.bin_uncertainty = torch.zeros((self.num_bins, self.num_checkpoints), device=device).float() # Can have RND, TD error, (pseudo-counts? etc.)
 
         # Start bin
         start_bins = self.map_states_to_bins(self.obs)[0,:]
@@ -231,25 +242,22 @@ class GoExplore:
         #print("About to select state")
         # First select from visited bins with go-explore weighting function
         valid_bins = torch.nonzero(self.bin_count > 0).flatten()
-        weights = 1./(torch.sqrt(self.bin_count[valid_bins])*0 + 1)
-        '''
-        if self.max_progress > 1.01 and update_id > 1000:
-            # Dist from exit
-            exit_dist = (int)(20*(update_id / 5000))
-            # Pick bins that are relatively close to the exit...
-            #weights = torch.exp(-(self.bin_steps[valid_bins].float())*0.1*(5000/update_id))
-            #weights = (self.bin_steps[valid_bins] <= exit_dist).float()
-            weights = torch.exp(-(self.bin_steps[valid_bins].float() + self.start_bin_steps[valid_bins].float())*0.1)
-        '''
+        if args.sampling_strategy == "uniform" or self.num_bins == 1:
+            weights = 1./(torch.sqrt(self.bin_count[valid_bins])*0 + 1)
+        elif args.sampling_strategy == "count":
+            weights = 1./(torch.sqrt(self.bin_count[valid_bins]) + 1)
+        elif args.sampling_strategy == "uncertainty":
+            weights = (self.bin_uncertainty[valid_bins].sum(dim=-1) + 1)/(torch.clamp(self.bin_count[valid_bins], 0, self.num_checkpoints) + 1) # Doing mean by sum/count
         # Sample bins
         desired_samples = int(self.num_worlds*args.new_frac)#*((10001 - update_id) / 10000))
         sampled_bins = valid_bins[torch.multinomial(weights, num_samples=desired_samples, replacement=True).type(torch.int)]
         # Sample states from bins: either sample first occurrence in each bin (what's in the paper), or something better...
         # Need the last checkpoint for each bin
-        chosen_checkpoint = (self.bin_count[sampled_bins] - 1) % self.num_checkpoints
-        #chosen_checkpoint = torch.randint(0, self.num_checkpoints, size=(desired_samples,), device=self.device, dtype=torch.int)
-        #chosen_checkpoint[chosen_checkpoint >= self.bin_count[sampled_bins]] = self.bin_count[sampled_bins][chosen_checkpoint >= self.bin_count[sampled_bins]] - 1
-        #print("Chosen checkpoints", chosen_checkpoint, chosen_checkpoint.shape)
+        if self.num_bins == 1:
+            chosen_checkpoint = torch.randint(torch.clamp(self.bin_count[0] - 1, 0, self.num_checkpoints).item(), size=(desired_samples,), device=dev).type(torch.int)
+        else:
+            chosen_checkpoint = torch.randint(self.num_checkpoints, size=(desired_samples,), device=dev).type(torch.int) % self.bin_count[sampled_bins]
+
         #print("Bin count", self.bin_count[sampled_bins], self.bin_count[sampled_bins].shape)
         self.curr_returns[:desired_samples] = self.checkpoint_score[[sampled_bins, chosen_checkpoint]]
         print("Checkpoints", self.bin_checkpoints[[sampled_bins, chosen_checkpoint]])
@@ -274,7 +282,7 @@ class GoExplore:
             goExplore.checkpoint_resets[desired_samples:, 0] = 0
         '''
         self.worlds.step()
-        self.obs[5][:desired_samples, 0] = 40 + torch.randint(0, 160, size=(desired_samples,), dtype=torch.int, device=dev) # Maybe set this to random 40 to 200? # 200
+        self.obs[9][:desired_samples, 0] = 40 + torch.randint(0, 160, size=(desired_samples,), dtype=torch.int, device=dev) # Maybe set this to random 40 to 200? # 200
         #print("After go-to-state")
         #print(self.obs[5][:])
         return None
@@ -303,16 +311,17 @@ class GoExplore:
         if self.binning == "none":
             return states
         elif self.binning == "random":
-            return torch.randint(0, self.num_bins, size=(self.num_worlds,), device=self.device)
+            return torch.randint(0, self.num_bins, size=(1, self.num_worlds,), device=self.device)
         elif self.binning == "y_pos":
             # Bin according to the y position of each agent
             # Determine granularity from num_bins
             granularity = torch.sqrt(torch.tensor(self.num_bins)).int().item()
             increment = 1.11/granularity
-            self_obs = states[0].view(args.steps_per_update, self.num_worlds, self.num_agents, -1)
-            y_0 = torch.clamp(self_obs[..., 0, 3], 0, 1.1) // increment # Granularity of 0.01 on the y
-            y_1 = torch.clamp(self_obs[..., 1, 3], 0, 1.1) // increment # Granularity of 0.01 on the y
-            y_out = (y_0 + granularity*y_1).int()
+            #print("States shape", states[0].shape)
+            self_obs = states[0].view(-1, self.num_worlds, 10)
+            print("Self obs range", self_obs[..., 1].min(), self_obs[..., 1].max())
+            y_0 = torch.clamp(self_obs[..., 1], 0, 1.1) // increment # Granularity of 0.01 on the y
+            y_out = (y_0).int()
             #print("Max agent 0 progress", self_obs[:, 0, 3].max())
             #print("Max agent 1 progress", self_obs[:, 1, 3].max())
             return y_out
@@ -380,21 +389,30 @@ class GoExplore:
     def update_bin_steps(self, bins, prev_bins):
         #print(self.bin_steps[bins].shape, self.bin_steps[prev_bins].shape)
         #self.bin_steps[bins] = torch.minimum(self.bin_steps[bins], self.bin_steps[prev_bins] + 1)
-        for i in range(1, args.steps_per_update):
-            self.bin_steps[prev_bins[-i]] = torch.minimum(self.bin_steps[prev_bins[-i]], self.bin_steps[bins[-i]] + 1)
-            self.start_bin_steps[bins[i - 1]] = torch.minimum(self.start_bin_steps[bins[i - 1]], self.start_bin_steps[prev_bins[i - 1]] + 1)
+        if self.num_bins > 1:
+            for i in range(1, args.steps_per_update):
+                self.bin_steps[prev_bins[-i]] = torch.minimum(self.bin_steps[prev_bins[-i]], self.bin_steps[bins[-i]] + 1)
+                self.start_bin_steps[bins[i - 1]] = torch.minimum(self.start_bin_steps[bins[i - 1]], self.start_bin_steps[prev_bins[i - 1]] + 1)
 
     # Step 5: Update archive
-    def update_archive(self, bins, scores):
+    def update_archive(self, bins, scores, ppo_stats):
         # For each unique bin, update count in archive and update best score
+        # Reshape ppo_stats to be per-world
+        ppo_stats.intrinsic_reward_array = ppo_stats.intrinsic_reward_array.view(self.num_worlds, self.num_agents).mean(dim=1) if args.use_intrinsic_loss else None
+        #print("Value loss array shape", ppo_stats.value_loss_array.shape)
+        ppo_stats.value_loss_array = ppo_stats.value_loss_array.view(self.num_worlds, self.num_agents).mean(dim=1)
         # At most can increase bin count by 1 in a single step...
         desired_samples = int(self.num_worlds*args.new_frac) # Only store checkpoints from "fresh" worlds
         bins = bins[desired_samples:]
-        new_bin_counts = (torch.bincount(bins, minlength=self.num_bins) > 0).int()
-        # Set the checkpoint for each bin to the latest
-        #print(self.checkpoints)
-        chosen_checkpoints = self.bin_count[bins] % self.num_checkpoints
-        self.bin_count += new_bin_counts
+        if self.num_bins == 1:
+            # Assumes num_worlds < num_checkpoints
+            chosen_checkpoints = (self.bin_count[bins] + torch.arange(0, bins.shape[0], device=dev)) % self.num_checkpoints# Spread out the stored checkpoints 
+            self.bin_count += bins.shape[0]
+        else:
+            new_bin_counts = (torch.bincount(bins, minlength=self.num_bins) > 0).int()
+            # Set the checkpoint for each bin to the latest
+            chosen_checkpoints = self.bin_count[bins] % self.num_checkpoints
+            self.bin_count += new_bin_counts
         #print(chosen_checkpoints)
         #print(bins)
         stacked_indices = torch.stack((bins, chosen_checkpoints), dim=1)
@@ -403,10 +421,41 @@ class GoExplore:
         _, ind_sorted = torch.sort(idx, stable=True)
         cum_sum = counts.cumsum(0)
         cum_sum = torch.cat((torch.tensor([0], device=dev), cum_sum[:-1]))
-        first_indicies = ind_sorted[cum_sum]
-        #print(unique, first_indicies)
-        self.bin_checkpoints[[unique[:,0], unique[:,1]]] = self.checkpoints[desired_samples:][first_indicies].to(dev)
+        first_indices = ind_sorted[cum_sum]
+        # Set up a sample filter if we keep the most uncertain or highest score, not fifo
+        if args.buffer_strategy == "uncertainty":
+            # Check if current sample is more uncertain than the one in the bin
+            if args.uncertainty_metric == "rnd":
+                curr_uncertainty = ppo_stats.intrinsic_reward_array[desired_samples:][first_indices].to(dev)
+            elif args.uncertainty_metric == "td_error":
+                curr_uncertainty = ppo_stats.value_loss_array[desired_samples:][first_indices].to(dev)
+            else:
+                raise NotImplementedError
+            bin_uncertainty = self.bin_uncertainty[[unique[:,0], unique[:,1]]]
+            sample_filter = curr_uncertainty > bin_uncertainty
+        elif args.buffer_strategy == "score":
+            # Check if current sample has a higher score than the one in the bin
+            sample_filter = scores[desired_samples:][first_indices] >= self.checkpoint_score[[unique[:,0], unique[:,1]]] # TODO: get scores to work properly
+        elif args.buffer_strategy == "fifo":
+            # Just take the first samples
+            sample_filter = torch.ones_like(first_indices, dtype=torch.bool, device=dev)
+        else:
+            raise NotImplementedError
+        # Apply sample filter to unique and first_indices
+        unique = unique[sample_filter]
+        first_indices = first_indices[sample_filter]
+        #print(unique, first_indices)
+        self.bin_checkpoints[[unique[:,0], unique[:,1]]] = self.checkpoints[desired_samples:][first_indices].to(dev)
         #self.bin_score[bins] = torch.maximum(self.bin_score[bins], scores)
+        self.checkpoint_score[[unique[:,0], unique[:,1]]] = scores[desired_samples:][first_indices] # Track checkpoint scores, we might as well
+        # Also update bin uncertainties
+        if args.uncertainty_metric == "rnd":
+            # Update RND
+            self.bin_uncertainty[[unique[:,0], unique[:,1]]] = ppo_stats.intrinsic_reward_array[desired_samples:][first_indices].to(dev)
+        elif args.uncertainty_metric == "td_error":
+            # Update TD error
+            self.bin_uncertainty[[unique[:,0], unique[:,1]]] = ppo_stats.value_loss_array[desired_samples:][first_indices].to(dev)
+        # Otherwise we're doing counts, and that requires nothing from us here
         return None
 
     # Compute best score from archive
@@ -514,6 +563,12 @@ class GoExplore:
                 "success_frac": success_frac,
                 }
             )
+            if args.use_intrinsic_loss:
+                wandb.log({
+                    "update_id": update_id,
+                    "intrinsic_loss": ppo.intrinsic_loss,
+                    "value_loss_intrinsic": ppo.value_loss_intrinsic,
+                })
 
             if self.profile_report:
                 print()
@@ -550,7 +605,7 @@ class GoExplore:
         #print(self.dones)
         self.curr_returns *= (1 - 0.5*self.dones.view(self.num_worlds,self.num_agents).sum(dim=1)).to(self.curr_returns.device) # Account for dones, this is working!
         #print("Max return", torch.max(self.curr_returns), self.worlds.obs[torch.argmax(self.curr_returns)])
-        self.update_archive(new_bins, self.curr_returns)
+        self.update_archive(new_bins, self.curr_returns, ppo)
         # Set new state, go to state
         states = self.select_state(update_id)
         self.go_to_state(states, leave_rest = (update_id % 5 != 0), update_id = update_id)
@@ -604,6 +659,9 @@ train(
             num_mini_batches=1,
             clip_coef=0.2,
             value_loss_coef=args.value_loss_coef,
+            use_intrinsic_loss=args.use_intrinsic_loss, 
+            value_loss_intrinsic_coef=0.5, # TODO: Need to set
+            intrinsic_loss_coef=0.5, # TODO: Need to set
             entropy_coef=args.entropy_loss_coef,
             max_grad_norm=0.5,
             num_epochs=2,
