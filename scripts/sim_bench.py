@@ -1,5 +1,6 @@
 import torch
 import madrona_puzzle_bench
+from madrona_puzzle_bench import RewardMode
 import argparse
 import time
 
@@ -10,11 +11,21 @@ arg_parser.add_argument('--gpu-id', type=int, default=0)
 
 args = arg_parser.parse_args()
 
+reward_mode = getattr(RewardMode, "Dense1")
+
 sim = madrona_puzzle_bench.SimManager(
     exec_mode = madrona_puzzle_bench.madrona.ExecMode.CUDA,
     gpu_id = args.gpu_id,
     num_worlds = args.num_worlds,
-    auto_reset = True,
+    rand_seed = 5,
+    sim_flags = (int)(0),
+    reward_mode = reward_mode,
+    episode_len = 200,
+    levels_per_episode = 1,
+    button_width = 1.3,
+    door_width = 20.0 / 3.,
+    reward_per_dist = 0.05,
+    slack_reward = -0.005,
 )
 
 actions = sim.action_tensor().to_torch()

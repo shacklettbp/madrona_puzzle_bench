@@ -232,7 +232,7 @@ class GoExplore:
         return unique_groups, sorted_states[first_occurrence_mask]
 
     def generate_random_actions(self):
-        action_dist = DiscreteActionDistributions(self.actions_num_buckets, logits=torch.ones(self.num_worlds*2, sum(self.actions_num_buckets), device=self.device))
+        action_dist = DiscreteActionDistributions(self.actions_num_buckets, logits=torch.ones(self.num_worlds, sum(self.actions_num_buckets), device=self.device))
         return action_dist.sample()
 
     # Step 1: Select state from archive
@@ -260,7 +260,7 @@ class GoExplore:
 
         #print("Bin count", self.bin_count[sampled_bins], self.bin_count[sampled_bins].shape)
         self.curr_returns[:desired_samples] = self.checkpoint_score[[sampled_bins, chosen_checkpoint]]
-        print("Checkpoints", self.bin_checkpoints[[sampled_bins, chosen_checkpoint]])
+        #print("Checkpoints", self.bin_checkpoints[[sampled_bins, chosen_checkpoint]])
         return self.bin_checkpoints[[sampled_bins, chosen_checkpoint]]
 
     # Step 2: Go to state
@@ -319,8 +319,7 @@ class GoExplore:
             increment = 1.11/granularity
             #print("States shape", states[0].shape)
             self_obs = states[0].view(-1, self.num_worlds, 10)
-            print("Self obs range", self_obs[..., 1].min(), self_obs[..., 1].max())
-            y_0 = torch.clamp(self_obs[..., 1], 0, 1.1) // increment # Granularity of 0.01 on the y
+            y_0 = torch.clamp((self_obs[..., 1] + 20)/40, 0, 1.1) // increment # Granularity of 0.01 on the y
             y_out = (y_0).int()
             #print("Max agent 0 progress", self_obs[:, 0, 3].max())
             #print("Max agent 1 progress", self_obs[:, 1, 3].max())
@@ -486,9 +485,9 @@ class GoExplore:
 
                 done_count = (update_results.dones[:,desired_samples:] == 1.0).sum()
                 return_mean, return_min, return_max, success_frac = 0, 0, 0, 0
-                print("Update results shape", update_results.returns.shape)
+                #print("Update results shape", update_results.returns.shape)
                 if done_count > 0:
-                    print("Update results shape", update_results.returns[update_results.dones == 1.0].shape)
+                    #print("Update results shape", update_results.returns[update_results.dones == 1.0].shape)
                     return_mean = update_results.returns[:,desired_samples:][update_results.dones[:,desired_samples:] == 1.0].mean().cpu().item()
                     return_min = update_results.returns[:,desired_samples:][update_results.dones[:,desired_samples:] == 1.0].min().cpu().item()
                     return_max = update_results.returns[:,desired_samples:][update_results.dones[:,desired_samples:] == 1.0].max().cpu().item()
@@ -497,19 +496,20 @@ class GoExplore:
                     #print((update_results.obs[0][...,3] > 1.00)[:,:,desired_samples:].shape)
                     success_filter = (update_results.dones[:,desired_samples:] == 1.0)[...,0]
                     #print(success_filter.shape)
-                    success_frac = (update_results.obs[0][...,3] > 1.00)[:,:,desired_samples:].reshape(-1, success_filter.shape[-1])[success_filter].float().mean().cpu().item()
+                    success_frac = (update_results.rewards[:,desired_samples:] >= 1.00).reshape(-1, success_filter.shape[-1])[success_filter].float().mean().cpu().item() # Reward of 1 for room, 10 for whole set of rooms
+                    # Break this down for each level type, which is obs[2]
+                    level_type_success_fracs = []
+                    for i in range(6):
+                        level_type_success_fracs.append((update_results.rewards[:,desired_samples:][(update_results.obs[2][0][:,desired_samples:] == i)*(update_results.dones[:,desired_samples:] == 1.0)] >= 1.00).float().mean().cpu().item())
+                    # Also compute level type success without filtering by desired_samples
+                    success_filter_all = (update_results.dones == 1.0)[...,0]
+                    success_frac_all = (update_results.rewards >= 1.00).reshape(-1, success_filter_all.shape[-1])[success_filter_all].float().mean().cpu().item() # Reward of 1 for room, 10 for whole set of rooms
+                    level_type_success_fracs_all = []
+                    for i in range(6):
+                        level_type_success_fracs_all.append((update_results.rewards[(update_results.obs[2][0] == i)*(update_results.dones == 1.0)] >= 1.00).float().mean().cpu().item())
 
                 # compute visits to second and third room
-                print("Update results shape", update_results.obs[0].shape, update_results.obs[3].shape)
-                second_room_count = (update_results.obs[0][...,3] > 0.34)[:,:,desired_samples:].float().mean()
-                third_room_count = (update_results.obs[0][...,3] > 0.67)[:,:,desired_samples:].float().mean()
-                exit_count = (update_results.obs[0][...,3] > 1.00)[:,:,desired_samples:].float().mean()
-                door_count = (update_results.obs[3][...,2] > 0.5)[:,:,desired_samples:].float().mean()
-
-                second_room_count_unfiltered = (update_results.obs[0][...,3] > 0.34).float().mean()
-                third_room_count_unfiltered = (update_results.obs[0][...,3] > 0.67).float().mean()
-                exit_count_unfiltered = (update_results.obs[0][...,3] > 1.00).float().mean()
-                door_count_unfiltered = (update_results.obs[3][...,2] > 0.5).float().mean()
+                #print("Update results shape", update_results.obs[0].shape, update_results.obs[3].shape)
 
                 value_mean = update_results.values[:,desired_samples:].mean().cpu().item()
                 value_min = update_results.values[:,desired_samples:].min().cpu().item()
@@ -549,18 +549,25 @@ class GoExplore:
                 "returns_mean": return_mean,
                 "returns_max": return_max,
                 "done_count": done_count,
-                "second_room_count": second_room_count,
-                "third_room_count": third_room_count,
-                "exit_count": exit_count,
-                "door_count": door_count,
-                "second_room_count_unfiltered": second_room_count_unfiltered,
-                "third_room_count_unfiltered": third_room_count_unfiltered,
-                "exit_count_unfiltered": exit_count_unfiltered,
-                "door_count_unfiltered": door_count_unfiltered,
                 "vnorm_mu": vnorm_mu,
                 "steps_to_end": avg_steps,
                 "max_progress": self.max_progress,
                 "success_frac": success_frac,
+                # Add logging of success frac for each level type
+                "success_frac_0": level_type_success_fracs[0],
+                "success_frac_1": level_type_success_fracs[1],
+                "success_frac_2": level_type_success_fracs[2],
+                "success_frac_3": level_type_success_fracs[3],
+                "success_frac_4": level_type_success_fracs[4],
+                "success_frac_5": level_type_success_fracs[5],
+                # Also log unfiltered versions of success_fracs
+                "success_frac_all": success_frac_all,
+                "success_frac_0_all": level_type_success_fracs_all[0],
+                "success_frac_1_all": level_type_success_fracs_all[1],
+                "success_frac_2_all": level_type_success_fracs_all[2],
+                "success_frac_3_all": level_type_success_fracs_all[3],
+                "success_frac_4_all": level_type_success_fracs_all[4],
+                "success_frac_5_all": level_type_success_fracs_all[5],
                 }
             )
             if args.use_intrinsic_loss:

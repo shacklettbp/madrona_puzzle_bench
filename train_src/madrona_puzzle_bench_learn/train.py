@@ -404,10 +404,10 @@ def _update_iter(cfg : TrainConfig,
                     all_bins = user_cb.map_states_to_bins(rollouts.obs) # num_timesteps * num_worlds
                     #if user_cb.max_progress < 1.01:
                     reward_bonus_1 = user_cb.start_bin_steps[all_bins].float()
-                    print("Reward bonus", reward_bonus_1)
+                    #print("Reward bonus", reward_bonus_1)
                     mean_reward_bonus = reward_bonus_1.mean()
                     reward_bonus_1 *= user_cb.bin_reward_boost / mean_reward_bonus
-                    print("Normalized reward bonus", reward_bonus_1)
+                    #print("Normalized reward bonus", reward_bonus_1)
                     #print(reward_bonus_1.sum(axis=0))
                     #rollouts.rewards.view(-1, *rollouts.rewards.shape[2:])[:] *= 0
                     rollouts.rewards.view(-1, *rollouts.rewards.shape[2:])[:] += reward_bonus_1.view(reward_bonus_1.shape[0],-1,1) * user_cb.bin_reward_boost * 0.5 #[...,None].repeat(1,1,2).view(reward_bonus_1.shape[0],-1,1) #* user_cb.bin_reward_boost * 0.5
