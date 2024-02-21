@@ -58,7 +58,7 @@ static inline PolarObs xyzToPolar(Vector3 v)
 
     // Note that this is angle off y-forward
     float theta = -atan2f(v.x, v.y);
-    float phi = asinf(v.z);
+    float phi = asinf(std::max(-1.0f, std::min(1.0f, v.z)));
 
     return PolarObs {
         .r = r,
