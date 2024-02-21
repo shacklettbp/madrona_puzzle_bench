@@ -700,12 +700,26 @@ static void lavaPathLevel(Engine &ctx)
 
     makeLava(ctx, lavaCenter, lavaScale);
 
-    // 0. Implement lava object and put a square of lava in the room center. Make it equivalent to
-    //    getting caught by the zombie to start.
-    // 1. Get positions of both doors in the room center.
-    // 2. Construct a simple path from first to second door by extending each
-    //    door center to the room midline, then join them "vertically".
-    // 3. Track the empty space, and fill it with lava. 
+    Vector3 pathPoints[40];
+    // Path version 0: 
+    // random walk from the exit door and from the entrance door. As soon as they intersect,
+    // that's the path. Discard loops.
+    // 10 x 10 grid, pick entrance/exit point, random walk on each.
+    // Modify grid cell, marking it as fromExit path or fromEntrance path.
+    // When fromEntrance path finds a fromExit cell (or vice versa), break.
+    // Replay each generated path. Add a start node. When you find the next node, make it
+    // point to the previous node. If you find a node and it's already pointing to something,
+    // just don't change it and make that node the current node, then continue the path.
+    // Do this for both paths until the intersection point. The final path is now the actual path.
+    // Reset everything to lava except all actual path cells.
+    // Unioning Lava:
+    // 1. Initialize all lava to its own rectangle.
+    // 2. Like creep, each rectangle attempts to extrude one of its sides, starting with the larger,
+    //    until it no longer can (either by path boundary or other lava boundary).
+    // 2. Repeat until all lava squares are unioned into lava.
+    // 3. Get grid-space bounds of all lava blocks.
+    // 4. Translate grid-space lava blocks into room space.
+    // 3. Add all the lava.
 
 }
 
