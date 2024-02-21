@@ -162,8 +162,16 @@ def process_obs(agent_txfm_obs_tensor, agent_interact_obs_tensor, agent_level_ty
     #print("Combined tensor", combined_tensor.shape)
     #print("Entity tensor shape", entity_tensor.shape)
 
+    # If the combined tensor has nans, first print the positions of the nans, then raise an error
+    if torch.isnan(combined_tensor).any():
+        print("Nans in combined tensor", torch.where(torch.isnan(combined_tensor)))
+        # Do this separately for obs and entity tensors
+        print("Nans in obs tensor", torch.where(torch.isnan(obs_tensor)))
+        print("Nans in entity tensor", torch.where(torch.isnan(entity_tensor)))
+        raise ValueError("Nans in combined tensor")
+
     # Filter nans
-    combined_tensor[torch.isnan(combined_tensor)] = 0
+    #combined_tensor[torch.isnan(combined_tensor)] = 0
 
     return combined_tensor
 
