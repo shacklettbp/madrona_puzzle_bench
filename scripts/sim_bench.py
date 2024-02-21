@@ -29,9 +29,19 @@ sim = madrona_puzzle_bench.SimManager(
 )
 
 actions = sim.action_tensor().to_torch()
+checkpoints = sim.checkpoint_tensor().to_torch()
+checkpoint_resets = sim.checkpoint_reset_tensor().to_torch()
+resets = sim.reset_tensor().to_torch()
 
 start = time.time()
 for i in range(args.num_steps):
+    # Rotate worlds
+    checkpoint_resets[:, 0] = 1
+    # Shift all tensors in checkpoints by one position
+    checkpoints[1:] = checkpoints[:-1].clone()
+    sim.step()
+
+    # Now take an action on all worlds
     actions[..., 0] = torch.randint_like(actions[..., 0], 0, 4)
     actions[..., 1] = torch.randint_like(actions[..., 1], 0, 8)
     actions[..., 2] = torch.randint_like(actions[..., 2], 0, 5)
