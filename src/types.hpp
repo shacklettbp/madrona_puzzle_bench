@@ -261,6 +261,8 @@ struct CheckpointSave {
 
 struct IsExit {};
 
+struct IsLava {};
+
 struct EnemyState {
     float moveForce;
     float moveTorque;
@@ -425,6 +427,26 @@ struct EnemyEntity : public madrona::Archetype<
     EntityExtents,
     EnemyState,
     madrona::render::Renderable
+> {};
+
+struct LavaEntity : public madrona::Archetype<
+    Position, 
+    Rotation,
+    Scale,
+    Velocity,
+    ObjectID,
+    ResponseType,
+    madrona::phys::solver::SubstepPrevState,
+    madrona::phys::solver::PreSolvePositional,
+    madrona::phys::solver::PreSolveVelocity,
+    ExternalForce,
+    ExternalTorque,
+    madrona::phys::broadphase::LeafID,
+
+    EntityType,
+    EntityExtents,
+    madrona::render::Renderable,
+    IsLava
 > {};
 
 

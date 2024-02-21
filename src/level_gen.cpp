@@ -540,6 +540,30 @@ static Entity makeExit(Engine &ctx, float room_size, Vector3 exit_pos)
     return e;
 }
 
+static Entity makeLava(Engine &ctx, Vector3 position, 
+                        Scale scale = Diag3x3{1.0f, 1.0f, 0.01f})
+{
+    Entity lava = ctx.makeRenderableEntity<LavaEntity>();
+    setupRigidBodyEntity(
+        ctx,
+        lava,
+        position,
+        Quat { 1, 0, 0, 0 },
+        SimObject::Lava,
+        EntityType::Lava,
+        ResponseType::Static,
+        scale);
+    registerRigidBodyEntity(ctx, lava, SimObject::Lava);
+
+    ctx.get<EntityExtents>(lava) = Vector3 {
+        scale.d0,
+        scale.d1,
+        scale.d2
+    };
+
+    return lava;
+}
+
 static Entity makeEnemy(Engine &ctx, Vector3 position, 
                         float move_force = 200.f,
                         float move_torque = 200.f)
@@ -667,6 +691,22 @@ static void lavaPathLevel(Engine &ctx)
 
     AABB room_aabb;
     setupSingleRoomLevel(ctx, level_size, nullptr, &room_aabb);
+
+    Vector3 lavaCenter = (room_aabb.pMax + room_aabb.pMin) * 0.5f;
+    lavaCenter.z = 0.0f; 
+
+    // Keep a low z-scale so the agent can still walk over it (and die).
+    Diag3x3 lavaScale = Diag3x3 { level_size * 0.25f, level_size * 0.25f, 0.01f};
+
+    makeLava(ctx, lavaCenter, lavaScale);
+
+    // 0. Implement lava object and put a square of lava in the room center. Make it equivalent to
+    //    getting caught by the zombie to start.
+    // 1. Get positions of both doors in the room center.
+    // 2. Construct a simple path from first to second door by extending each
+    //    door center to the room midline, then join them "vertically".
+    // 3. Track the empty space, and fill it with lava. 
+
 }
 
 static void singleButtonLevel(Engine &ctx)
@@ -816,8 +856,10 @@ static void obstructedBlockButtonLevel(Engine &ctx)
 
 LevelType generateLevel(Engine &ctx)
 {
-    LevelType level_type = (LevelType)(
-        ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes));
+    // TODO: restore
+    LevelType level_type = LevelType::LavaPath;
+    //(LevelType)(
+    //    ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes));
 
     switch (level_type) {
     case LevelType::Chase: {
