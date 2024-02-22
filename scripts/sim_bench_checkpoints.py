@@ -55,7 +55,9 @@ for i in range(args.num_steps):
         issue_elems = torch.where(~torch.isclose(obs[j][args.num_worlds//2 + i:], obs[j][:args.num_worlds//2 - i], atol=1e-2))
         #print(obs[j][args.num_worlds//2 + i:])
         #print(obs[j][:args.num_worlds//2 - i])
+        print(issue_elems)
         assert torch.allclose(obs[j][args.num_worlds//2 + i:], obs[j][:args.num_worlds//2 - i], atol=1e-2)
+        print(torch.where(~torch.isclose(obs[j][args.num_worlds//2:args.num_worlds//2 + i], obs[j][:i], atol=1e-2)))
         assert torch.allclose(obs[j][args.num_worlds//2:args.num_worlds//2 + i], obs[j][:i], atol=1e-2)
     # Now take an action on all worlds
     actions[..., 0] = torch.randint_like(actions[..., 0], 0, 4)
@@ -77,7 +79,9 @@ for i in range(args.num_steps):
         issue_elems = torch.where(~torch.isclose(obs[j][args.num_worlds//2 + i:], obs[j][:args.num_worlds//2 - i], atol=1e-2))
         #print(obs[j][args.num_worlds//2 + i:])
         #print(obs[j][:args.num_worlds//2 - i])
+        print(issue_elems)
         assert torch.allclose(obs[j][args.num_worlds//2 + i:], obs[j][:args.num_worlds//2 - i], atol=1e-2)
+        print(torch.where(~torch.isclose(obs[j][args.num_worlds//2:args.num_worlds//2 + i], obs[j][:i], atol=1e-2)))
         assert torch.allclose(obs[j][args.num_worlds//2:args.num_worlds//2 + i], obs[j][:i], atol=1e-2)
 
 end = time.time()
