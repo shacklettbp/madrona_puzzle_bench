@@ -63,6 +63,10 @@ for i in range(args.num_steps):
     actions[..., 2] = torch.randint_like(actions[..., 2], 0, 5)
     actions[..., 3] = torch.randint_like(actions[..., 3], 0, 2)
 
+    # Copy actions from first half of worlds to last half, but shifted by i
+    actions[args.num_worlds//2 + i:] = actions[:args.num_worlds//2 - i].clone()
+    actions[args.num_worlds//2:args.num_worlds//2 + i] = actions[:i].clone()
+
     sim.step()
 
     # Same check for observations
@@ -71,8 +75,8 @@ for i in range(args.num_steps):
         #if i == 2:
         #    continue
         issue_elems = torch.where(~torch.isclose(obs[j][args.num_worlds//2 + i:], obs[j][:args.num_worlds//2 - i], atol=1e-2))
-        print(obs[j][args.num_worlds//2 + i:])
-        print(obs[j][:args.num_worlds//2 - i])
+        #print(obs[j][args.num_worlds//2 + i:])
+        #print(obs[j][:args.num_worlds//2 - i])
         assert torch.allclose(obs[j][args.num_worlds//2 + i:], obs[j][:args.num_worlds//2 - i], atol=1e-2)
         assert torch.allclose(obs[j][args.num_worlds//2:args.num_worlds//2 + i], obs[j][:i], atol=1e-2)
 
