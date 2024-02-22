@@ -24,6 +24,7 @@ using madrona::phys::ResponseType;
 using madrona::phys::ExternalForce;
 using madrona::phys::ExternalTorque;
 using madrona::math::Vector3;
+using madrona::math::Quat;
 using madrona::math::AABB;
 
 
@@ -222,8 +223,8 @@ struct Checkpoint {
     // Checkpoint structs.
     struct EntityState {
         EntityType entityType;
-        Position position;
-        Rotation rotation;
+        Vector3 position;
+        Quat rotation;
         Velocity velocity;
         union {
             OpenState doorOpen;
@@ -232,8 +233,8 @@ struct Checkpoint {
     };
     
     struct AgentState {
-        Position position;
-        Rotation rotation;
+        Vector3 position;
+        Quat rotation;
         Velocity velocity;
         // Index within the checkpoint buffers of the
         // grabbed entity. -1 if not grabbing.

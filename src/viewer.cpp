@@ -159,6 +159,39 @@ int main(int argc, char *argv[])
 
     auto reward_printer = mgr.rewardTensor().makePrinter();
 
+    auto ckpt_tensor = mgr.checkpointTensor();
+    Checkpoint stashed_checkpoint;
+
+    auto stashCheckpoint = [&](CountT world_idx)
+    {
+        auto dev_ptr = (Checkpoint *)ckpt_tensor.devicePtr();
+        dev_ptr += world_idx;
+        if (exec_mode == ExecMode::CUDA) {
+#ifdef MADRONA_CUDA_SUPPORT
+            REQ_CUDA(cudaMemcpy(&stashed_checkpoint, dev_ptr,
+                sizeof(Checkpoint), cudaMemcpyDeviceToHost));
+#endif
+        } else {
+            stashed_checkpoint = *dev_ptr;
+        }
+    };
+
+    auto loadStashedCheckpoint = [&](CountT world_idx)
+    {
+        auto dev_ptr = (Checkpoint *)ckpt_tensor.devicePtr();
+        dev_ptr += world_idx;
+        if (exec_mode == ExecMode::CUDA) {
+#ifdef MADRONA_CUDA_SUPPORT
+            REQ_CUDA(cudaMemcpy(dev_ptr, &stashed_checkpoint,
+                sizeof(Checkpoint), cudaMemcpyHostToDevice));
+#endif
+        } else {
+            *dev_ptr = stashed_checkpoint;
+        }
+    };
+
+    stashCheckpoint(0);
+
     auto printObs = [&]() {
         printf("Agent Transform\n");
         agent_txfm_printer.print();
@@ -185,32 +218,29 @@ int main(int argc, char *argv[])
     };
 
 
-
     // Main loop for the viewer viewer
     viewer.loop(
-        [&mgr](CountT world_idx,
-               const Viewer::UserInput &input) {
-            using Key = Viewer::KeyboardKey;
+    [&](CountT world_idx, const Viewer::UserInput &input) 
+    {
+        using Key = Viewer::KeyboardKey;
 
-            if (input.keyHit(Key::R)) {
-                mgr.triggerReset(world_idx);
-            }
+        if (input.keyHit(Key::R)) {
+            mgr.triggerReset(world_idx);
+        }
 
-            // By default, checkpointing happens every frame,
-            // so disable that behavior here.
-            mgr.setSaveCheckpoint(world_idx, 0);
-            // Checkpointing
-            if (input.keyHit(Key::Z)) {
-                mgr.setSaveCheckpoint(world_idx, 1);
-            }
+        // Checkpointing
+        if (input.keyHit(Key::Z)) {
+            stashCheckpoint(world_idx);
+            mgr.setSaveCheckpoint(world_idx, 1);
+        }
 
-            if (input.keyHit(Key::X)) {
-                // Triggers a world reset.
-                mgr.triggerLoadCheckpoint(world_idx);
-            }
-        },
-        [&mgr](CountT world_idx, CountT agent_idx,
-               const Viewer::UserInput &input) {
+        if (input.keyHit(Key::X)) {
+            loadStashedCheckpoint(world_idx);
+            mgr.triggerLoadCheckpoint(world_idx);
+        }
+    },
+    [&](CountT world_idx, CountT agent_idx, const Viewer::UserInput &input)
+    {
         using Key = Viewer::KeyboardKey;
 
         int32_t x = 0;
