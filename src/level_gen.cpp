@@ -597,7 +597,8 @@ static Entity makeEnemy(Engine &ctx, Vector3 position,
 static void setupSingleRoomLevel(Engine &ctx,
                                  float level_size,
                                  Entity *exit_door_out,
-                                 AABB *room_aabb_out)
+                                 AABB *room_aabb_out,
+                                 Vector3* entrance_positions)
 {
     const float spawn_size = 1.5f * ctx.data().doorWidth;
     const float half_wall_width = consts::wallWidth / 2.f;
@@ -613,17 +614,24 @@ static void setupSingleRoomLevel(Engine &ctx,
     float spawn_t = ctx.data().rng.sampleUniform();
 
     Entity doors[4];
-    Vector3 entrance_positions[4];
+    Vector3 local_entrance_positions[4];
     makeRoomWalls(ctx, room_aabb,
         {
             { exit_door_out ? WallType::Door : WallType::Entrance, exit_t },
             { WallType::Solid },
             { WallType::Entrance, spawn_t },
             { WallType::Solid },
-        }, doors, entrance_positions);
+        }, doors, local_entrance_positions);
 
-    Vector3 exit_pos = entrance_positions[0];
-    Vector3 spawn_pos = entrance_positions[2];
+
+    if (entrance_positions != nullptr) {
+        for (int i = 0; i < 4; ++i) {
+            entrance_positions[i] = local_entrance_positions[i];
+        }
+    }
+
+    Vector3 exit_pos = local_entrance_positions[0];
+    Vector3 spawn_pos = local_entrance_positions[2];
 
     spawn_pos.y -= spawn_size / 2.f;
 
@@ -675,7 +683,7 @@ static void chaseLevel(Engine &ctx)
     const float level_size = 20.f;
 
     AABB room_aabb;
-    setupSingleRoomLevel(ctx, level_size, nullptr, &room_aabb);
+    setupSingleRoomLevel(ctx, level_size, nullptr, &room_aabb, nullptr);
 
     Vector3 enemy_spawn = room_aabb.pMin;
     enemy_spawn.y += level_size / 2.f;
@@ -689,38 +697,242 @@ static void lavaPathLevel(Engine &ctx)
 {
     const float level_size = 20.f;
 
+    Entity exit_door;
     AABB room_aabb;
-    setupSingleRoomLevel(ctx, level_size, nullptr, &room_aabb);
+    Vector3 entrance_positions[4];
+    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb, entrance_positions);
 
-    Vector3 lavaCenter = (room_aabb.pMax + room_aabb.pMin) * 0.5f;
-    lavaCenter.z = 0.0f; 
+    Vector3 exit_pos = entrance_positions[0];
+    Vector3 spawn_pos = entrance_positions[2];
 
-    // Keep a low z-scale so the agent can still walk over it (and die).
-    Diag3x3 lavaScale = Diag3x3 { level_size * 0.25f, level_size * 0.25f, 0.01f};
+    const int gridsize = 10;
+    int grid[gridsize][gridsize];
 
-    makeLava(ctx, lavaCenter, lavaScale);
+    const int EMPTY = -1;
+    const int PATH = 0;
+    const int LAVA = 1;
 
-    Vector3 pathPoints[40];
-    // Path version 0: 
-    // random walk from the exit door and from the entrance door. As soon as they intersect,
-    // that's the path. Discard loops.
-    // 10 x 10 grid, pick entrance/exit point, random walk on each.
-    // Modify grid cell, marking it as fromExit path or fromEntrance path.
-    // When fromEntrance path finds a fromExit cell (or vice versa), break.
-    // Replay each generated path. Add a start node. When you find the next node, make it
-    // point to the previous node. If you find a node and it's already pointing to something,
-    // just don't change it and make that node the current node, then continue the path.
-    // Do this for both paths until the intersection point. The final path is now the actual path.
-    // Reset everything to lava except all actual path cells.
-    // Unioning Lava:
-    // 1. Initialize all lava to its own rectangle.
-    // 2. Like creep, each rectangle attempts to extrude one of its sides, starting with the larger,
-    //    until it no longer can (either by path boundary or other lava boundary).
-    // 2. Repeat until all lava squares are unioned into lava.
-    // 3. Get grid-space bounds of all lava blocks.
-    // 4. Translate grid-space lava blocks into room space.
-    // 3. Add all the lava.
+    for (int i = 0; i < gridsize; ++i) {
+        for (int j = 0; j < gridsize; ++j) {
+            grid[i][j] = EMPTY;
+        }
+    }
 
+    auto debugPrintGrid = [&](){
+        for (int i = gridsize - 1; i >= 0; --i) {
+            for (int j = gridsize - 1; j >= 0; --j) {
+                printf(" %d", grid[i][j]);
+            }
+            printf("\n");
+        }
+    };
+
+    printf("exit_pos %f, %f, %f\n", exit_pos.x, exit_pos.y, exit_pos.z);
+    printf("spawn_pos %f, %f, %f\n", spawn_pos.x, spawn_pos.y, spawn_pos.z);
+
+    Vector3 exit_coord = gridsize * (exit_pos - room_aabb.pMin) / level_size;
+    Vector3 entrance_coord = gridsize * (spawn_pos - room_aabb.pMin) / level_size;
+
+
+    // Simple int vector
+    struct Vector2Int32 {
+        int x;
+        int y;
+
+        int & operator[](int i) {
+            switch (i) {
+                default:
+                case 0:
+                    return x;
+                case 1:
+                    return y;
+            }
+        }
+        int operator[](int i) const {
+            switch (i) {
+                default:
+                case 0:
+                    return x;
+                case 1:
+                    return y;
+            }
+        }
+    };
+
+    Vector2Int32 exitCoord = {int(exit_coord.x), int(exit_coord.y)};
+    Vector2Int32 entranceCoord = {int(entrance_coord.x), int(entrance_coord.y)};
+
+    //int exit_x = int(exit_coord.x); 
+    //int exit_y = int(exit_coord.y);
+    //int entrance_x = int(entrance_coord.x);
+    //int entrance_y = int(entrance_coord.y);
+
+    grid[exitCoord.x][exitCoord.y] = 2;
+    grid[entranceCoord.x][entranceCoord.y] = 2;
+
+    debugPrintGrid();
+
+
+    // Debugging, mess with rng.
+    for (int i = 0; i < 100; ++i) {
+        int coin = ctx.data().rng.sampleI32(0, 2);
+    }
+
+    bool atExit = false;
+    while(!atExit)
+    {
+        Vector2Int32 step = Vector2Int32 {
+            exitCoord.x - entranceCoord.x,
+            exitCoord.y - entranceCoord.y
+            };
+
+        printf("=====================================\n");
+        printf("entrace_coord %d, %d\n", entranceCoord.x, entranceCoord.y);
+        printf("exit_coord %d, %d\n", exitCoord.x, exitCoord.y);
+        printf("step %d, %d\n", step.x, step.y);
+        int coin = ctx.data().rng.sampleI32(0, 2);
+        printf("coin: %d\n", coin);
+        int start = step[coin] < 0 ? step[coin] : 0;
+        int end = step[coin] < 0 ? 1 : step[coin] + 1;
+        step[coin] = ctx.data().rng.sampleI32(start, end);
+        step[(coin + 1) % 2] = 0;
+
+        printf("step: %d, %d\n", step.x, step.y);
+
+        Vector2Int32 oldEntranceCoord = entranceCoord;
+        entranceCoord.x += step.x;
+        entranceCoord.y += step.y;
+
+        int const_coord = entranceCoord[(coin + 1) % 2];
+        printf("const_coord %d\n", const_coord);
+
+        for (int i = oldEntranceCoord[coin]; 
+        (step[coin] < 0 ? i >= entranceCoord[coin] : i <= entranceCoord[coin]); 
+        step[coin] < 0 ? --i : ++i)
+        {
+            if (coin == 1) {
+                grid[const_coord][i] = PATH;
+            } else {
+                grid[i][const_coord] = PATH;
+            }
+        }
+
+        //grid[int(entrance_coord.x)][int(entrance_coord.y)] = 1;
+
+        atExit = entranceCoord.x == exitCoord.x &&
+                 entranceCoord.y == exitCoord.y;
+        
+        //printf("exit_coord: %d, %d", int(exit_coord.x), int(exit_coord.y));
+        //printf("entrance_coord: %d, %d", int(entrance_coord.x), int(entrance_coord.y));
+    }
+
+    debugPrintGrid();
+
+    //assert(false);
+    printf("Lava Grid\n");
+
+    struct LavaBounds {
+        Vector2Int32 min;
+        Vector2Int32 max;
+    };
+
+    // Up to 20 lava blocks.
+    LavaBounds lavaBounds[20];
+    int lavaWriteIdx = 1;
+    // Iterate through grid, starting at the next available lava min and only iterating
+    // within it's range.
+    // Find max lava index, which updates at the end of each row.
+    // If you 
+
+    auto processLavaBlock = [&](LavaBounds currentLava) {
+        // Attempt to expand in each direction.
+        bool canExpand = true;
+        while (canExpand) {
+            bool canExpandY = currentLava.max.y < gridsize - 1;
+            // Try expanding up first
+            for (int i = currentLava.min.x; i <= currentLava.max.x; ++i) {
+                if (grid[i][currentLava.max.y + 1] != -1) {
+                    canExpandY = false;
+                }
+            }
+            if (canExpandY) {
+                currentLava.max.y += 1;
+            }
+            bool canExpandX = currentLava.max.x < gridsize - 1;
+            for (int j = currentLava.min.y; j <= currentLava.max.y; ++j) {
+                if (grid[currentLava.max.x + 1][j] != -1) {
+                    canExpandX = false;
+                }
+            }
+            if (canExpandX) {
+                currentLava.max.x += 1;
+            }
+            canExpand = canExpandX || canExpandY;
+        }
+
+        printf("currentLava.min = %d, %d, max = %d, %d\n",
+        currentLava.min.x, currentLava.min.y,
+        currentLava.max.x, currentLava.max.y);
+
+        lavaBounds[lavaWriteIdx] = currentLava;
+
+        // Fully expanded, now write out the values to the table.
+        for (int i = currentLava.min.x; i <= currentLava.max.x; ++i) {
+            for (int j = currentLava.min.y; j <= currentLava.max.y; ++j) {
+                grid[i][j] = LAVA;
+                // Debugging
+                //grid[i][j] = lavaWriteIdx;
+            }
+        }
+        lavaWriteIdx++;
+    };
+
+    // Find integer bounds for lava blocks.
+    for (int i = 0; i < gridsize; ++i) {
+        for (int j = 0; j < gridsize; ++j) {
+            if (grid[i][j] == -1)
+            {
+                LavaBounds currentLava;
+                currentLava.min = Vector2Int32{ i, j };
+                currentLava.max = currentLava.min;
+
+                processLavaBlock(currentLava);
+            }
+        }
+    }
+
+    debugPrintGrid();
+
+    // From the Grid, create the actual lava blocks.
+    for (int i = 1; i < lavaWriteIdx; ++i) {
+        printf("Lava %d, min = %d, %d, max = %d, %d\n", i,
+        lavaBounds[i].min.x, lavaBounds[i].min.y,
+        lavaBounds[i].max.x, lavaBounds[i].max.y);
+
+        Vector3 lavaMin = Vector3 {
+            (level_size - consts::wallWidth) * lavaBounds[i].min.x / (float)(gridsize) + room_aabb.pMin.x,
+            (level_size - consts::wallWidth) * lavaBounds[i].min.y / (float)(gridsize) + room_aabb.pMin.y,
+            0.0f
+        };
+
+        Vector3 lavaMax = Vector3 {
+            (level_size - consts::wallWidth) * (lavaBounds[i].max.x + 1) / (float)(gridsize) + room_aabb.pMin.x,
+            (level_size - consts::wallWidth) * (lavaBounds[i].max.y + 1) / (float)(gridsize) + room_aabb.pMin.y,
+            0.0f
+        };
+
+        Vector3 lavaCenter = (lavaMin + lavaMax) * 0.5f;
+
+        // Keep a low z-scale so the agent can still walk over it (and die).
+        Diag3x3 lavaScale = Diag3x3 { 
+            (lavaMax.x - lavaMin.x - 0.1f) * 0.5f, 
+            (lavaMax.y - lavaMin.y - 0.1f) * 0.5f, 
+            0.001f
+        };
+
+
+        makeLava(ctx, lavaCenter, lavaScale);
+    }
 }
 
 static void singleButtonLevel(Engine &ctx)
@@ -732,7 +944,7 @@ static void singleButtonLevel(Engine &ctx)
 
     Entity exit_door;
     AABB room_aabb;
-    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb);
+    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb, nullptr);
 
     {
         float button_x = randBetween(ctx,
@@ -761,7 +973,7 @@ static void singleBlockButtonLevel(Engine &ctx)
 
     Entity exit_door;
     AABB room_aabb;
-    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb);
+    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb, nullptr);
 
     {
         float button_x = randBetween(ctx,
@@ -802,7 +1014,7 @@ static void obstructedBlockButtonLevel(Engine &ctx)
 
     Entity exit_door;
     AABB room_aabb;
-    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb);
+    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb, nullptr);
 
     float button_min_x = 
         0.25f * room_aabb.pMin.x + 0.75f * room_aabb.pMax.x;
