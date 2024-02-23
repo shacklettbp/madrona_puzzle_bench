@@ -6,6 +6,7 @@ from madrona_puzzle_bench_learn.actor_critic import (
         ActorCritic, DiscreteActor, Critic,
         BackboneEncoder, RecurrentBackboneEncoder,
         Backbone, BackboneShared, BackboneSeparate,
+        RNDModel,
     )
 from madrona_puzzle_bench_learn.profile import profile
 import madrona_puzzle_bench_learn.models
@@ -19,5 +20,5 @@ __all__ = [
         "ActorCritic", "DiscreteActor", "Critic",
         "BackboneEncoder", "RecurrentBackboneEncoder",
         "Backbone", "BackboneShared", "BackboneSeparate",
-        "NStepReplay",
+        "NStepReplay", "RNDModel",
     ]
