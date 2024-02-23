@@ -700,7 +700,11 @@ static void lavaPathLevel(Engine &ctx)
     Entity exit_door;
     AABB room_aabb;
     Vector3 entrance_positions[4];
-    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb, entrance_positions);
+    setupSingleRoomLevel(ctx, 
+    level_size, 
+    &exit_door, 
+    &room_aabb, 
+    entrance_positions);
 
     Vector3 exit_pos = entrance_positions[0];
     Vector3 spawn_pos = entrance_positions[2];
