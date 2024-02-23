@@ -1007,6 +1007,8 @@ static TaskGraphNodeID sortEntities(TaskGraphBuilder &builder,
         builder, {sort_sys});
     sort_sys = queueSortByWorld<EnemyEntity>(
         builder, {sort_sys});
+    sort_sys = queueSortByWorld<LavaEntity>(
+        builder, {sort_sys});
 
     return sort_sys;
 }
