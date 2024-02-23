@@ -712,29 +712,30 @@ static void lavaPathLevel(Engine &ctx)
     const int PATH = 0;
     const int LAVA = 1;
 
+    // Initialize all grid cells to empty;
     for (int i = 0; i < gridsize; ++i) {
         for (int j = 0; j < gridsize; ++j) {
             grid[i][j] = EMPTY;
         }
     }
 
-    auto debugPrintGrid = [&](){
-        for (int i = gridsize - 1; i >= 0; --i) {
-            for (int j = gridsize - 1; j >= 0; --j) {
-                printf(" %d", grid[i][j]);
-            }
-            printf("\n");
-        }
-    };
+    // Visualize the grid.
+    //auto debugPrintGrid = [&](){
+    //    for (int i = gridsize - 1; i >= 0; --i) {
+    //        for (int j = gridsize - 1; j >= 0; --j) {
+    //            printf(" %d", grid[i][j]);
+    //        }
+    //        printf("\n");
+    //    }
+    //};
 
-    printf("exit_pos %f, %f, %f\n", exit_pos.x, exit_pos.y, exit_pos.z);
-    printf("spawn_pos %f, %f, %f\n", spawn_pos.x, spawn_pos.y, spawn_pos.z);
+    Vector3 exit_coord = gridsize * 
+        (exit_pos - room_aabb.pMin) / level_size;
+    Vector3 entrance_coord = gridsize * 
+        (spawn_pos - room_aabb.pMin) / level_size;
 
-    Vector3 exit_coord = gridsize * (exit_pos - room_aabb.pMin) / level_size;
-    Vector3 entrance_coord = gridsize * (spawn_pos - room_aabb.pMin) / level_size;
 
-
-    // Simple int vector
+    // Simple 2-int storage class.
     struct Vector2Int32 {
         int x;
         int y;
@@ -762,49 +763,32 @@ static void lavaPathLevel(Engine &ctx)
     Vector2Int32 exitCoord = {int(exit_coord.x), int(exit_coord.y)};
     Vector2Int32 entranceCoord = {int(entrance_coord.x), int(entrance_coord.y)};
 
-    //int exit_x = int(exit_coord.x); 
-    //int exit_y = int(exit_coord.y);
-    //int entrance_x = int(entrance_coord.x);
-    //int entrance_y = int(entrance_coord.y);
-
     grid[exitCoord.x][exitCoord.y] = 2;
     grid[entranceCoord.x][entranceCoord.y] = 2;
-
-    debugPrintGrid();
-
-
-    // Debugging, mess with rng.
-    for (int i = 0; i < 100; ++i) {
-        int coin = ctx.data().rng.sampleI32(0, 2);
-    }
 
     bool atExit = false;
     while(!atExit)
     {
+        // Compute the int vector from entrance to exit.
         Vector2Int32 step = Vector2Int32 {
             exitCoord.x - entranceCoord.x,
             exitCoord.y - entranceCoord.y
             };
 
-        printf("=====================================\n");
-        printf("entrace_coord %d, %d\n", entranceCoord.x, entranceCoord.y);
-        printf("exit_coord %d, %d\n", exitCoord.x, exitCoord.y);
-        printf("step %d, %d\n", step.x, step.y);
+        // Compute a random step (within the bounds of the 
+        // above vector) along a random axis.
         int coin = ctx.data().rng.sampleI32(0, 2);
-        printf("coin: %d\n", coin);
         int start = step[coin] < 0 ? step[coin] : 0;
-        int end = step[coin] < 0 ? 1 : step[coin] + 1;
-        step[coin] = ctx.data().rng.sampleI32(start, end);
+        int end = step[coin] < 0 ? 0 : step[coin];
+        step[coin] = ctx.data().rng.sampleI32(start, end + 1);
         step[(coin + 1) % 2] = 0;
 
-        printf("step: %d, %d\n", step.x, step.y);
-
+        // Take the step, set grid values accordingly.
         Vector2Int32 oldEntranceCoord = entranceCoord;
         entranceCoord.x += step.x;
         entranceCoord.y += step.y;
 
         int const_coord = entranceCoord[(coin + 1) % 2];
-        printf("const_coord %d\n", const_coord);
 
         for (int i = oldEntranceCoord[coin]; 
         (step[coin] < 0 ? i >= entranceCoord[coin] : i <= entranceCoord[coin]); 
@@ -817,19 +801,9 @@ static void lavaPathLevel(Engine &ctx)
             }
         }
 
-        //grid[int(entrance_coord.x)][int(entrance_coord.y)] = 1;
-
         atExit = entranceCoord.x == exitCoord.x &&
                  entranceCoord.y == exitCoord.y;
-        
-        //printf("exit_coord: %d, %d", int(exit_coord.x), int(exit_coord.y));
-        //printf("entrance_coord: %d, %d", int(entrance_coord.x), int(entrance_coord.y));
     }
-
-    debugPrintGrid();
-
-    //assert(false);
-    printf("Lava Grid\n");
 
     struct LavaBounds {
         Vector2Int32 min;
@@ -837,19 +811,15 @@ static void lavaPathLevel(Engine &ctx)
     };
 
     // Up to 20 lava blocks.
-    LavaBounds lavaBounds[20];
-    int lavaWriteIdx = 1;
-    // Iterate through grid, starting at the next available lava min and only iterating
-    // within it's range.
-    // Find max lava index, which updates at the end of each row.
-    // If you 
+    LavaBounds lavaBounds[consts::maxObjectsPerLevel];
+    int lavaWriteIdx = 0;
 
     auto processLavaBlock = [&](LavaBounds currentLava) {
         // Attempt to expand in each direction.
         bool canExpand = true;
         while (canExpand) {
+            // Attempt to expand bounding box Y.
             bool canExpandY = currentLava.max.y < gridsize - 1;
-            // Try expanding up first
             for (int i = currentLava.min.x; i <= currentLava.max.x; ++i) {
                 if (grid[i][currentLava.max.y + 1] != -1) {
                     canExpandY = false;
@@ -858,6 +828,7 @@ static void lavaPathLevel(Engine &ctx)
             if (canExpandY) {
                 currentLava.max.y += 1;
             }
+            // Attempt to expand bounding box X.
             bool canExpandX = currentLava.max.x < gridsize - 1;
             for (int j = currentLava.min.y; j <= currentLava.max.y; ++j) {
                 if (grid[currentLava.max.x + 1][j] != -1) {
@@ -870,10 +841,7 @@ static void lavaPathLevel(Engine &ctx)
             canExpand = canExpandX || canExpandY;
         }
 
-        printf("currentLava.min = %d, %d, max = %d, %d\n",
-        currentLava.min.x, currentLava.min.y,
-        currentLava.max.x, currentLava.max.y);
-
+        assert(lavaWriteIdx < consts::maxObjectsPerLevel);
         lavaBounds[lavaWriteIdx] = currentLava;
 
         // Fully expanded, now write out the values to the table.
@@ -901,23 +869,19 @@ static void lavaPathLevel(Engine &ctx)
         }
     }
 
-    debugPrintGrid();
-
-    // From the Grid, create the actual lava blocks.
-    for (int i = 1; i < lavaWriteIdx; ++i) {
-        printf("Lava %d, min = %d, %d, max = %d, %d\n", i,
-        lavaBounds[i].min.x, lavaBounds[i].min.y,
-        lavaBounds[i].max.x, lavaBounds[i].max.y);
-
+    // From the grid, create the actual lava blocks.
+    for (int i = 0; i < lavaWriteIdx; ++i) {
+        float scale = (level_size - consts::wallWidth);
         Vector3 lavaMin = Vector3 {
-            (level_size - consts::wallWidth) * lavaBounds[i].min.x / (float)(gridsize) + room_aabb.pMin.x,
-            (level_size - consts::wallWidth) * lavaBounds[i].min.y / (float)(gridsize) + room_aabb.pMin.y,
+            scale * lavaBounds[i].min.x / gridsize + room_aabb.pMin.x,
+            scale * lavaBounds[i].min.y / gridsize + room_aabb.pMin.y,
             0.0f
         };
 
         Vector3 lavaMax = Vector3 {
-            (level_size - consts::wallWidth) * (lavaBounds[i].max.x + 1) / (float)(gridsize) + room_aabb.pMin.x,
-            (level_size - consts::wallWidth) * (lavaBounds[i].max.y + 1) / (float)(gridsize) + room_aabb.pMin.y,
+            // Expand the max by 1 to get the full 0-10 range back.
+            scale * (lavaBounds[i].max.x + 1) / gridsize + room_aabb.pMin.x,
+            scale * (lavaBounds[i].max.y + 1) / gridsize + room_aabb.pMin.y,
             0.0f
         };
 
@@ -925,11 +889,10 @@ static void lavaPathLevel(Engine &ctx)
 
         // Keep a low z-scale so the agent can still walk over it (and die).
         Diag3x3 lavaScale = Diag3x3 { 
-            (lavaMax.x - lavaMin.x - 0.1f) * 0.5f, 
-            (lavaMax.y - lavaMin.y - 0.1f) * 0.5f, 
+            (lavaMax.x - lavaMin.x) * 0.5f, 
+            (lavaMax.y - lavaMin.y) * 0.5f, 
             0.001f
         };
-
 
         makeLava(ctx, lavaCenter, lavaScale);
     }
