@@ -9,6 +9,7 @@ arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument('--num-worlds', type=int, required=True)
 arg_parser.add_argument('--num-steps', type=int, required=True)
 arg_parser.add_argument('--gpu-id', type=int, default=0)
+arg_parser.add_argument('--ckpt-dump-path', type=str)
 
 args = arg_parser.parse_args()
 
@@ -80,9 +81,25 @@ for i in range(args.num_steps):
         #print(obs[j][args.num_worlds//2 + i:])
         #print(obs[j][:args.num_worlds//2 - i])
         print(issue_elems)
-        assert torch.allclose(obs[j][args.num_worlds//2 + i:], obs[j][:args.num_worlds//2 - i], atol=1e-2)
+
+        if len(issue_elems) > 0 and j == 5:
+            o = obs[j][..., 3:6]
+
+            print("bad")
+            print(o[args.num_worlds//2 + i:])
+            print("good")
+            print(o[:args.num_worlds//2 - i])
+
+
+        match = torch.allclose(obs[j][args.num_worlds//2 + i:], obs[j][:args.num_worlds//2 - i], atol=1e-2)
+        match = match and torch.allclose(obs[j][args.num_worlds//2:args.num_worlds//2 + i], obs[j][:i], atol=1e-2)
         print(torch.where(~torch.isclose(obs[j][args.num_worlds//2:args.num_worlds//2 + i], obs[j][:i], atol=1e-2)))
-        assert torch.allclose(obs[j][args.num_worlds//2:args.num_worlds//2 + i], obs[j][:i], atol=1e-2)
+
+        if not match and args.ckpt_dump_path:
+            with open(args.ckpt_dump_path, 'wb') as f:
+                checkpoints.cpu().numpy().tofile(f)
+
+        assert match
 
 end = time.time()
 
