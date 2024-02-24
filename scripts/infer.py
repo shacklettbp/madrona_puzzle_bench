@@ -1,6 +1,6 @@
 import torch
 import madrona_puzzle_bench
-
+from madrona_puzzle_bench import SimFlags, RewardMode
 from madrona_puzzle_bench_learn import LearningState
 
 from policy import make_policy, setup_obs
@@ -44,9 +44,10 @@ sim = madrona_puzzle_bench.SimManager(
     gpu_id = args.gpu_id,
     num_worlds = args.num_worlds,
     rand_seed = 5,
-    auto_reset = True,
-    sim_flags = madrona_puzzle_bench.SimFlags.Default,
-    reward_mode = madrona_puzzle_bench.RewardMode.Sparse3,
+    sim_flags = (int)(sim_flags),
+    reward_mode = getattr(RewardMode, "Dense1"),
+    episode_len = 200,
+    levels_per_episode = 1,
     button_width = 1.3,
     door_width = 20.0 / 3.,
     reward_per_dist = 0.05,
