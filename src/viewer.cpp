@@ -272,7 +272,7 @@ int main(int argc, char *argv[])
         agent_exit_printer.print();
 
         printf("Entity Physics States\n");
-        entity_phys_printer.print();
+        entity_phys_printer.print(1);
 
         printf("Entity Types\n");
         entity_type_printer.print();
@@ -297,6 +297,8 @@ int main(int argc, char *argv[])
         }
 
         mgr.step();
+
+        printObs();
     }
 
     stashCheckpoint(0);
