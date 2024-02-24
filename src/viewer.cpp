@@ -32,27 +32,95 @@ int main(int argc, char *argv[])
 
     constexpr int64_t num_views = 1;
 
-    // Read command line arguments
     uint32_t num_worlds = 1;
-    if (argc >= 2) {
-        num_worlds = (uint32_t)atoi(argv[1]);
-    }
-
-
     ExecMode exec_mode = ExecMode::CPU;
-    if (argc >= 3) {
-        if (!strcmp("--cpu", argv[2])) {
-            exec_mode = ExecMode::CPU;
-        } else if (!strcmp("--cuda", argv[2])) {
-            exec_mode = ExecMode::CUDA;
+
+    auto usageErr = [argv]() {
+        fprintf(stderr, "%s [NUM_WORLDS] [--backend cpu|cuda] [--record path] [--replay path] [--load-ckpt path]\n", argv[0]);
+        exit(EXIT_FAILURE);
+    };
+
+    bool num_worlds_set = false;
+
+    char *record_log_path = nullptr;
+    char *replay_log_path = nullptr;
+    char *load_ckpt_path = nullptr;
+    bool start_frozen = false;
+
+    for (int i = 1; i < argc; i++) {
+        char *arg = argv[i];
+
+        if (arg[0] == '-' && arg[1] == '-') {
+            arg += 2;
+
+            if (!strcmp("backend", arg)) {
+                i += 1;
+
+                if (i == argc) {
+                    usageErr();
+                }
+
+                char *value = argv[i];
+                if (!strcmp("cpu", value)) {
+                    exec_mode = ExecMode::CPU;
+                } else if (!strcmp("cuda", value)) {
+                    exec_mode = ExecMode::CUDA;
+                } else {
+                    usageErr();
+                }
+            } else if (!strcmp("record", arg)) {
+                if (record_log_path != nullptr) {
+                    usageErr();
+                }
+
+                i += 1;
+
+                if (i == argc) {
+                    usageErr();
+                }
+
+                record_log_path = argv[i];
+            } else if (!strcmp("replay", arg)) {
+                if (replay_log_path != nullptr) {
+                    usageErr();
+                }
+
+                i += 1;
+
+                if (i == argc) {
+                    usageErr();
+                }
+
+                replay_log_path = argv[i];
+            } else if (!strcmp("load-ckpt", arg)) {
+                if (load_ckpt_path != nullptr) {
+                    usageErr();
+                }
+
+                i += 1;
+
+                if (i == argc) {
+                    usageErr();
+                }
+
+                load_ckpt_path = argv[i];
+            } else if (!strcmp("freeze", arg)) {
+                start_frozen = true;
+            } else {
+                usageErr();
+            }
+        } else {
+            if (num_worlds_set) {
+                usageErr();
+            }
+
+            num_worlds_set = true;
+
+            num_worlds = (uint32_t)atoi(arg);
         }
     }
 
-    // Setup replay log
-    const char *replay_log_path = nullptr;
-    if (argc >= 5) {
-        replay_log_path = argv[4];
-    }
+    (void)record_log_path;
 
     auto replay_log = Optional<HeapArray<int32_t>>::none();
     uint32_t cur_replay_step = 0;
@@ -77,7 +145,7 @@ int main(int argc, char *argv[])
     }
 
     WindowManager wm {};
-    WindowHandle window = wm.makeWindow("Escape Room", 2730, 1536);
+    WindowHandle window = wm.makeWindow("Puzzle Bench", 2730, 1536);
     render::GPUHandle render_gpu = wm.initGPU(0, { window.get() });
 
     // Create the simulation manager
@@ -111,7 +179,7 @@ int main(int argc, char *argv[])
     // Create the viewer viewer
     viz::Viewer viewer(mgr.getRenderManager(), window.get(), {
         .numWorlds = num_worlds,
-        .simTickRate = 20,
+        .simTickRate = start_frozen ? 0_u32 : 20_u32,
         .cameraMoveSpeed = camera_move_speed,
         .cameraPosition = initial_camera_position,
         .cameraRotation = initial_camera_rotation,
@@ -159,6 +227,37 @@ int main(int argc, char *argv[])
 
     auto reward_printer = mgr.rewardTensor().makePrinter();
 
+    auto ckpt_tensor = mgr.checkpointTensor();
+    Checkpoint stashed_checkpoint;
+
+    auto stashCheckpoint = [&](CountT world_idx)
+    {
+        auto dev_ptr = (Checkpoint *)ckpt_tensor.devicePtr();
+        dev_ptr += world_idx;
+        if (exec_mode == ExecMode::CUDA) {
+#ifdef MADRONA_CUDA_SUPPORT
+            REQ_CUDA(cudaMemcpy(&stashed_checkpoint, dev_ptr,
+                sizeof(Checkpoint), cudaMemcpyDeviceToHost));
+#endif
+        } else {
+            stashed_checkpoint = *dev_ptr;
+        }
+    };
+
+    auto loadStashedCheckpoint = [&](CountT world_idx)
+    {
+        auto dev_ptr = (Checkpoint *)ckpt_tensor.devicePtr();
+        dev_ptr += world_idx;
+        if (exec_mode == ExecMode::CUDA) {
+#ifdef MADRONA_CUDA_SUPPORT
+            REQ_CUDA(cudaMemcpy(dev_ptr, &stashed_checkpoint,
+                sizeof(Checkpoint), cudaMemcpyHostToDevice));
+#endif
+        } else {
+            *dev_ptr = stashed_checkpoint;
+        }
+    };
+
     auto printObs = [&]() {
         printf("Agent Transform\n");
         agent_txfm_printer.print();
@@ -173,7 +272,7 @@ int main(int argc, char *argv[])
         agent_exit_printer.print();
 
         printf("Entity Physics States\n");
-        entity_phys_printer.print();
+        entity_phys_printer.print(1);
 
         printf("Entity Types\n");
         entity_type_printer.print();
@@ -184,33 +283,49 @@ int main(int argc, char *argv[])
         printf("\n");
     };
 
+    if (load_ckpt_path != nullptr) {
+        std::ifstream ckpt_file(load_ckpt_path, std::ios::binary);
+        assert(ckpt_file.is_open());
+        HeapArray<Checkpoint> debug_ckpts(num_worlds);
+        ckpt_file.read((char *)debug_ckpts.data(),
+                       sizeof(Checkpoint) * num_worlds);
 
+        for (CountT i = 0; i < num_worlds; i++) {
+            mgr.triggerLoadCheckpoint(i);
+            stashed_checkpoint = debug_ckpts[i];
+            loadStashedCheckpoint(i);
+        }
+
+        mgr.step();
+
+        printObs();
+    }
+
+    stashCheckpoint(0);
 
     // Main loop for the viewer viewer
     viewer.loop(
-        [&mgr](CountT world_idx,
-               const Viewer::UserInput &input) {
-            using Key = Viewer::KeyboardKey;
+    [&](CountT world_idx, const Viewer::UserInput &input) 
+    {
+        using Key = Viewer::KeyboardKey;
 
-            if (input.keyHit(Key::R)) {
-                mgr.triggerReset(world_idx);
-            }
+        if (input.keyHit(Key::R)) {
+            mgr.triggerReset(world_idx);
+        }
 
-            // By default, checkpointing happens every frame,
-            // so disable that behavior here.
-            mgr.setSaveCheckpoint(world_idx, 0);
-            // Checkpointing
-            if (input.keyHit(Key::Z)) {
-                mgr.setSaveCheckpoint(world_idx, 1);
-            }
+        // Checkpointing
+        if (input.keyHit(Key::Z)) {
+            stashCheckpoint(world_idx);
+            mgr.setSaveCheckpoint(world_idx, 1);
+        }
 
-            if (input.keyHit(Key::X)) {
-                // Triggers a world reset.
-                mgr.triggerLoadCheckpoint(world_idx);
-            }
-        },
-        [&mgr](CountT world_idx, CountT agent_idx,
-               const Viewer::UserInput &input) {
+        if (input.keyHit(Key::X)) {
+            loadStashedCheckpoint(world_idx);
+            mgr.triggerLoadCheckpoint(world_idx);
+        }
+    },
+    [&](CountT world_idx, CountT agent_idx, const Viewer::UserInput &input)
+    {
         using Key = Viewer::KeyboardKey;
 
         int32_t x = 0;

@@ -58,7 +58,7 @@ static inline PolarObs xyzToPolar(Vector3 v)
 
     // Note that this is angle off y-forward
     float theta = -atan2f(v.x, v.y);
-    float phi = asinf(v.z);
+    float phi = asinf(std::max(-1.0f, std::min(1.0f, v.z)));
 
     return PolarObs {
         .r = r,
@@ -597,6 +597,23 @@ inline void checkExitSystem(Engine &ctx, Position exit_pos, IsExit)
     episode_state.reachedExit = true;
 }
 
+inline void lavaSystem(Engine &ctx, Position lava_pos, EntityExtents lava_extents, IsLava)
+{
+    Vector3 agent_pos = ctx.get<Position>(ctx.data().agent);
+    agent_pos.z = 0.0f;
+
+    AABB lava_aabb = {
+        .pMin = lava_pos - lava_extents,
+        .pMax = lava_pos + lava_extents,
+    };
+
+    if (!lava_aabb.contains(agent_pos)) {
+        return;
+    }
+
+    ctx.singleton<EpisodeState>().isDead = true;
+}
+
 // Make the agents easier to control by zeroing out their velocity
 // after each step.
 inline void agentZeroVelSystem(Engine &,
@@ -990,6 +1007,8 @@ static TaskGraphNodeID sortEntities(TaskGraphBuilder &builder,
         builder, {sort_sys});
     sort_sys = queueSortByWorld<EnemyEntity>(
         builder, {sort_sys});
+    sort_sys = queueSortByWorld<LavaEntity>(
+        builder, {sort_sys});
 
     return sort_sys;
 }
@@ -1086,11 +1105,18 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
             IsExit 
         >>({door_open_sys});
 
+    auto lava_sys = builder.addToGraph<ParallelForNode<Engine,
+        lavaSystem,
+            Position,
+            EntityExtents,
+            IsLava 
+        >>({check_exit_sys});
+
     // Check if the episode is over
     auto update_episode_state_sys = builder.addToGraph<ParallelForNode<Engine,
         updateEpisodeStateSystem,
             EpisodeState
-        >>({check_exit_sys});
+        >>({lava_sys});
 
     TaskGraphNodeID reward_sys =
         queueRewardSystem(cfg, builder, {update_episode_state_sys});

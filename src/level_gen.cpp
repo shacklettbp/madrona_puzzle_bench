@@ -540,6 +540,30 @@ static Entity makeExit(Engine &ctx, float room_size, Vector3 exit_pos)
     return e;
 }
 
+static Entity makeLava(Engine &ctx, Vector3 position, 
+                        Scale scale = Diag3x3{1.0f, 1.0f, 0.01f})
+{
+    Entity lava = ctx.makeRenderableEntity<LavaEntity>();
+    setupRigidBodyEntity(
+        ctx,
+        lava,
+        position,
+        Quat { 1, 0, 0, 0 },
+        SimObject::Lava,
+        EntityType::Lava,
+        ResponseType::Static,
+        scale);
+    registerRigidBodyEntity(ctx, lava, SimObject::Lava);
+
+    ctx.get<EntityExtents>(lava) = Vector3 {
+        scale.d0,
+        scale.d1,
+        scale.d2
+    };
+
+    return lava;
+}
+
 static Entity makeEnemy(Engine &ctx, Vector3 position, 
                         float move_force = 200.f,
                         float move_torque = 200.f)
@@ -573,7 +597,8 @@ static Entity makeEnemy(Engine &ctx, Vector3 position,
 static void setupSingleRoomLevel(Engine &ctx,
                                  float level_size,
                                  Entity *exit_door_out,
-                                 AABB *room_aabb_out)
+                                 AABB *room_aabb_out,
+                                 Vector3* entrance_positions)
 {
     const float spawn_size = 1.5f * ctx.data().doorWidth;
     const float half_wall_width = consts::wallWidth / 2.f;
@@ -589,17 +614,24 @@ static void setupSingleRoomLevel(Engine &ctx,
     float spawn_t = ctx.data().rng.sampleUniform();
 
     Entity doors[4];
-    Vector3 entrance_positions[4];
+    Vector3 local_entrance_positions[4];
     makeRoomWalls(ctx, room_aabb,
         {
             { exit_door_out ? WallType::Door : WallType::Entrance, exit_t },
             { WallType::Solid },
             { WallType::Entrance, spawn_t },
             { WallType::Solid },
-        }, doors, entrance_positions);
+        }, doors, local_entrance_positions);
 
-    Vector3 exit_pos = entrance_positions[0];
-    Vector3 spawn_pos = entrance_positions[2];
+
+    if (entrance_positions != nullptr) {
+        for (int i = 0; i < 4; ++i) {
+            entrance_positions[i] = local_entrance_positions[i];
+        }
+    }
+
+    Vector3 exit_pos = local_entrance_positions[0];
+    Vector3 spawn_pos = local_entrance_positions[2];
 
     spawn_pos.y -= spawn_size / 2.f;
 
@@ -651,7 +683,7 @@ static void chaseLevel(Engine &ctx)
     const float level_size = 20.f;
 
     AABB room_aabb;
-    setupSingleRoomLevel(ctx, level_size, nullptr, &room_aabb);
+    setupSingleRoomLevel(ctx, level_size, nullptr, &room_aabb, nullptr);
 
     Vector3 enemy_spawn = room_aabb.pMin;
     enemy_spawn.y += level_size / 2.f;
@@ -665,8 +697,209 @@ static void lavaPathLevel(Engine &ctx)
 {
     const float level_size = 20.f;
 
+    Entity exit_door;
     AABB room_aabb;
-    setupSingleRoomLevel(ctx, level_size, nullptr, &room_aabb);
+    Vector3 entrance_positions[4];
+    setupSingleRoomLevel(ctx, 
+    level_size, 
+    &exit_door, 
+    &room_aabb, 
+    entrance_positions);
+
+    Vector3 exit_pos = entrance_positions[0];
+    Vector3 spawn_pos = entrance_positions[2];
+
+    const int gridsize = 10;
+    int grid[gridsize][gridsize];
+
+    const int EMPTY = -1;
+    const int PATH = 0;
+    const int LAVA = 1;
+
+    // Initialize all grid cells to empty;
+    for (int i = 0; i < gridsize; ++i) {
+        for (int j = 0; j < gridsize; ++j) {
+            grid[i][j] = EMPTY;
+        }
+    }
+
+    // Visualize the grid.
+    //auto debugPrintGrid = [&](){
+    //    for (int i = gridsize - 1; i >= 0; --i) {
+    //        for (int j = gridsize - 1; j >= 0; --j) {
+    //            printf(" %d", grid[i][j]);
+    //        }
+    //        printf("\n");
+    //    }
+    //};
+
+    Vector3 exit_coord = gridsize * 
+        (exit_pos - room_aabb.pMin) / level_size;
+    Vector3 entrance_coord = gridsize * 
+        (spawn_pos - room_aabb.pMin) / level_size;
+
+
+    // Simple 2-int storage class.
+    struct Vector2Int32 {
+        int x;
+        int y;
+
+        int & operator[](int i) {
+            switch (i) {
+                default:
+                case 0:
+                    return x;
+                case 1:
+                    return y;
+            }
+        }
+        int operator[](int i) const {
+            switch (i) {
+                default:
+                case 0:
+                    return x;
+                case 1:
+                    return y;
+            }
+        }
+    };
+
+    Vector2Int32 exitCoord = {int(exit_coord.x), int(exit_coord.y)};
+    Vector2Int32 entranceCoord = {int(entrance_coord.x), int(entrance_coord.y)};
+
+    grid[exitCoord.x][exitCoord.y] = 2;
+    grid[entranceCoord.x][entranceCoord.y] = 2;
+
+    bool atExit = false;
+    while(!atExit)
+    {
+        // Compute the int vector from entrance to exit.
+        Vector2Int32 step = Vector2Int32 {
+            exitCoord.x - entranceCoord.x,
+            exitCoord.y - entranceCoord.y
+            };
+
+        // Compute a random step (within the bounds of the 
+        // above vector) along a random axis.
+        int coin = ctx.data().rng.sampleI32(0, 2);
+        int start = step[coin] < 0 ? step[coin] : 0;
+        int end = step[coin] < 0 ? 0 : step[coin];
+        step[coin] = ctx.data().rng.sampleI32(start, end + 1);
+        step[(coin + 1) % 2] = 0;
+
+        // Take the step, set grid values accordingly.
+        Vector2Int32 oldEntranceCoord = entranceCoord;
+        entranceCoord.x += step.x;
+        entranceCoord.y += step.y;
+
+        int const_coord = entranceCoord[(coin + 1) % 2];
+
+        for (int i = oldEntranceCoord[coin]; 
+        (step[coin] < 0 ? i >= entranceCoord[coin] : i <= entranceCoord[coin]); 
+        step[coin] < 0 ? --i : ++i)
+        {
+            if (coin == 1) {
+                grid[const_coord][i] = PATH;
+            } else {
+                grid[i][const_coord] = PATH;
+            }
+        }
+
+        atExit = entranceCoord.x == exitCoord.x &&
+                 entranceCoord.y == exitCoord.y;
+    }
+
+    struct LavaBounds {
+        Vector2Int32 min;
+        Vector2Int32 max;
+    };
+
+    // Up to 20 lava blocks.
+    LavaBounds lavaBounds[consts::maxObjectsPerLevel];
+    int lavaWriteIdx = 0;
+
+    auto processLavaBlock = [&](LavaBounds currentLava) {
+        // Attempt to expand in each direction.
+        bool canExpand = true;
+        while (canExpand) {
+            // Attempt to expand bounding box Y.
+            bool canExpandY = currentLava.max.y < gridsize - 1;
+            for (int i = currentLava.min.x; i <= currentLava.max.x; ++i) {
+                if (grid[i][currentLava.max.y + 1] != -1) {
+                    canExpandY = false;
+                }
+            }
+            if (canExpandY) {
+                currentLava.max.y += 1;
+            }
+            // Attempt to expand bounding box X.
+            bool canExpandX = currentLava.max.x < gridsize - 1;
+            for (int j = currentLava.min.y; j <= currentLava.max.y; ++j) {
+                if (grid[currentLava.max.x + 1][j] != -1) {
+                    canExpandX = false;
+                }
+            }
+            if (canExpandX) {
+                currentLava.max.x += 1;
+            }
+            canExpand = canExpandX || canExpandY;
+        }
+
+        assert(lavaWriteIdx < consts::maxObjectsPerLevel);
+        lavaBounds[lavaWriteIdx] = currentLava;
+
+        // Fully expanded, now write out the values to the table.
+        for (int i = currentLava.min.x; i <= currentLava.max.x; ++i) {
+            for (int j = currentLava.min.y; j <= currentLava.max.y; ++j) {
+                grid[i][j] = LAVA;
+                // Debugging
+                //grid[i][j] = lavaWriteIdx;
+            }
+        }
+        lavaWriteIdx++;
+    };
+
+    // Find integer bounds for lava blocks.
+    for (int i = 0; i < gridsize; ++i) {
+        for (int j = 0; j < gridsize; ++j) {
+            if (grid[i][j] == -1)
+            {
+                LavaBounds currentLava;
+                currentLava.min = Vector2Int32{ i, j };
+                currentLava.max = currentLava.min;
+
+                processLavaBlock(currentLava);
+            }
+        }
+    }
+
+    // From the grid, create the actual lava blocks.
+    for (int i = 0; i < lavaWriteIdx; ++i) {
+        float scale = (level_size - consts::wallWidth);
+        Vector3 lavaMin = Vector3 {
+            scale * lavaBounds[i].min.x / gridsize + room_aabb.pMin.x,
+            scale * lavaBounds[i].min.y / gridsize + room_aabb.pMin.y,
+            0.0f
+        };
+
+        Vector3 lavaMax = Vector3 {
+            // Expand the max by 1 to get the full 0-10 range back.
+            scale * (lavaBounds[i].max.x + 1) / gridsize + room_aabb.pMin.x,
+            scale * (lavaBounds[i].max.y + 1) / gridsize + room_aabb.pMin.y,
+            0.0f
+        };
+
+        Vector3 lavaCenter = (lavaMin + lavaMax) * 0.5f;
+
+        // Keep a low z-scale so the agent can still walk over it (and die).
+        Diag3x3 lavaScale = Diag3x3 { 
+            (lavaMax.x - lavaMin.x) * 0.5f, 
+            (lavaMax.y - lavaMin.y) * 0.5f, 
+            0.001f
+        };
+
+        makeLava(ctx, lavaCenter, lavaScale);
+    }
 }
 
 static void singleButtonLevel(Engine &ctx)
@@ -678,7 +911,7 @@ static void singleButtonLevel(Engine &ctx)
 
     Entity exit_door;
     AABB room_aabb;
-    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb);
+    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb, nullptr);
 
     {
         float button_x = randBetween(ctx,
@@ -707,7 +940,7 @@ static void singleBlockButtonLevel(Engine &ctx)
 
     Entity exit_door;
     AABB room_aabb;
-    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb);
+    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb, nullptr);
 
     {
         float button_x = randBetween(ctx,
@@ -748,7 +981,7 @@ static void obstructedBlockButtonLevel(Engine &ctx)
 
     Entity exit_door;
     AABB room_aabb;
-    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb);
+    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb, nullptr);
 
     float button_min_x = 
         0.25f * room_aabb.pMin.x + 0.75f * room_aabb.pMax.x;
@@ -816,7 +1049,7 @@ static void obstructedBlockButtonLevel(Engine &ctx)
 
 LevelType generateLevel(Engine &ctx)
 {
-    LevelType level_type = (LevelType)(
+    LevelType level_type = (LevelType) (
         ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes));
 
     switch (level_type) {

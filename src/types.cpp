@@ -47,6 +47,7 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
     registry.registerComponent<ButtonListElem>();
 
     registry.registerComponent<IsExit>();
+    registry.registerComponent<IsLava>();
     registry.registerComponent<EnemyState>();
 
     registry.registerSingleton<WorldReset>();
@@ -65,6 +66,7 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
     registry.registerArchetype<RoomEntity>();
     registry.registerArchetype<ExitEntity>();
     registry.registerArchetype<EnemyEntity>();
+    registry.registerArchetype<LavaEntity>();
 
     registry.registerArchetype<DeferredDeleteEntity>();
 

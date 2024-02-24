@@ -74,5 +74,9 @@ if (TARGET madrona_viz)
     )
 endif()
 
+if (TARGET madrona_cuda)
+    target_link_libraries(viewer PRIVATE madrona_cuda)
+endif()
+
 add_executable(headless headless.cpp)
 target_link_libraries(headless madrona_mw_core mad_escape_mgr)
