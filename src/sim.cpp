@@ -158,6 +158,7 @@ inline void loadCheckpointSystem(Engine &ctx, CheckpointReset &reset)
         ctx.get<Position>(agent) = state_in.position;
         ctx.get<Rotation>(agent) = state_in.rotation;
         ctx.get<Velocity>(agent) = state_in.velocity;
+        ctx.get<Progress>(agent) = state_in.taskProgress;
 
         if (state_in.grabIdx != -1) {
             assert(agent_grab_entity != Entity::none());
@@ -252,8 +253,8 @@ inline void checkpointSystem(Engine &ctx, CheckpointSave &save)
             .position = ctx.get<Position>(agent),
             .rotation = ctx.get<Rotation>(agent),
             .velocity = ctx.get<Velocity>(agent),
-            .grabIdx = (int32_t)agent_grab_idx,
             .taskProgress = ctx.get<Progress>(agent),
+            .grabIdx = (int32_t)agent_grab_idx,
             .grabJoint = grab_joint_out,
         };
     }

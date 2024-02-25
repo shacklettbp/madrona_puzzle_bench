@@ -9,6 +9,8 @@
 #include <filesystem>
 #include <fstream>
 
+#include <imgui.h>
+
 using namespace madrona;
 using namespace madrona::viz;
 
@@ -36,7 +38,7 @@ int main(int argc, char *argv[])
     ExecMode exec_mode = ExecMode::CPU;
 
     auto usageErr = [argv]() {
-        fprintf(stderr, "%s [NUM_WORLDS] [--backend cpu|cuda] [--record path] [--replay path] [--load-ckpt path]\n", argv[0]);
+        fprintf(stderr, "%s [NUM_WORLDS] [--backend cpu|cuda] [--record path] [--replay path] [--load-ckpt path] [--print-obs]\n", argv[0]);
         exit(EXIT_FAILURE);
     };
 
@@ -46,6 +48,7 @@ int main(int argc, char *argv[])
     char *replay_log_path = nullptr;
     char *load_ckpt_path = nullptr;
     bool start_frozen = false;
+    bool print_obs = false;
 
     for (int i = 1; i < argc; i++) {
         char *arg = argv[i];
@@ -106,6 +109,8 @@ int main(int argc, char *argv[])
                 load_ckpt_path = argv[i];
             } else if (!strcmp("freeze", arg)) {
                 start_frozen = true;
+            } else if (!strcmp("print-obs", arg)) {
+                print_obs = true;
             } else {
                 usageErr();
             }
@@ -216,18 +221,29 @@ int main(int argc, char *argv[])
     };
 
     // Printers
+    //
+    auto agent_txfm_tensor = mgr.agentTxfmObsTensor();
+    auto agent_interact_tensor = mgr.agentInteractObsTensor();
+    auto agent_lvl_type_tensor = mgr.agentLevelTypeObsTensor();
+    auto agent_exit_tensor = mgr.agentExitObsTensor();
 
-    auto agent_txfm_printer = mgr.agentTxfmObsTensor().makePrinter();
-    auto agent_interact_printer = mgr.agentInteractObsTensor().makePrinter();
-    auto agent_lvl_type_printer = mgr.agentLevelTypeObsTensor().makePrinter();
-    auto agent_exit_printer = mgr.agentExitObsTensor().makePrinter();
+    auto entity_phys_tensor = mgr.entityPhysicsStateObsTensor();
+    auto entity_type_tensor = mgr.entityTypeObsTensor();
 
-    auto entity_phys_printer = mgr.entityPhysicsStateObsTensor().makePrinter();
-    auto entity_type_printer = mgr.entityTypeObsTensor().makePrinter();
-
-    auto reward_printer = mgr.rewardTensor().makePrinter();
+    auto reward_tensor = mgr.rewardTensor();
 
     auto ckpt_tensor = mgr.checkpointTensor();
+    
+    auto agent_txfm_printer = agent_txfm_tensor.makePrinter();
+    auto agent_interact_printer = agent_interact_tensor.makePrinter();
+    auto agent_lvl_type_printer = agent_lvl_type_tensor.makePrinter();
+    auto agent_exit_printer = agent_exit_tensor.makePrinter();
+
+    auto entity_phys_printer = entity_phys_tensor.makePrinter();
+    auto entity_type_printer = entity_type_tensor.makePrinter();
+
+    auto reward_printer = reward_tensor.makePrinter();
+
     Checkpoint stashed_checkpoint;
 
     auto stashCheckpoint = [&](CountT world_idx)
@@ -259,6 +275,10 @@ int main(int argc, char *argv[])
     };
 
     auto printObs = [&]() {
+        if (!print_obs) {
+            return;
+        }
+
         printf("Agent Transform\n");
         agent_txfm_printer.print();
 
@@ -302,6 +322,17 @@ int main(int argc, char *argv[])
     }
 
     stashCheckpoint(0);
+
+#ifdef MADRONA_CUDA_SUPPORT
+    AgentTxfmObs *agent_txfm_readback = (AgentTxfmObs *)cu::allocReadback(
+        sizeof(AgentTxfmObs) * num_views);
+
+    Reward *reward_readback = (Reward *)cu::allocReadback(
+        sizeof(Reward) * num_views);
+
+    cudaStream_t readback_strm;
+    REQ_CUDA(cudaStreamCreate(&readback_strm));
+#endif
 
     // Main loop for the viewer viewer
     viewer.loop(
@@ -407,5 +438,53 @@ int main(int argc, char *argv[])
         mgr.step();
 
         printObs();
-    }, []() {});
+    }, [&]() {
+        CountT cur_world_id = viewer.getCurrentWorldID();
+        CountT agent_world_offset = cur_world_id * num_views;
+
+        AgentTxfmObs *agent_txfm_ptr =
+            (AgentTxfmObs *)agent_txfm_tensor.devicePtr();
+
+        Reward *reward_ptr = (Reward *)reward_tensor.devicePtr();
+
+        agent_txfm_ptr += agent_world_offset;
+        reward_ptr += agent_world_offset;
+
+        if (exec_mode == ExecMode::CUDA) {
+#ifdef MADRONA_CUDA_SUPPORT
+            cudaMemcpyAsync(agent_txfm_readback, agent_txfm_ptr,
+                            sizeof(AgentTxfmObs) * num_views,
+                            cudaMemcpyDeviceToHost, readback_strm);
+
+            cudaMemcpyAsync(reward_readback, reward_ptr,
+                            sizeof(Reward) * num_views,
+                            cudaMemcpyDeviceToHost, readback_strm);
+
+            REQ_CUDA(cudaStreamSynchronize(readback_strm));
+
+            agent_txfm_ptr = agent_txfm_readback;
+            reward_ptr = reward_readback;
+#endif
+        }
+
+        for (int64_t i = 0; i < num_views; i++) {
+            auto player_str = std::string("Agent ") + std::to_string(i);
+            ImGui::Begin(player_str.c_str());
+
+            const AgentTxfmObs &agent_txfm = agent_txfm_ptr[i];
+            const Reward &reward = reward_ptr[i];
+
+            ImGui::Text("Position:      (%.1f, %.1f, %.1f)",
+                agent_txfm.localRoomPos.x,
+                agent_txfm.localRoomPos.y,
+                agent_txfm.localRoomPos.z);
+            ImGui::Text("Rotation:      %.2f",
+                agent_txfm.theta);
+            ImGui::Text("Reward:    %.3f",
+                reward.v);
+
+            ImGui::End();
+        }
+    });
+
 }

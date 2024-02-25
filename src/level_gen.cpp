@@ -637,12 +637,12 @@ static void setupSingleRoomLevel(Engine &ctx,
 
     makeSpawn(ctx, spawn_size, spawn_pos);
 
-    resetAgent(ctx, spawn_pos, spawn_size, exit_pos);
-
     exit_pos.y += spawn_size / 2.f;
 
     Level &level = ctx.singleton<Level>();
     level.exit = makeExit(ctx, spawn_size, exit_pos);
+
+    resetAgent(ctx, spawn_pos, spawn_size, exit_pos);
 
     RoomList room_list = RoomList::init(&level.rooms);
 
