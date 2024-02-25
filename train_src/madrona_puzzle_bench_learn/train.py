@@ -405,8 +405,8 @@ def _update_iter(cfg : TrainConfig,
                     #if user_cb.max_progress < 1.01:
                     reward_bonus_1 = user_cb.start_bin_steps[all_bins].float()
                     #print("Reward bonus", reward_bonus_1)
-                    mean_reward_bonus = reward_bonus_1.mean()
-                    reward_bonus_1 *= user_cb.bin_reward_boost / mean_reward_bonus
+                    #mean_reward_bonus = reward_bonus_1.mean()
+                    #reward_bonus_1 *= user_cb.bin_reward_boost / mean_reward_bonus
                     #print("Normalized reward bonus", reward_bonus_1)
                     #print(reward_bonus_1.sum(axis=0))
                     #rollouts.rewards.view(-1, *rollouts.rewards.shape[2:])[:] *= 0
