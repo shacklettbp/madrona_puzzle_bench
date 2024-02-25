@@ -186,7 +186,7 @@ class GoExplore:
         self.checkpoint_score = torch.zeros(self.num_bins, self.num_checkpoints, device=device)
         self.bin_count = torch.zeros(self.num_bins, device=device).int()
         self.max_return = 0
-        self.max_progress = 0
+        self.max_progress = -1000
 
         self.obs, num_obs_features = setup_obs(self.worlds)
         self.policy = make_policy(num_obs_features, args.num_channels, args.separate_value, intrinsic=args.use_intrinsic_loss)
@@ -200,7 +200,7 @@ class GoExplore:
         self.bin_steps = torch.zeros((self.num_bins,), device=device).int() + 200
         self.start_bin_steps = torch.zeros((self.num_bins,), device=device).int() + 200
         self.world_steps = torch.zeros(self.num_worlds, device=device).int() + 200
-        self.bin_reward_boost = 0.01
+        self.bin_reward_boost = args.bin_reward_boost
         self.reward_type = args.bin_reward_type
 
         # Add tracking for different types of uncertainties for resets
@@ -323,36 +323,49 @@ class GoExplore:
             y_out = (y_0).int()
             #print("Max agent 0 progress", self_obs[:, 0, 3].max())
             #print("Max agent 1 progress", self_obs[:, 1, 3].max())
-            return y_out
+            # Also incorporate the scene id
+            self_obs = states[2].view(-1, self.num_worlds)
+            #print(states[2].shape)
+            #print("Shapes", self_obs.shape, y_out.shape)
+            return (y_out + granularity*self_obs).int()
         elif self.binning == "y_pos_door":
             # Bin according to the y position of each agent
-            granularity = torch.sqrt(torch.tensor(self.num_bins) / 4).int().item()
+            # Determine granularity from num_bins
+            granularity = torch.sqrt(torch.tensor(self.num_bins)).int().item()
             increment = 1.11/granularity
-            self_obs = states[0].view(-1, self.num_worlds, self.num_agents, 9)
-            y_0 = torch.clamp(self_obs[..., 0, 3], 0, 1.1) // increment # Granularity of 0.01 on the y
-            y_1 = torch.clamp(self_obs[..., 1, 3], 0, 1.1) // increment # Granularity of 0.01 on the y
-            #print("Max y progress", self_obs[:, 0, 3].max())
-            # Now check if the door is open
-            door_obs = states[3].view(-1, self.num_worlds, self.num_agents, 3)
-            door_status = door_obs[..., 0, 2] + 2*door_obs[..., 1, 2]
-            #print(door_status)
-            return (y_0 + granularity*y_1 + granularity*granularity*door_status).int()
-        elif self.binning == "x_y_pos_door":
+            #print("States shape", states[0].shape)
+            self_obs = states[0].view(-1, self.num_worlds, 10)
+            y_0 = torch.clamp((self_obs[..., 1] + 20)/40, 0, 1.1) // increment # Granularity of 0.01 on the y
+            y_out = (y_0).int()
+            #print("Max agent 0 progress", self_obs[:, 0, 3].max())
+            #print("Max agent 1 progress", self_obs[:, 1, 3].max())
+            # Also incorporate the scene id
+            level_obs = states[2].view(-1, self.num_worlds)
+            #print(states[2].shape)
+            # We get door open/button press from attr_1
+            door_obs = states[6][...,0].max(dim=-1)[0].view(-1, self.num_worlds)
+            #print("Shapes", self_obs.shape, y_out.shape)
+            return (y_out + granularity*door_obs + granularity*2*level_obs).int()
+        elif self.binning == "x_y":
             # Bin according to the y position of each agent
-            granularity = torch.sqrt(torch.tensor(self.num_bins) / 64).int().item()
+            # Determine granularity from num_bins
+            granularity = torch.sqrt(torch.tensor(self.num_bins)).int().item()
             increment = 1.11/granularity
-            print("States 0 shape", states[0].shape)
-            self_obs = states[0].view(-1, self.num_worlds, self.num_agents, 9)
-            y_0 = torch.clamp(self_obs[..., 0, 3], 0, 1.1) // increment # Granularity of 0.01 on the y
-            y_1 = torch.clamp(self_obs[..., 1, 3], 0, 1.1) // increment # Granularity of 0.01 on the y
-            x_0 = (torch.clamp(self_obs[..., 0, 2], -0.2, 0.2) + 0.2) // 0.101 #
-            x_1 = (torch.clamp(self_obs[..., 1, 2], -0.2, 0.2) + 0.2) // 0.101 #
-            #print("Max y progress", self_obs[:, 0, 3].max())
-            # Now check if the door is open
-            door_obs = states[3].view(-1, self.num_worlds, self.num_agents, 3)
-            door_status = door_obs[..., 0, 2] + 2*door_obs[..., 1, 2]
-            print("Binning shapes", y_0.shape, y_1.shape, x_0.shape, x_1.shape, door_status.shape)
-            return (y_0 + granularity*y_1 + granularity*granularity*x_0 + granularity*granularity*4*x_1 + granularity*granularity*4*4*door_status).int()
+            #print("States shape", states[0].shape)
+            self_obs = states[0].view(-1, self.num_worlds, 10)
+            y_0 = torch.clamp((self_obs[..., 1] + 20)/40, 0, 1.1) // increment # Granularity of 0.01 on the y
+            y_out = (y_0).int()
+            x_0 = torch.clamp((self_obs[..., 0] + 10)/20, 0, 1.1) // increment # Granularity of 0.01 on the x
+            #print(self_obs[..., 0].min(), self_obs[..., 0].max())
+            #print("Max agent 0 progress", self_obs[:, 0, 3].max())
+            #print("Max agent 1 progress", self_obs[:, 1, 3].max())
+            # Also incorporate the scene id
+            #level_obs = states[2].view(-1, self.num_worlds)
+            #print(states[2].shape)
+            # We get door open/button press from attr_1
+            #door_obs = states[6][...,0].max(dim=-1)[0].view(-1, self.num_worlds)
+            #print("Shapes", self_obs.shape, y_out.shape)
+            return (y_out + granularity*x_0).int()
         elif self.binning == "y_pos_door_block":
             # Bin according to the y position of each agent
             granularity = torch.sqrt(torch.tensor(self.num_bins) / 40).int().item()
@@ -444,7 +457,7 @@ class GoExplore:
         unique = unique[sample_filter]
         first_indices = first_indices[sample_filter]
         #print(unique, first_indices)
-        self.bin_checkpoints[[unique[:,0], unique[:,1]]] = self.checkpoints[desired_samples:][first_indices].to(dev)
+        self.bin_checkpoints[[unique[:,0], unique[:,1]]] = self.checkpoints[desired_samples:][first_indices.to(self.checkpoints.device)].to(dev)
         #self.bin_score[bins] = torch.maximum(self.bin_score[bins], scores)
         self.checkpoint_score[[unique[:,0], unique[:,1]]] = scores[desired_samples:][first_indices] # Track checkpoint scores, we might as well
         # Also update bin uncertainties
@@ -501,12 +514,18 @@ class GoExplore:
                     level_type_success_fracs = []
                     for i in range(6):
                         level_type_success_fracs.append((update_results.rewards[:,desired_samples:][(update_results.obs[2][0][:,desired_samples:] == i)*(update_results.dones[:,desired_samples:] == 1.0)] >= 1.00).float().mean().cpu().item())
-                    # Also compute level type success without filtering by desired_samples
-                    success_filter_all = (update_results.dones == 1.0)[...,0]
-                    success_frac_all = (update_results.rewards >= 1.00).reshape(-1, success_filter_all.shape[-1])[success_filter_all].float().mean().cpu().item() # Reward of 1 for room, 10 for whole set of rooms
-                    level_type_success_fracs_all = []
+                else:
+                    success_frac = 0
+                    level_type_success_fracs = [0, 0, 0, 0, 0, 0]
+                # Also compute level type success without filtering by desired_samples
+                success_filter_all = (update_results.dones == 1.0)[...,0]
+                success_frac_all = (update_results.rewards >= 1.00).reshape(-1, success_filter_all.shape[-1])[success_filter_all].float().mean().cpu().item() # Reward of 1 for room, 10 for whole set of rooms
+                level_type_success_fracs_all = []
+                if success_filter_all.sum() > 0:
                     for i in range(6):
                         level_type_success_fracs_all.append((update_results.rewards[(update_results.obs[2][0] == i)*(update_results.dones == 1.0)] >= 1.00).float().mean().cpu().item())
+                else:
+                    level_type_success_fracs_all = [0, 0, 0, 0, 0, 0]
 
                 # compute visits to second and third room
                 #print("Update results shape", update_results.obs[0].shape, update_results.obs[3].shape)
@@ -590,8 +609,8 @@ class GoExplore:
         #    return
 
         # Now do the go-explore stuff
-        goExplore.max_progress = max(goExplore.max_progress, min(update_results.obs[0][..., 0, 3].max(), update_results.obs[0][..., 1, 3].max()))
-        if goExplore.max_progress > 1.01:
+        goExplore.max_progress = max(goExplore.max_progress, update_results.obs[0][...,1].max())
+        if goExplore.max_progress > 1.01: # Do this based off the exit observation
             exit_bins = goExplore.map_states_to_bins(goExplore.obs)[0,:][(goExplore.obs[0][...,3] > 1.01).view(goExplore.num_worlds, goExplore.num_agents).all(dim=1)]
             # Set exit path length to 0 for exit bins
             goExplore.bin_steps[exit_bins] = 0
@@ -614,8 +633,9 @@ class GoExplore:
         #print("Max return", torch.max(self.curr_returns), self.worlds.obs[torch.argmax(self.curr_returns)])
         self.update_archive(new_bins, self.curr_returns, ppo)
         # Set new state, go to state
-        states = self.select_state(update_id)
-        self.go_to_state(states, leave_rest = (update_id % 5 != 0), update_id = update_id)
+        if args.new_frac > 0.01:
+            states = self.select_state(update_id)
+            self.go_to_state(states, leave_rest = (update_id % 5 != 0), update_id = update_id)
 
 # Maybe we can just write Go-Explore as a callback
 
