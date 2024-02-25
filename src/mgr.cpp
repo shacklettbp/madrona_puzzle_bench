@@ -792,7 +792,7 @@ Tensor Manager::entityTypeObsTensor() const
 Tensor Manager::entityAttributesObsTensor() const
 {
     return impl_->exportTensor(ExportID::EntityAttributesObsArray,
-                               TensorElementType::Float32,
+                               TensorElementType::Int32,
                                {
                                    impl_->cfg.numWorlds,
                                    consts::maxObservationsPerAgent,
