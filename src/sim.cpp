@@ -116,7 +116,6 @@ inline void loadCheckpointSystem(Engine &ctx, CheckpointReset &reset)
 
     EpisodeState &episode_state = ctx.singleton<EpisodeState>();
     // Restore episode state
-    //ctx.data().curEpisodeRNDCounter = ckpt.initRNDCounter;
     episode_state.curStep = ckpt.curEpisodeStep;
     episode_state.curLevel = ckpt.curEpisodeLevel;
 
