@@ -114,6 +114,12 @@ inline void loadCheckpointSystem(Engine &ctx, CheckpointReset &reset)
 
     Checkpoint& ckpt = ctx.singleton<Checkpoint>();
 
+    EpisodeState &episode_state = ctx.singleton<EpisodeState>();
+    // Restore episode state
+    //ctx.data().curEpisodeRNDCounter = ckpt.initRNDCounter;
+    episode_state.curStep = ckpt.curEpisodeStep;
+    episode_state.curLevel = ckpt.curEpisodeLevel;
+
     Entity agent_grab_entity = Entity::none();
     { // Load entities
         const Checkpoint::EntityState *entity_states = &ckpt.entityStates[0];
