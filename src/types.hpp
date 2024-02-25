@@ -236,10 +236,10 @@ struct Checkpoint {
         Vector3 position;
         Quat rotation;
         Velocity velocity;
+        Progress taskProgress;
         // Index within the checkpoint buffers of the
         // grabbed entity. -1 if not grabbing.
         int32_t grabIdx;
-        Progress taskProgress;
         madrona::phys::JointConstraint grabJoint;
     };
 
