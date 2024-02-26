@@ -909,8 +909,8 @@ inline void dense2RewardSystem(Engine &ctx,
 
             progress.minDistToExit = dist_to_exit;
         }
-        if (progress.minDistToButton < 0.1f) {
-            reward += 0.2f;
+        if (progress.minDistToButton < 5.0f) {
+            reward += 0.02f;
         }
     } else {
         float dist_to_button = pos.distance(button_pos);
@@ -924,7 +924,7 @@ inline void dense2RewardSystem(Engine &ctx,
 
                 progress.minDistToButton = dist_to_button;
             }
-            reward += 0.1f;
+            reward += 0.01f;
         } else {
             // Do nothing until grabbing block
             // Check if this is first step
