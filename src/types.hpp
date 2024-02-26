@@ -167,6 +167,7 @@ struct StepsRemainingObservation {
 // reward when more progress has been made
 struct Progress {
     float minDistToExit;
+    float minDistToButton;
 };
 
 // Tracks if an agent is currently grabbing another entity

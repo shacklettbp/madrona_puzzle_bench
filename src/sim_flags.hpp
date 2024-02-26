@@ -12,6 +12,7 @@ enum class SimFlags : uint32_t {
 
 enum class RewardMode : uint32_t {
     Dense1,
+    Dense2,
     PerLevel,
     EndOnly,
 };

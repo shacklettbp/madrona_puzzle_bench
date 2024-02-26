@@ -147,6 +147,7 @@ void resetAgent(Engine &ctx,
 
     ctx.get<Progress>(agent_entity) = Progress {
         .minDistToExit = spawn_pos.distance(exit_pos),
+        .minDistToButton = 0.f,
     };
 
     ctx.get<Velocity>(agent_entity) = {
@@ -1050,7 +1051,8 @@ static void obstructedBlockButtonLevel(Engine &ctx)
 LevelType generateLevel(Engine &ctx)
 {
     LevelType level_type = (LevelType) (
-        ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes));
+        //ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes));
+        ctx.data().rng.sampleI32(3, 5));
 
     switch (level_type) {
     case LevelType::Chase: {

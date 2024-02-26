@@ -873,6 +873,81 @@ inline void dense1RewardSystem(Engine &ctx,
     out_reward.v = reward;
 }
 
+// Dense reward for block-button puzzles
+inline void dense2RewardSystem(Engine &ctx,
+                               Position pos,
+                               Progress &progress,
+                               const DoorButtons &door_buttons,
+                               //ButtonState &button_state,
+                               Reward &out_reward)
+{ 
+    const auto &lvl = ctx.singleton<Level>();
+    const auto &episode_state = ctx.singleton<EpisodeState>();
+
+    // Get block position, button position, and button state
+    Entity button = door_buttons.linkedButton.next;
+    Position button_pos = ctx.get<Position>(button);
+    ButtonState button_state = ctx.get<ButtonState>(button);
+
+    // Check if grabbing anything
+    Entity grab_entity = ctx.get<GrabState>(ctx.data().agent).constraintEntity;
+    bool is_grabbing = grab_entity != Entity::none();
+
+    // Check if button is pressed
+    bool is_pressed = button_state.isPressed;
+
+    float reward = 0.f;
+    if (is_pressed) {
+        float dist_to_exit = pos.distance(ctx.get<Position>(lvl.exit));
+
+        float min_dist = progress.minDistToExit;
+
+        if (dist_to_exit < min_dist) {
+            float diff = min_dist - dist_to_exit;
+            reward += diff * ctx.data().rewardPerDist;
+
+            progress.minDistToExit = dist_to_exit;
+        }
+        if (progress.minDistToButton < 0.1f) {
+            reward += 0.2f;
+        }
+    } else {
+        float dist_to_button = pos.distance(button_pos);
+        if (is_grabbing) {
+            // Track progress towards button
+            float min_dist = progress.minDistToButton;
+
+            if (dist_to_button < min_dist) {
+                float diff = min_dist - dist_to_button;
+                reward += diff * ctx.data().rewardPerDist;
+
+                progress.minDistToButton = dist_to_button;
+            }
+            reward += 0.1f;
+        } else {
+            // Do nothing until grabbing block
+            // Check if this is first step
+            if (progress.minDistToButton == 0.f) {
+                progress.minDistToButton = dist_to_button;
+            }
+        }
+    }
+
+    if (episode_state.isDead) {
+        reward -= 1.f;
+    }
+
+    if (episode_state.reachedExit) {
+        reward += 1.f;
+
+        if (episode_state.curLevel == ctx.data().levelsPerEpisode) {
+            reward += 10.f;
+        }
+    }
+
+    out_reward.v = reward;
+}
+
 inline void perLevelRewardSystem(Engine &ctx,
                                  Reward &out_reward)
 { 
@@ -956,6 +1031,16 @@ static TaskGraphNodeID queueRewardSystem(const Sim::Config &cfg,
              dense1RewardSystem,
                 Position,
                 Progress,
+                Reward
+            >>(deps);
+    } break;
+    case RewardMode::Dense2: {
+        // Compute initial reward now that physics has updated the world state
+        reward_sys = builder.addToGraph<ParallelForNode<Engine,
+             dense2RewardSystem,
+                Position,
+                Progress,
+                DoorButtons,
                 Reward
             >>(deps);
     } break;

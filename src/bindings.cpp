@@ -23,6 +23,7 @@ NB_MODULE(madrona_puzzle_bench, m) {
 
     nb::enum_<RewardMode>(m, "RewardMode")
         .value("Dense1", RewardMode::Dense1)
+        .value("Dense2", RewardMode::Dense2)
         .value("PerLevel", RewardMode::PerLevel)
         .value("EndOnly", RewardMode::EndOnly)
     ;
