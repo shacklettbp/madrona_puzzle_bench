@@ -876,28 +876,29 @@ inline void dense1RewardSystem(Engine &ctx,
 // Dense reward for block-button puzzles
 inline void dense2RewardSystem(Engine &ctx,
                                Position pos,
+                               GrabState grab_state,
                                Progress &progress,
-                               const DoorButtons &door_buttons,
-                               //ButtonState &button_state,
                                Reward &out_reward)
 { 
     const auto &lvl = ctx.singleton<Level>();
     const auto &episode_state = ctx.singleton<EpisodeState>();
 
-    // Get block position, button position, and button state
-    Entity button = door_buttons.linkedButton.next;
-    Position button_pos = ctx.get<Position>(button);
-    ButtonState button_state = ctx.get<ButtonState>(button);
+    // This is super quick and dirty but because there is only one button right
+    // now it will work fine. It will pick the info for the last button in
+    // the world.
+    Vector3 button_pos;
+    bool button_is_pressed;
+    ctx.iterateQuery(ctx.data().buttonQuery, [
+        &button_pos, &button_is_pressed
+    ](Position cur_button_pos, ButtonState cur_button_state) {
+        button_pos = cur_button_pos;
+        button_is_pressed = cur_button_state.isPressed;
+    });
 
-    // Check if grabbing anything
-    Entity grab_entity = ctx.get<GrabState>(ctx.data().agent).constraintEntity;
-    bool is_grabbing = grab_entity != Entity::none();
-
-    // Check if button is pressed
-    bool is_pressed = button_state.isPressed;
+    bool is_grabbing = grab_state.constraintEntity != Entity::none();
 
     float reward = 0.f;
-    if (is_pressed) {
+    if (button_is_pressed) {
         float dist_to_exit = pos.distance(ctx.get<Position>(lvl.exit));
 
         float min_dist = progress.minDistToExit;
@@ -1039,8 +1040,8 @@ static TaskGraphNodeID queueRewardSystem(const Sim::Config &cfg,
         reward_sys = builder.addToGraph<ParallelForNode<Engine,
              dense2RewardSystem,
                 Position,
+                GrabState,
                 Progress,
-                DoorButtons,
                 Reward
             >>(deps);
     } break;
@@ -1368,6 +1369,7 @@ Sim::Sim(Engine &ctx,
     ctx.singleton<EpisodeState>() = initEpisodeState();
 
     simEntityQuery = ctx.query<Entity, EntityType>();
+    buttonQuery = ctx.query<Position, ButtonState>();
 
     ctx.singleton<CheckpointReset>().reset = 0;
     ctx.singleton<CheckpointSave>().save = 1;

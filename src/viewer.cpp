@@ -160,7 +160,7 @@ int main(int argc, char *argv[])
         .numWorlds = num_worlds,
         .randSeed = 5,
         .simFlags = flags,
-        .rewardMode = RewardMode::Dense1,
+        .rewardMode = RewardMode::Dense2,
         .enableBatchRenderer = enable_batch_renderer,
         .extRenderAPI = wm.gpuAPIManager().backend(),
         .extRenderDev = render_gpu.device(),

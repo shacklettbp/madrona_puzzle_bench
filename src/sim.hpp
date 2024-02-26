@@ -132,6 +132,7 @@ struct Sim : public madrona::WorldBase {
 
     // Queries for the collectObservations system.
     Query<Entity, EntityType> simEntityQuery;
+    Query<Position, ButtonState> buttonQuery;
 };
 
 class Engine : public ::madrona::CustomContext<Engine, Sim> {
