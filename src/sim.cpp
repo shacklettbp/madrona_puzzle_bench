@@ -898,7 +898,7 @@ inline void dense2RewardSystem(Engine &ctx,
     bool is_grabbing = grab_state.constraintEntity != Entity::none();
 
     float reward = 0.f;
-    if (button_is_pressed) {
+    if (button_is_pressed && progress.minDistToButton < 5.0f) {
         float dist_to_exit = pos.distance(ctx.get<Position>(lvl.exit));
 
         float min_dist = progress.minDistToExit;
@@ -909,9 +909,7 @@ inline void dense2RewardSystem(Engine &ctx,
 
             progress.minDistToExit = dist_to_exit;
         }
-        if (progress.minDistToButton < 5.0f) {
-            reward += 0.02f;
-        }
+        reward += 0.02f;
     } else {
         float dist_to_button = pos.distance(button_pos);
         if (is_grabbing) {

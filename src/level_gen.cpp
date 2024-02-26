@@ -993,7 +993,7 @@ static void obstructedBlockButtonLevel(Engine &ctx)
 
         float button_y = randBetween(ctx,
             room_aabb.pMin.y + half_button_width,
-            room_aabb.pMax.y - half_button_width);
+            room_aabb.pMax.y - 10*half_button_width);
 
         Entity button = makeButton(ctx, button_x, button_y);
 
@@ -1052,7 +1052,7 @@ LevelType generateLevel(Engine &ctx)
 {
     LevelType level_type = (LevelType) (
         //ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes));
-        ctx.data().rng.sampleI32(3, 5));
+        ctx.data().rng.sampleI32(4, 5));
 
     switch (level_type) {
     case LevelType::Chase: {
