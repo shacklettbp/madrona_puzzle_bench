@@ -13,25 +13,39 @@
 
 using namespace madrona;
 using namespace madrona::viz;
+using namespace madPuzzle;
 
-static HeapArray<int32_t> readReplayLog(const char *path)
+
+static void badRecording()
 {
-    std::ifstream replay_log(path, std::ios::binary);
-    replay_log.seekg(0, std::ios::end);
-    int64_t size = replay_log.tellg();
-    replay_log.seekg(0, std::ios::beg);
+    FATAL("Invalid recording");
+}
 
-    HeapArray<int32_t> log(size / sizeof(int32_t));
+static HeapArray<Checkpoint> readReplayLog(const char *path)
+{
+    std::ifstream replay_log_file(path, std::ios::binary);
+    if (!replay_log_file.is_open()) {
+        badRecording();
+    }
 
-    replay_log.read((char *)log.data(), (size / sizeof(int32_t)) * sizeof(int32_t));
+    replay_log_file.seekg(0, std::ios::end);
+    size_t num_bytes = replay_log_file.tellg();
+    replay_log_file.seekg(0, std::ios::beg);
 
-    return log;
+    size_t num_steps = num_bytes / sizeof(Checkpoint);
+    if (num_steps * sizeof(Checkpoint) != num_bytes) {
+        badRecording();
+    }
+
+    HeapArray<Checkpoint> log_data(num_steps);
+
+    replay_log_file.read((char *)log_data.data(), num_bytes);
+
+    return log_data;
 }
 
 int main(int argc, char *argv[])
 {
-    using namespace madPuzzle;
-
     constexpr int64_t num_views = 1;
 
     uint32_t num_worlds = 1;
@@ -127,12 +141,15 @@ int main(int argc, char *argv[])
 
     (void)record_log_path;
 
-    auto replay_log = Optional<HeapArray<int32_t>>::none();
+    auto replay_log = Optional<HeapArray<Checkpoint>>::none();
     uint32_t cur_replay_step = 0;
     uint32_t num_replay_steps = 0;
     if (replay_log_path != nullptr) {
         replay_log = readReplayLog(replay_log_path);
-        num_replay_steps = replay_log->size() / (num_worlds * num_views * 4);
+        num_replay_steps = replay_log->size() / num_worlds;
+        if (num_replay_steps * num_worlds != replay_log->size()) {
+            badRecording();
+        }
     }
 
     bool enable_batch_renderer =
@@ -190,35 +207,10 @@ int main(int argc, char *argv[])
         .cameraRotation = initial_camera_rotation,
     });
 
-    // Replay step
-    auto replayStep = [&]() {
-        if (cur_replay_step == num_replay_steps - 1) {
-            return true;
-        }
-
-        printf("Step: %u\n", cur_replay_step);
-
-        for (uint32_t i = 0; i < num_worlds; i++) {
-            for (uint32_t j = 0; j < num_views; j++) {
-                uint32_t base_idx = 0;
-                base_idx = 4 * (cur_replay_step * num_views * num_worlds +
-                    i * num_views + j);
-
-                int32_t move_amount = (*replay_log)[base_idx];
-                int32_t move_angle = (*replay_log)[base_idx + 1];
-                int32_t turn = (*replay_log)[base_idx + 2];
-                int32_t interact = (*replay_log)[base_idx + 3];
-
-                printf("%d, %d: %d %d %d %d\n",
-                       i, j, move_amount, move_angle, turn, interact);
-                mgr.setAction(i, j, move_amount, move_angle, turn, interact);
-            }
-        }
-
-        cur_replay_step++;
-
-        return false;
-    };
+#ifdef MADRONA_CUDA_SUPPORT
+    cudaStream_t copy_strm;
+    REQ_CUDA(cudaStreamCreate(&copy_strm));
+#endif
 
     // Printers
     //
@@ -232,6 +224,7 @@ int main(int argc, char *argv[])
 
     auto reward_tensor = mgr.rewardTensor();
 
+    auto ckpt_reset_tensor = mgr.checkpointResetTensor();
     auto ckpt_tensor = mgr.checkpointTensor();
     
     auto agent_txfm_printer = agent_txfm_tensor.makePrinter();
@@ -243,6 +236,46 @@ int main(int argc, char *argv[])
     auto entity_type_printer = entity_type_tensor.makePrinter();
 
     auto reward_printer = reward_tensor.makePrinter();
+
+    HeapArray<CheckpointReset> load_all_checkpoints(num_worlds);
+    for (CountT i = 0; i < (CountT)num_worlds; i++) {
+        load_all_checkpoints[i].reset = 1;
+    }
+
+    // Replay step
+    auto replayStep = [&]() {
+        if (cur_replay_step == num_replay_steps) {
+            return true;
+        }
+
+        const Checkpoint *cur_step_ckpts = replay_log->data() +
+            cur_replay_step * (CountT)num_worlds;
+
+        if (exec_mode == ExecMode::CUDA) {
+#ifdef MADRONA_CUDA_SUPPORT
+            cudaMemcpyAsync(ckpt_tensor.devicePtr(), cur_step_ckpts,
+                sizeof(Checkpoint) * num_worlds,
+                cudaMemcpyHostToDevice, copy_strm);
+
+            cudaMemcpyAsync(ckpt_reset_tensor.devicePtr(),
+                            load_all_checkpoints.data(),
+                            sizeof(CheckpointReset) * num_worlds,
+                            cudaMemcpyHostToDevice, copy_strm);
+
+            REQ_CUDA(cudaStreamSynchronize(copy_strm));
+#endif
+        } else {
+            memcpy(ckpt_tensor.devicePtr(), cur_step_ckpts,
+                   sizeof(Checkpoint) * num_worlds);
+
+            memcpy(ckpt_reset_tensor.devicePtr(), load_all_checkpoints.data(),
+                   sizeof(CheckpointReset) * num_worlds);
+        }
+
+        cur_replay_step++;
+
+        return false;
+    };
 
     Checkpoint stashed_checkpoint;
 
@@ -329,9 +362,6 @@ int main(int argc, char *argv[])
 
     Reward *reward_readback = (Reward *)cu::allocReadback(
         sizeof(Reward) * num_views);
-
-    cudaStream_t readback_strm;
-    REQ_CUDA(cudaStreamCreate(&readback_strm));
 #endif
 
     // Main loop for the viewer viewer
@@ -454,13 +484,13 @@ int main(int argc, char *argv[])
 #ifdef MADRONA_CUDA_SUPPORT
             cudaMemcpyAsync(agent_txfm_readback, agent_txfm_ptr,
                             sizeof(AgentTxfmObs) * num_views,
-                            cudaMemcpyDeviceToHost, readback_strm);
+                            cudaMemcpyDeviceToHost, copy_strm);
 
             cudaMemcpyAsync(reward_readback, reward_ptr,
                             sizeof(Reward) * num_views,
-                            cudaMemcpyDeviceToHost, readback_strm);
+                            cudaMemcpyDeviceToHost, copy_strm);
 
-            REQ_CUDA(cudaStreamSynchronize(readback_strm));
+            REQ_CUDA(cudaStreamSynchronize(copy_strm));
 
             agent_txfm_ptr = agent_txfm_readback;
             reward_ptr = reward_readback;
