@@ -1051,8 +1051,7 @@ static void obstructedBlockButtonLevel(Engine &ctx)
 LevelType generateLevel(Engine &ctx)
 {
     LevelType level_type = (LevelType) (
-        //ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes));
-        ctx.data().rng.sampleI32(4, 5));
+        ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes));
 
     switch (level_type) {
     case LevelType::Chase: {
