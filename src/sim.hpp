@@ -31,6 +31,7 @@ enum class ExportID : uint32_t {
     Checkpoint,
     CheckpointReset,
     CheckpointSave,
+    AgentPolicy,
     NumExports,
 };
 
@@ -76,6 +77,7 @@ struct Sim : public madrona::WorldBase {
         float rewardPerDist;
         float slackReward;
         madrona::phys::ObjectManager *rigidBodyObjMgr;
+        RewardHyperParams *rewardHyperParams;
         const madrona::render::RenderECSBridge *renderBridge;
     };
 

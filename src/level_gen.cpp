@@ -117,6 +117,10 @@ Entity createAgent(Engine &ctx)
     ctx.get<GrabState>(agent).constraintEntity = Entity::none();
     ctx.get<EntityType>(agent) = EntityType::Agent;
 
+    // if no PBT, policy needs to be set explicitly to 0 to pick up the fake
+    // RewardHyperParams allocated
+    ctx.get<AgentPolicy>(agent).policyIdx = 0;
+
     return agent;
 }
 

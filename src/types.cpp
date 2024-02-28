@@ -29,6 +29,8 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
 
     registry.registerComponent<Reward>();
     registry.registerComponent<Done>();
+    registry.registerComponent<AgentPolicy>();
+
     registry.registerComponent<GrabState>();
     registry.registerComponent<Progress>();
     registry.registerComponent<ButtonState>();
@@ -109,6 +111,9 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
         (uint32_t)ExportID::Reward);
     registry.exportColumn<Agent, Done>(
         (uint32_t)ExportID::Done);
+
+    registry.exportColumn<Agent, AgentPolicy>(
+        (uint32_t)ExportID::AgentPolicy);
 }
 
 }

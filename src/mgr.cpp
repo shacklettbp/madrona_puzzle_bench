@@ -33,6 +33,16 @@ struct RenderGPUState {
     render::GPUHandle gpu;
 };
 
+static inline uint64_t numTensorBytes(const Tensor &t)
+{
+    uint64_t num_items = 1;
+    uint64_t num_dims = t.numDims();
+    for (uint64_t i = 0; i < num_dims; i++) {
+        num_items *= t.dims()[i];
+    }
+
+    return num_items * (uint64_t)t.numBytesPerItem();
+}
 
 static inline Optional<RenderGPUState> initRenderGPUState(
     const Manager::Config &mgr_cfg)
@@ -90,6 +100,7 @@ struct Manager::Impl {
     CheckpointSave *worldSaveCheckpointBuffer;
     CheckpointReset *worldLoadCheckpointBuffer;
     Action *agentActionsBuffer;
+    RewardHyperParams *rewardHyperParams;
     Optional<RenderGPUState> renderGPUState;
     Optional<render::RenderManager> renderMgr;
 
@@ -99,6 +110,7 @@ struct Manager::Impl {
                 CheckpointSave *checkpoint_save_buffer,
                 CheckpointReset *checkpoint_load_buffer,
                 Action *action_buffer,
+                RewardHyperParams *reward_hyper_params,
                 Optional<RenderGPUState> &&render_gpu_state,
                 Optional<render::RenderManager> &&render_mgr)
         : cfg(mgr_cfg),
@@ -107,6 +119,7 @@ struct Manager::Impl {
           worldSaveCheckpointBuffer(checkpoint_save_buffer),
           worldLoadCheckpointBuffer(checkpoint_load_buffer),
           agentActionsBuffer(action_buffer),
+          rewardHyperParams(reward_hyper_params),
           renderGPUState(std::move(render_gpu_state)),
           renderMgr(std::move(render_mgr))
     {}
@@ -115,9 +128,16 @@ struct Manager::Impl {
 
     virtual void run() = 0;
 
+#ifdef MADRONA_CUDA_SUPPORT
+    virtual void gpuStreamInit(cudaStream_t strm, void **buffers, Manager &) = 0;
+    virtual void gpuStreamStep(cudaStream_t strm, void **buffers, Manager &) = 0;
+#endif
+
     virtual Tensor exportTensor(ExportID slot,
         TensorElementType type,
         madrona::Span<const int64_t> dimensions) const = 0;
+
+    virtual Tensor rewardHyperParamsTensor() const = 0;
 
     static inline Impl * init(const Config &cfg);
 };
@@ -134,21 +154,47 @@ struct Manager::CPUImpl final : Manager::Impl {
                    CheckpointSave *checkpoint_save_buffer,
                    CheckpointReset *checkpoint_load_buffer,
                    Action *action_buffer,
+                   RewardHyperParams *reward_hyper_params,
                    Optional<RenderGPUState> &&render_gpu_state,
                    Optional<render::RenderManager> &&render_mgr,
                    TaskGraphT &&cpu_exec)
         : Impl(mgr_cfg, std::move(phys_loader),
                reset_buffer, checkpoint_save_buffer,
-               checkpoint_load_buffer,action_buffer,
+               checkpoint_load_buffer, action_buffer,
+               reward_hyper_params,
                std::move(render_gpu_state), std::move(render_mgr)),
           cpuExec(std::move(cpu_exec))
     {}
 
-    inline virtual ~CPUImpl() final {}
+    inline virtual ~CPUImpl() final 
+    {
+        free(rewardHyperParams);
+    }
 
     inline virtual void run()
     {
         cpuExec.run();
+    }
+
+#ifdef MADRONA_CUDA_SUPPORT
+    virtual void gpuStreamInit(cudaStream_t, void **, Manager &)
+    {
+        assert(false);
+    }
+
+    virtual void gpuStreamStep(cudaStream_t, void **, Manager &)
+    {
+        assert(false);
+    }
+#endif
+
+    virtual Tensor rewardHyperParamsTensor() const final
+    {
+        return Tensor(rewardHyperParams, TensorElementType::Float32,
+            {
+                cfg.numPBTPolicies,
+                sizeof(RewardHyperParams) / sizeof(float),
+            }, Optional<int>::none());
     }
 
     virtual inline Tensor exportTensor(ExportID slot,
@@ -170,21 +216,115 @@ struct Manager::CUDAImpl final : Manager::Impl {
                    CheckpointSave *checkpoint_save_buffer,
                    CheckpointReset *checkpoint_load_buffer,
                    Action *action_buffer,
+                   RewardHyperParams *reward_hyper_params,
                    Optional<RenderGPUState> &&render_gpu_state,
                    Optional<render::RenderManager> &&render_mgr,
                    MWCudaExecutor &&gpu_exec)
         : Impl(mgr_cfg, std::move(phys_loader),
                reset_buffer, checkpoint_save_buffer,
-               checkpoint_load_buffer, action_buffer,
+               checkpoint_load_buffer, action_buffer, reward_hyper_params,
                std::move(render_gpu_state), std::move(render_mgr)),
           gpuExec(std::move(gpu_exec))
     {}
 
-    inline virtual ~CUDAImpl() final {}
+    inline virtual ~CUDAImpl() final
+    {
+        REQ_CUDA(cudaFree(rewardHyperParams));
+    }
 
     inline virtual void run()
     {
         gpuExec.run();
+    }
+
+#ifdef MADRONA_CUDA_SUPPORT
+    inline void ** copyOutObservations(cudaStream_t strm,
+                                       void **buffers,
+                                       Manager &mgr)
+    {
+        auto copyFromSim = [&strm](void *dst, const Tensor &src) {
+            uint64_t num_bytes = numTensorBytes(src);
+
+            REQ_CUDA(cudaMemcpyAsync(dst, src.devicePtr(), num_bytes,
+                cudaMemcpyDeviceToDevice, strm));
+        };
+
+        // Observations
+        copyFromSim(*buffers++, mgr.agentTxfmObsTensor());
+        copyFromSim(*buffers++, mgr.agentInteractObsTensor());
+        copyFromSim(*buffers++, mgr.agentLevelTypeObsTensor());
+        copyFromSim(*buffers++, mgr.agentExitObsTensor());
+        copyFromSim(*buffers++, mgr.lidarDepthTensor());
+        copyFromSim(*buffers++, mgr.lidarHitTypeTensor());
+        copyFromSim(*buffers++, mgr.stepsRemainingTensor());
+        copyFromSim(*buffers++, mgr.entityPhysicsStateObsTensor());
+        copyFromSim(*buffers++, mgr.entityTypeObsTensor());
+        copyFromSim(*buffers++, mgr.entityAttributesObsTensor());
+
+        return buffers;
+    }
+
+    virtual void gpuStreamInit(cudaStream_t strm, void **buffers, Manager &mgr)
+    {
+        HeapArray<WorldReset> resets_staging(cfg.numWorlds);
+        for (CountT i = 0; i < (CountT)cfg.numWorlds; i++) {
+            resets_staging[i].reset = 1;
+        }
+
+        auto resetSyncStep = [&]()
+        {
+            cudaMemcpyAsync(worldResetBuffer, resets_staging.data(),
+                       sizeof(WorldReset) * cfg.numWorlds,
+                       cudaMemcpyHostToDevice, strm);
+            gpuExec.runAsync(strm);
+            REQ_CUDA(cudaStreamSynchronize(strm));
+        };
+
+        resetSyncStep();
+
+        copyOutObservations(strm, buffers, mgr);
+    }
+
+    virtual void gpuStreamStep(cudaStream_t strm, void **buffers, Manager &mgr)
+    {
+        auto copyToSim = [&strm](const Tensor &dst, void *src) {
+            uint64_t num_bytes = numTensorBytes(dst);
+
+            REQ_CUDA(cudaMemcpyAsync(dst.devicePtr(), src, num_bytes,
+                cudaMemcpyDeviceToDevice, strm));
+        };
+
+        copyToSim(mgr.actionTensor(), *buffers++);
+        copyToSim(mgr.resetTensor(), *buffers++);
+
+        if (cfg.numPBTPolicies > 0) {
+            copyToSim(mgr.policyAssignmentsTensor(), *buffers++);
+            copyToSim(mgr.rewardHyperParamsTensor(), *buffers++);
+        }
+
+        gpuExec.runAsync(strm);
+
+        buffers = copyOutObservations(strm, buffers, mgr);
+
+        auto copyFromSim = [&strm](void *dst, const Tensor &src) {
+            uint64_t num_bytes = numTensorBytes(src);
+
+            REQ_CUDA(cudaMemcpyAsync(dst, src.devicePtr(), num_bytes,
+                cudaMemcpyDeviceToDevice, strm));
+        };
+
+        copyFromSim(*buffers++, mgr.rewardTensor());
+        copyFromSim(*buffers++, mgr.doneTensor());
+    }
+#endif
+
+    virtual Tensor rewardHyperParamsTensor() const final
+    {
+        return Tensor(rewardHyperParams, TensorElementType::Float32,
+            {
+                cfg.numPBTPolicies,
+                sizeof(RewardHyperParams) / sizeof(float),
+            }, cfg.gpuID);
     }
 
     virtual inline Tensor exportTensor(ExportID slot,
@@ -527,6 +667,22 @@ Manager::Impl * Manager::Impl::init(
         ObjectManager *phys_obj_mgr = &phys_loader.getObjectManager();
         sim_cfg.rigidBodyObjMgr = phys_obj_mgr;
 
+        if (mgr_cfg.numPBTPolicies > 0) {
+            sim_cfg.rewardHyperParams = (RewardHyperParams *)cu::allocGPU(
+                sizeof(RewardHyperParams) * mgr_cfg.numPBTPolicies);
+        } else {
+            sim_cfg.rewardHyperParams = (RewardHyperParams *)cu::allocGPU(
+                sizeof(RewardHyperParams));
+
+            RewardHyperParams default_reward_hyper_params {
+                .distToExitScale = mgr_cfg.rewardPerDist,
+            };
+
+            REQ_CUDA(cudaMemcpy(sim_cfg.rewardHyperParams,
+                &default_reward_hyper_params, sizeof(RewardHyperParams),
+                cudaMemcpyHostToDevice));
+        }
+
         Optional<RenderGPUState> render_gpu_state =
             initRenderGPUState(mgr_cfg);
 
@@ -576,6 +732,7 @@ Manager::Impl * Manager::Impl::init(
             checkpoint_save_buffer,
             checkpoint_load_buffer,
             agent_actions_buffer,
+            sim_cfg.rewardHyperParams,
             std::move(render_gpu_state),
             std::move(render_mgr),
             std::move(gpu_exec),
@@ -591,6 +748,18 @@ Manager::Impl * Manager::Impl::init(
 
         ObjectManager *phys_obj_mgr = &phys_loader.getObjectManager();
         sim_cfg.rigidBodyObjMgr = phys_obj_mgr;
+
+        if (mgr_cfg.numPBTPolicies > 0) {
+            sim_cfg.rewardHyperParams = (RewardHyperParams *)malloc(
+                sizeof(RewardHyperParams) * mgr_cfg.numPBTPolicies);
+        } else {
+            sim_cfg.rewardHyperParams = (RewardHyperParams *)malloc(
+                sizeof(RewardHyperParams));
+
+            *(sim_cfg.rewardHyperParams) = {
+                .distToExitScale = mgr_cfg.rewardPerDist,
+            };
+        }
 
         Optional<RenderGPUState> render_gpu_state =
             initRenderGPUState(mgr_cfg);
@@ -635,6 +804,7 @@ Manager::Impl * Manager::Impl::init(
             checkpoint_save_buffer,
             checkpoint_load_buffer,
             agent_actions_buffer,
+            sim_cfg.rewardHyperParams,
             std::move(render_gpu_state),
             std::move(render_mgr),
             std::move(cpu_exec),
@@ -648,16 +818,21 @@ Manager::Impl * Manager::Impl::init(
 
 Manager::Manager(const Config &cfg)
     : impl_(Impl::init(cfg))
+{}
+
+Manager::~Manager() {}
+
+void Manager::init()
 {
+    const CountT num_worlds = impl_->cfg.numWorlds;
+
     // Force reset and step so obs are populated at beginning of fresh episode
-    for (int32_t i = 0; i < (int32_t)cfg.numWorlds; i++) {
+    for (CountT i = 0; i < num_worlds; i++) {
         triggerReset(i);
     }
 
     step();
 }
-
-Manager::~Manager() {}
 
 void Manager::step()
 {
@@ -671,6 +846,26 @@ void Manager::step()
         impl_->renderMgr->batchRender();
     }
 }
+
+#ifdef MADRONA_CUDA_SUPPORT
+void Manager::gpuStreamInit(cudaStream_t strm, void **buffers)
+{
+    impl_->gpuStreamInit(strm, buffers, *this);
+
+    if (impl_->renderMgr.has_value()) {
+        assert(false);
+    }
+}
+
+void Manager::gpuStreamStep(cudaStream_t strm, void **buffers)
+{
+    impl_->gpuStreamStep(strm, buffers, *this);
+
+    if (impl_->renderMgr.has_value()) {
+        assert(false);
+    }
+}
+#endif
 
 Tensor Manager::checkpointResetTensor() const {
     return impl_->exportTensor(ExportID::CheckpointReset,
@@ -942,6 +1137,55 @@ void Manager::triggerLoadCheckpoint(int32_t world_idx)
 render::RenderManager & Manager::getRenderManager()
 {
     return *impl_->renderMgr;
+}
+
+Tensor Manager::policyAssignmentsTensor() const
+{
+    return impl_->exportTensor(ExportID::AgentPolicy,
+                               TensorElementType::Int32,
+                               {
+                                   impl_->cfg.numWorlds,
+                                   sizeof(AgentPolicy) / sizeof(int32_t)
+                               });
+}
+
+Tensor Manager::rewardHyperParamsTensor() const
+{
+    return impl_->rewardHyperParamsTensor();
+}
+
+TrainInterface Manager::trainInterface() const
+{
+    auto pbt_inputs = std::to_array<NamedTensorInterface>({
+        { "policy_assignments", policyAssignmentsTensor().interface() },
+        { "reward_hyper_params", rewardHyperParamsTensor().interface() },
+    });
+
+    return TrainInterface {
+        {
+            .actions = actionTensor().interface(),
+            .resets = resetTensor().interface(),
+            .pbt = impl_->cfg.numPBTPolicies > 0 ?
+                pbt_inputs : Span<const NamedTensorInterface>(nullptr, 0),
+        },
+        {
+            .observations = {
+                { "agent_txfm", agentTxfmObsTensor().interface() },
+                { "agent_interact", agentInteractObsTensor().interface() },
+                { "agent_level_type", agentLevelTypeObsTensor().interface() },
+                { "agent_exit", agentExitObsTensor().interface() },
+                { "lidar_depth", lidarDepthTensor().interface() },
+                { "lidar_hit_type", lidarHitTypeTensor().interface() },
+                { "steps_remaining", stepsRemainingTensor().interface() },
+                { "entity_physics_states", entityPhysicsStateObsTensor().interface() },
+                { "entity_types", entityTypeObsTensor().interface() },
+                { "entity_attrs", entityAttributesObsTensor().interface() },
+            },
+            .rewards = rewardTensor().interface(),
+            .dones = doneTensor().interface(),
+            .pbt = {},
+        },
+    };
 }
 
 }

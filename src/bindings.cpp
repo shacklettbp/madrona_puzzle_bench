@@ -42,7 +42,8 @@ NB_MODULE(madrona_puzzle_bench, m) {
                             float button_width,
                             float door_width,
                             float reward_per_dist,
-                            float slack_reward) {
+                            float slack_reward,
+                            uint32_t num_pbt_policies) {
             new (self) Manager(Manager::Config {
                 .execMode = exec_mode,
                 .gpuID = (int)gpu_id,
@@ -56,7 +57,8 @@ NB_MODULE(madrona_puzzle_bench, m) {
                 .buttonWidth = button_width,
                 .doorWidth = door_width,
                 .rewardPerDist = reward_per_dist,
-                .slackReward = slack_reward
+                .slackReward = slack_reward,
+                .numPBTPolicies = num_pbt_policies,
             });
         }, nb::arg("exec_mode"),
            nb::arg("gpu_id"),
@@ -70,7 +72,9 @@ NB_MODULE(madrona_puzzle_bench, m) {
            nb::arg("button_width"),
            nb::arg("door_width"),
            nb::arg("reward_per_dist"),
-           nb::arg("slack_reward"))
+           nb::arg("slack_reward"),
+           nb::arg("num_pbt_policies") = 0)
+        .def("init", &Manager::init)
         .def("step", &Manager::step)
         .def("checkpoint_reset_tensor", &Manager::checkpointResetTensor)
         .def("checkpoint_tensor", &Manager::checkpointTensor)
@@ -97,6 +101,16 @@ NB_MODULE(madrona_puzzle_bench, m) {
         .def("steps_remaining_tensor", &Manager::stepsRemainingTensor)
         .def("rgb_tensor", &Manager::rgbTensor)
         .def("depth_tensor", &Manager::depthTensor)
+        .def("jax", JAXInterface::buildEntry<
+                &Manager::trainInterface,
+                &Manager::init,
+                &Manager::step
+#ifdef MADRONA_CUDA_SUPPORT
+                ,
+                &Manager::gpuStreamInit,
+                &Manager::gpuStreamStep
+#endif
+             >())
     ;
 }
 

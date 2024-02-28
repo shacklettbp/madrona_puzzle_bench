@@ -35,12 +35,19 @@ public:
         float doorWidth;
         float rewardPerDist;
         float slackReward;
+        uint32_t numPBTPolicies = 0;
     };
 
     Manager(const Config &cfg);
     ~Manager();
 
+    void init();
     void step();
+
+#ifdef MADRONA_CUDA_SUPPORT
+    void gpuStreamInit(cudaStream_t strm, void **buffers);
+    void gpuStreamStep(cudaStream_t strm, void **buffers);
+#endif
 
     // These functions export Tensor objects that link the ECS
     // simulation state to the python bindings / PyTorch tensors (src/bindings.cpp)
@@ -76,6 +83,10 @@ public:
                    int32_t interact);
 
     madrona::render::RenderManager & getRenderManager();
+
+    madrona::py::Tensor policyAssignmentsTensor() const;
+    madrona::py::Tensor rewardHyperParamsTensor() const;
+    madrona::py::TrainInterface trainInterface() const;
 
 private:
     struct Impl;
