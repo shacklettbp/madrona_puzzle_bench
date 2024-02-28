@@ -71,6 +71,7 @@ class RNDModel(Backbone):
         with torch.no_grad():
             #flattened_obs = self._flatten_obs_sequence(obs_in)
             processed_obs = self.process_obs(*obs_in)
+
         target_features = self.target_net(processed_obs)
         predictor_features = self.predictor_net(processed_obs)
 
@@ -84,6 +85,7 @@ class RNDModel(Backbone):
         with torch.no_grad():
             flattened_obs = self._flatten_obs_sequence(obs_in)
             processed_obs = self.process_obs(*flattened_obs)
+
         target_features = self.target_net(processed_obs)
         predictor_features = self.predictor_net(processed_obs)
 
