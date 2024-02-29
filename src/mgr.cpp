@@ -33,6 +33,7 @@ struct RenderGPUState {
     render::GPUHandle gpu;
 };
 
+#ifdef MADRONA_CUDA_SUPPORT
 static inline uint64_t numTensorBytes(const Tensor &t)
 {
     uint64_t num_items = 1;
@@ -43,6 +44,7 @@ static inline uint64_t numTensorBytes(const Tensor &t)
 
     return num_items * (uint64_t)t.numBytesPerItem();
 }
+#endif
 
 static inline Optional<RenderGPUState> initRenderGPUState(
     const Manager::Config &mgr_cfg)
