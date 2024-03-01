@@ -611,6 +611,16 @@ class GoExplore:
 
         # Now do the go-explore stuff
         goExplore.max_progress = max(goExplore.max_progress, update_results.obs[0][...,1].max())
+        '''
+        if goExplore.max_progress > 30:
+            # Print where this occurs
+            print(torch.where(update_results.obs[0][...,1] > 30))
+            # Something is wrong, dump checkpoints
+            print("Dumping checkpoints")
+            with open("max_progress_dump" + str(update_id), 'wb') as f:
+                goExplore.checkpoints.cpu().numpy().tofile(f)
+            raise ValueError("Max progress too high")
+        '''
         if goExplore.max_progress > 1.01: # Do this based off the exit observation
             exit_bins = goExplore.map_states_to_bins(goExplore.obs)[0,:][(goExplore.obs[0][...,3] > 1.01).view(goExplore.num_worlds, goExplore.num_agents).all(dim=1)]
             # Set exit path length to 0 for exit bins
@@ -634,7 +644,7 @@ class GoExplore:
         #print("Max return", torch.max(self.curr_returns), self.worlds.obs[torch.argmax(self.curr_returns)])
         self.update_archive(new_bins, self.curr_returns, ppo)
         # Set new state, go to state
-        if args.new_frac > 0.01:
+        if args.new_frac > 0.002:
             states = self.select_state(update_id)
             self.go_to_state(states, leave_rest = (update_id % 5 != 0), update_id = update_id)
 

@@ -570,8 +570,8 @@ static Entity makeLava(Engine &ctx, Vector3 position,
 }
 
 static Entity makeEnemy(Engine &ctx, Vector3 position, 
-                        float move_force = 200.f,
-                        float move_torque = 200.f)
+                        float move_force = 300.f,
+                        float move_torque = 300.f)
 {
     Entity enemy = ctx.makeRenderableEntity<EnemyEntity>();
     setupRigidBodyEntity(
