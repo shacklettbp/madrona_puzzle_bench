@@ -458,7 +458,7 @@ inline void setDoorPositionSystem(Engine &,
 {
     if (open_state.isOpen) {
         // Put underground
-        if (pos.z > -4.5f) {
+        if (pos.z > -6.5f) {
             pos.z += -consts::doorSpeed * consts::deltaT;
         }
     }

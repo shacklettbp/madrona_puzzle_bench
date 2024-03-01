@@ -265,7 +265,7 @@ static Entity makeDoor(Engine &ctx,
                        Vector3 door_center,
                        Vector3 len_axis,
                        Vector3 width_axis,
-                       const float door_height = 1.75f)
+                       const float door_height = 2.75f)
 
 {
     const float door_obj_len = 0.8f * ctx.data().doorWidth;
@@ -336,7 +336,7 @@ static void makeRoomWalls(Engine &ctx,
         } else {
             assert(false);
         }
-        scale.d2 = 2.f;
+        scale.d2 = 3.f;
 
         Vector3 center = (p0 + p1) / 2.f;
 
@@ -388,7 +388,7 @@ static void makeRoomWalls(Engine &ctx,
         Vector3 before_dims = consts::wallWidth * width_axis + 
             Diag3x3::fromVec(len_axis) * 
                 (before_entrance - p0 + consts::wallWidth / 2.f) +
-            2.f * math::up;
+            3.f * math::up;
 
         before_center -= len_axis * consts::wallWidth / 4.f;
 
@@ -398,7 +398,7 @@ static void makeRoomWalls(Engine &ctx,
         Vector3 after_dims = consts::wallWidth * width_axis + 
             Diag3x3::fromVec(len_axis) *
                 (p1 - after_entrance + consts::wallWidth / 2.f) +
-            2.f * math::up;
+            3.f * math::up;
 
         after_center += len_axis * consts::wallWidth / 4.f;
 
@@ -603,7 +603,8 @@ static void setupSingleRoomLevel(Engine &ctx,
                                  float level_size,
                                  Entity *exit_door_out,
                                  AABB *room_aabb_out,
-                                 Vector3* entrance_positions)
+                                 Vector3* entrance_positions,
+                                 bool hop_wall = false)
 {
     const float spawn_size = 1.5f * ctx.data().doorWidth;
     const float half_wall_width = consts::wallWidth / 2.f;
@@ -620,6 +621,37 @@ static void setupSingleRoomLevel(Engine &ctx,
 
     Entity doors[4];
     Vector3 local_entrance_positions[4];
+
+    auto makeSolidWall = [
+        &ctx
+    ](Vector3 p0, Vector3 p1)
+    {
+        Vector3 diff = p1 - p0;
+        assert(diff.z == 0);
+
+        Diag3x3 scale;
+        if (diff.x == 0) {
+            scale.d0 = consts::wallWidth;
+            scale.d1 = diff.y + consts::wallWidth;
+        } else if (diff.y == 0) {
+            scale.d0 = diff.x + consts::wallWidth;
+            scale.d1 = consts::wallWidth;
+        } else {
+            assert(false);
+        }
+        scale.d2 = 3.f; // 1 higher than num blocks should work
+
+        Vector3 center = (p0 + p1) / 2.f;
+
+        makeWall(ctx, center, scale);
+    };
+
+    if (hop_wall){
+        makeSolidWall(
+            Vector3(room_aabb.pMin.x, room_aabb.pMax.y, room_aabb.pMin.z),
+            Vector3(room_aabb.pMax.x, room_aabb.pMax.y, room_aabb.pMin.z)
+        );
+    } 
     makeRoomWalls(ctx, room_aabb,
         {
             { exit_door_out ? WallType::Door : WallType::Entrance, exit_t },
@@ -1052,6 +1084,47 @@ static void obstructedBlockButtonLevel(Engine &ctx)
     }
 }
 
+static void blockStackLevel(Engine &ctx)
+{
+    const float level_size = 20.f;
+    const float block_size = 3;
+
+    const float button_width = ctx.data().buttonWidth;
+
+    const float half_button_width = button_width / 2.f;
+    const float half_block_size = block_size / 2.f;
+
+    Entity exit_door;
+    AABB room_aabb;
+    setupSingleRoomLevel(ctx, level_size, nullptr, &room_aabb, nullptr, true);
+
+    float mid_room_x = (room_aabb.pMin.x + room_aabb.pMax.x) / 2.f;
+    {
+        float block_x = randBetween(ctx,
+            room_aabb.pMin.x + half_block_size,
+            mid_room_x - block_size);
+
+        float block_y = randBetween(ctx,
+            room_aabb.pMin.y + block_size,
+            room_aabb.pMax.y - block_size);
+
+        makeBlock(ctx, block_x, block_y, block_size);
+    }
+
+    // Make a bigger block
+    {
+        float block_x = randBetween(ctx,
+            mid_room_x + half_block_size,
+            room_aabb.pMax.x - block_size);
+
+        float block_y = randBetween(ctx,
+            room_aabb.pMin.y + block_size,
+            room_aabb.pMax.y - block_size);
+
+        makeBlock(ctx, block_x, block_y, 2 * block_size);
+    }
+}
+
 LevelType generateLevel(Engine &ctx)
 {
     LevelType level_type = (LevelType) (
@@ -1072,6 +1145,9 @@ LevelType generateLevel(Engine &ctx)
     } break;
     case LevelType::ObstructedBlockButton: {
         obstructedBlockButtonLevel(ctx);
+    } break;
+    case LevelType::BlockStack: {
+        blockStackLevel(ctx);
     } break;
     default: MADRONA_UNREACHABLE();
     }

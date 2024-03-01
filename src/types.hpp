@@ -42,6 +42,7 @@ enum class LevelType : uint32_t {
     SingleButton,
     SingleBlockButton,
     ObstructedBlockButton,
+    BlockStack,
     NumTypes,
 };
 
