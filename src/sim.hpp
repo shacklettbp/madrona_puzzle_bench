@@ -32,6 +32,7 @@ enum class ExportID : uint32_t {
     CheckpointReset,
     CheckpointSave,
     AgentPolicy,
+    EpisodeResult,
     NumExports,
 };
 

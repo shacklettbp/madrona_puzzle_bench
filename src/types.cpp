@@ -55,6 +55,7 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
     registry.registerSingleton<WorldReset>();
     registry.registerSingleton<Level>();
     registry.registerSingleton<EpisodeState>();
+    registry.registerSingleton<EpisodeResult>();
 
     // Checkpoint state.
     registry.registerSingleton<Checkpoint>();
@@ -80,6 +81,8 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
         (uint32_t)ExportID::CheckpointSave);
     registry.exportSingleton<WorldReset>(
         (uint32_t)ExportID::Reset);
+    registry.exportSingleton<EpisodeResult>(
+        (uint32_t)ExportID::EpisodeResult);
 
     registry.exportColumn<Agent, Action>(
         (uint32_t)ExportID::Action);

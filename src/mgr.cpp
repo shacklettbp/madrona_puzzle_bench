@@ -317,6 +317,7 @@ struct Manager::CUDAImpl final : Manager::Impl {
 
         copyFromSim(*buffers++, mgr.rewardTensor());
         copyFromSim(*buffers++, mgr.doneTensor());
+        copyFromSim(*buffers++, mgr.episodeResultTensor());
     }
 #endif
 
@@ -1141,6 +1142,17 @@ render::RenderManager & Manager::getRenderManager()
     return *impl_->renderMgr;
 }
 
+
+Tensor Manager::episodeResultTensor() const
+{
+    return impl_->exportTensor(ExportID::EpisodeResult,
+                               TensorElementType::Float32,
+                               {
+                                   impl_->cfg.numWorlds,
+                                   sizeof(EpisodeResult) / sizeof(float),
+                               });
+}
+
 Tensor Manager::policyAssignmentsTensor() const
 {
     return impl_->exportTensor(ExportID::AgentPolicy,
@@ -1185,7 +1197,9 @@ TrainInterface Manager::trainInterface() const
             },
             .rewards = rewardTensor().interface(),
             .dones = doneTensor().interface(),
-            .pbt = {},
+            .pbt = {
+                { "episode_results", episodeResultTensor().interface() },
+            },
         },
     };
 }

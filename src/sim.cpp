@@ -992,11 +992,14 @@ inline void updateEpisodeStateSystem(Engine &ctx,
     WorldReset force_reset = ctx.singleton<WorldReset>();
     CheckpointReset ckpt_reset = ctx.singleton<CheckpointReset>();
 
+    bool success = 
+        episode_state.curLevel == ctx.data().levelsPerEpisode;
+
     episode_state.episodeFinished =
         force_reset.reset == 1 ||
         ckpt_reset.reset == 1 ||
         episode_state.isDead ||
-        episode_state.curLevel == ctx.data().levelsPerEpisode
+        success
     ;
 
     if ((ctx.data().simFlags & SimFlags::IgnoreEpisodeLength) !=
@@ -1004,6 +1007,15 @@ inline void updateEpisodeStateSystem(Engine &ctx,
         if (episode_state.curStep == ctx.data().episodeLen) {
             episode_state.episodeFinished = true;
         }
+    }
+
+    EpisodeResult &episode_result = ctx.singleton<EpisodeResult>();
+    if (success) {
+        episode_result.score = 
+            float(ctx.data().episodeLen - episode_state.curStep) /
+            ctx.data().episodeLen;
+    } else {
+        episode_result.score = 0.f;
     }
 }
 

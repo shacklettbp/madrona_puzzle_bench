@@ -9,6 +9,8 @@ import argparse
 from functools import partial
 
 import madrona_puzzle_bench
+from madrona_puzzle_bench import SimFlags, RewardMode
+from madrona_puzzle_bench.madrona import ExecMode
 
 import madrona_learn
 
@@ -18,10 +20,16 @@ madrona_learn.init(0.6)
 
 arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument('--num-worlds', type=int, required=True)
-arg_parser.add_argument('--num-policies', type=int, default=1)
 arg_parser.add_argument('--num-steps', type=int, default=200)
+
 arg_parser.add_argument('--ckpt-path', type=str, required=True)
-arg_parser.add_argument('--action-dump-path', type=str)
+arg_parser.add_argument('--single-policy', type=int, default=None)
+arg_parser.add_argument('--record-log', type=str)
+
+arg_parser.add_argument('--print-obs', action='store_true')
+arg_parser.add_argument('--print-action-probs', action='store_true')
+arg_parser.add_argument('--print-rewards', action='store_true')
+
 arg_parser.add_argument('--fp16', action='store_true')
 arg_parser.add_argument('--bf16', action='store_true')
 arg_parser.add_argument('--gpu-sim', action='store_true')
@@ -29,49 +37,85 @@ arg_parser.add_argument('--gpu-id', type=int, default=0)
 
 args = arg_parser.parse_args()
 
+dev = jax.devices()[0]
+
+if args.fp16:
+    dtype = jnp.float16
+elif args.bf16:
+    dtype = jnp.bfloat16
+else:
+    dtype = jnp.float32
+
+policy = make_policy(dtype)
+
+if args.single_policy != None:
+    policy_states, num_policies = madrona_learn.eval_load_ckpt(
+        policy, args.ckpt_path, single_policy = args.single_policy)
+else:
+    policy_states, num_policies = madrona_learn.eval_load_ckpt(
+        policy, args.ckpt_path, train_only=True)
+
+print(policy_states.reward_hyper_params)
+
 sim = madrona_puzzle_bench.SimManager(
-    exec_mode = madrona_puzzle_bench.madrona.ExecMode.CUDA if args.gpu_sim else madrona_puzzle_bench.madrona.ExecMode.CPU,
+    exec_mode = ExecMode.CUDA if args.gpu_sim else ExecMode.CPU,
     gpu_id = args.gpu_id,
     num_worlds = args.num_worlds,
-    auto_reset = True,
-    sim_flags = madrona_puzzle_bench.SimFlags.Default,
-    reward_mode = madrona_puzzle_bench.RewardMode.OG,
+    num_pbt_policies = num_policies,
+    rand_seed = 10,
+    sim_flags = SimFlags.Default,
+    reward_mode = RewardMode.Dense1,
+    episode_len = 200,
+    levels_per_episode = 1,
+    button_width = 1.3,
+    door_width = 20.0 / 3.,
+    reward_per_dist = 0.05,
+    slack_reward = -0.005,
 )
+
+ckpt_tensor = sim.checkpoint_tensor()
+
+team_size = 1
+num_teams = 1
+
+num_agents_per_world = team_size * num_teams
 
 jax_gpu = jax.devices()[0].platform == 'gpu'
 
-sim_step, init_sim_data = sim.jax(jax_gpu)
+sim_init, sim_step = sim.jax(jax_gpu)
 
-if args.action_dump_path:
-    action_log = open(args.action_dump_path, 'wb')
+if args.record_log:
+    record_log_file = open(args.record_log, 'wb')
 else:
-    action_log = None
+    record_log_file = None
+
+step_idx = 0
 
 def host_cb(obs, actions, action_probs, values, dones, rewards):
-    print(obs)
+    global step_idx
 
-    print("Actions:", actions)
+    if args.print_obs:
+        print(obs)
 
-    print("Move Amount Probs")
-    print(" ", np.array_str(action_probs[0][0], precision=2, suppress_small=True))
-    print(" ", np.array_str(action_probs[0][1], precision=2, suppress_small=True))
+    #print(f"\nStep {step_idx}")
 
-    print("Move Angle Probs")
-    print(" ", np.array_str(action_probs[1][0], precision=2, suppress_small=True))
-    print(" ", np.array_str(action_probs[1][1], precision=2, suppress_small=True))
+    if args.print_action_probs:
+        for i in range(actions.shape[0]):
+            if i % num_agents_per_world == 0:
+                print(f"World {i // num_agents_per_world}")
 
-    print("Rotate Probs")
-    print(" ", np.array_str(action_probs[2][0], precision=2, suppress_small=True))
-    print(" ", np.array_str(action_probs[2][1], precision=2, suppress_small=True))
+            print(f" Agent {i % num_agents_per_world}:")
+            print("  Action:", actions[..., i, :])
 
-    print("Grab Probs")
-    print(" ", np.array_str(action_probs[3][0], precision=2, suppress_small=True))
-    print(" ", np.array_str(action_probs[3][1], precision=2, suppress_small=True))
+            print(f"  Move Amount Probs: {float(action_probs[0][i][0]):.2e} {float(action_probs[0][i][1]):.2e} {float(action_probs[0][i][2]):.2e}")
+            print(f"  Turn Probs:        {float(action_probs[1][i][0]):.2e} {float(action_probs[1][i][1]):.2e} {float(action_probs[1][i][2]):.2e}")
 
-    print("Rewards:", rewards)
+    if args.print_rewards:
+        print("Rewards:", rewards)
 
-    if action_log:
-        actions.tofile(action_log)
+    np.array(ckpt_tensor.to_jax()).tofile(record_log_file)
+
+    step_idx += 1
 
     return ()
 
@@ -85,18 +129,22 @@ def iter_cb(step_data):
        step_data['dones'],
        step_data['rewards'])
 
-dev = jax.devices()[0]
+cfg = madrona_learn.EvalConfig(
+    num_worlds = args.num_worlds,
+    team_size = team_size,
+    num_teams = num_teams,
+    num_eval_steps = args.num_steps,
+    eval_competitive = False,
+    policy_dtype = dtype,
+)
 
-if args.fp16:
-    dtype = jnp.float16
-elif args.bf16:
-    dtype = jnp.bfloat16
-else:
-    dtype = jnp.float32
+episode_scores = policy_states.episode_score
 
-policy, obs_preprocess = make_policy(dtype, True)
+print(episode_scores.mean)
 
-madrona_learn.eval_ckpt(dev, args.ckpt_path, args.num_steps, sim_step,
-    init_sim_data, policy, obs_preprocess, iter_cb, dtype)
+episode_scores = madrona_learn.eval_policies(
+    dev, cfg, sim_init, sim_step, policy, policy_states, iter_cb)
+
+print(episode_scores.mean)
 
 del sim

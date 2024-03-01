@@ -266,6 +266,10 @@ struct AgentPolicy {
     int32_t policyIdx;
 };
 
+struct EpisodeResult {
+    float score;
+};
+
 struct RewardHyperParams {
     float distToExitScale;
 };

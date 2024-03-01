@@ -175,7 +175,7 @@ int main(int argc, char *argv[])
         .execMode = exec_mode,
         .gpuID = 0,
         .numWorlds = num_worlds,
-        .randSeed = 5,
+        .randSeed = 10,
         .simFlags = flags,
         .rewardMode = RewardMode::Dense2,
         .enableBatchRenderer = enable_batch_renderer,
