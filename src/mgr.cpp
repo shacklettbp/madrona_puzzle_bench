@@ -317,6 +317,7 @@ struct Manager::CUDAImpl final : Manager::Impl {
 
         copyFromSim(*buffers++, mgr.rewardTensor());
         copyFromSim(*buffers++, mgr.doneTensor());
+        copyFromSim(*buffers++, mgr.episodeResultTensor());
     }
 #endif
 
@@ -1145,10 +1146,10 @@ render::RenderManager & Manager::getRenderManager()
 Tensor Manager::episodeResultTensor() const
 {
     return impl_->exportTensor(ExportID::EpisodeResult,
-                               TensorElementType::Int32,
+                               TensorElementType::Float32,
                                {
                                    impl_->cfg.numWorlds,
-                                   sizeof(EpisodeResult) / sizeof(int32_t),
+                                   sizeof(EpisodeResult) / sizeof(float),
                                });
 }
 

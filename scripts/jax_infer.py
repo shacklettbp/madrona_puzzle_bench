@@ -8,13 +8,13 @@ import numpy as np
 import argparse
 from functools import partial
 
-import madrona_car_soccer
-from madrona_car_soccer import SimFlags
+import madrona_puzzle_bench
+from madrona_puzzle_bench import SimFlags, RewardMode
+from madrona_puzzle_bench.madrona import ExecMode
 
 import madrona_learn
 
 from jax_policy import make_policy
-from common import print_elos
 
 madrona_learn.init(0.6)
 
@@ -23,8 +23,6 @@ arg_parser.add_argument('--num-worlds', type=int, required=True)
 arg_parser.add_argument('--num-steps', type=int, default=200)
 
 arg_parser.add_argument('--ckpt-path', type=str, required=True)
-arg_parser.add_argument('--crossplay', action='store_true')
-arg_parser.add_argument('--crossplay-include-past', action='store_true')
 arg_parser.add_argument('--single-policy', type=int, default=None)
 arg_parser.add_argument('--record-log', type=str)
 
@@ -51,30 +49,34 @@ else:
 policy = make_policy(dtype)
 
 if args.single_policy != None:
-    assert not args.crossplay
     policy_states, num_policies = madrona_learn.eval_load_ckpt(
         policy, args.ckpt_path, single_policy = args.single_policy)
-elif args.crossplay:
+else:
     policy_states, num_policies = madrona_learn.eval_load_ckpt(
-        policy, args.ckpt_path,
-        train_only=False if args.crossplay_include_past else True)
+        policy, args.ckpt_path, train_only=True)
 
 print(policy_states.reward_hyper_params)
 
-sim = madrona_car_soccer.SimManager(
-    exec_mode = madrona_car_soccer.madrona.ExecMode.CUDA if args.gpu_sim else madrona_car_soccer.madrona.ExecMode.CPU,
+sim = madrona_puzzle_bench.SimManager(
+    exec_mode = ExecMode.CUDA if args.gpu_sim else ExecMode.CPU,
     gpu_id = args.gpu_id,
     num_worlds = args.num_worlds,
     num_pbt_policies = num_policies,
-    auto_reset = True,
-    rand_seed = 5,
+    rand_seed = 10,
     sim_flags = SimFlags.Default,
+    reward_mode = RewardMode.Dense1,
+    episode_len = 200,
+    levels_per_episode = 1,
+    button_width = 1.3,
+    door_width = 20.0 / 3.,
+    reward_per_dist = 0.05,
+    slack_reward = -0.005,
 )
 
-ckpt_tensor = sim.ckpt_tensor()
+ckpt_tensor = sim.checkpoint_tensor()
 
-team_size = 3
-num_teams = 2
+team_size = 1
+num_teams = 1
 
 num_agents_per_world = team_size * num_teams
 
@@ -132,16 +134,17 @@ cfg = madrona_learn.EvalConfig(
     team_size = team_size,
     num_teams = num_teams,
     num_eval_steps = args.num_steps,
+    eval_competitive = False,
     policy_dtype = dtype,
 )
 
-elos = policy_states.fitness_score[..., 0]
-print_elos(elos)
+episode_scores = policy_states.episode_score
 
-fitness_scores = madrona_learn.eval_policies(
+print(episode_scores.mean)
+
+episode_scores = madrona_learn.eval_policies(
     dev, cfg, sim_init, sim_step, policy, policy_states, iter_cb)
 
-elos = fitness_scores[..., 0]
-print_elos(elos)
+print(episode_scores.mean)
 
 del sim

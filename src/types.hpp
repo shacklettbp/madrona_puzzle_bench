@@ -266,8 +266,7 @@ struct AgentPolicy {
 };
 
 struct EpisodeResult {
-    int32_t stepsRemaining;
-    int32_t success;
+    float score;
 };
 
 struct RewardHyperParams {

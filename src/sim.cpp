@@ -992,11 +992,14 @@ inline void updateEpisodeStateSystem(Engine &ctx,
     WorldReset force_reset = ctx.singleton<WorldReset>();
     CheckpointReset ckpt_reset = ctx.singleton<CheckpointReset>();
 
+    bool success = 
+        episode_state.curLevel == ctx.data().levelsPerEpisode;
+
     episode_state.episodeFinished =
         force_reset.reset == 1 ||
         ckpt_reset.reset == 1 ||
         episode_state.isDead ||
-        episode_state.curLevel == ctx.data().levelsPerEpisode
+        success
     ;
 
     if ((ctx.data().simFlags & SimFlags::IgnoreEpisodeLength) !=
@@ -1007,8 +1010,13 @@ inline void updateEpisodeStateSystem(Engine &ctx,
     }
 
     EpisodeResult &episode_result = ctx.singleton<EpisodeResult>();
-    episode_result.stepsRemaining = ctx.data().episodeLen  - episode_state.curStep;
-    episode_result.success = episode_state.curLevel == ctx.data().levelsPerEpisode;
+    if (success) {
+        episode_result.score = 
+            float(ctx.data().episodeLen - episode_state.curStep) /
+            ctx.data().episodeLen;
+    } else {
+        episode_result.score = 0.f;
+    }
 }
 
 // Keep track of the number of steps remaining in the episode and
