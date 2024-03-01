@@ -1141,6 +1141,17 @@ render::RenderManager & Manager::getRenderManager()
     return *impl_->renderMgr;
 }
 
+
+Tensor Manager::episodeResultTensor() const
+{
+    return impl_->exportTensor(ExportID::EpisodeResult,
+                               TensorElementType::Int32,
+                               {
+                                   impl_->cfg.numWorlds,
+                                   sizeof(EpisodeResult) / sizeof(int32_t),
+                               });
+}
+
 Tensor Manager::policyAssignmentsTensor() const
 {
     return impl_->exportTensor(ExportID::AgentPolicy,
@@ -1185,7 +1196,9 @@ TrainInterface Manager::trainInterface() const
             },
             .rewards = rewardTensor().interface(),
             .dones = doneTensor().interface(),
-            .pbt = {},
+            .pbt = {
+                { "episode_results", episodeResultTensor().interface() },
+            },
         },
     };
 }

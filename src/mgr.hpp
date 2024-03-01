@@ -85,6 +85,7 @@ public:
     madrona::render::RenderManager & getRenderManager();
 
     madrona::py::Tensor policyAssignmentsTensor() const;
+    madrona::py::Tensor episodeResultTensor() const;
     madrona::py::Tensor rewardHyperParamsTensor() const;
     madrona::py::TrainInterface trainInterface() const;
 

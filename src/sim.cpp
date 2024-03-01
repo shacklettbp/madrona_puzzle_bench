@@ -1005,6 +1005,10 @@ inline void updateEpisodeStateSystem(Engine &ctx,
             episode_state.episodeFinished = true;
         }
     }
+
+    EpisodeResult &episode_result = ctx.singleton<EpisodeResult>();
+    episode_result.stepsRemaining = ctx.data().episodeLen  - episode_state.curStep;
+    episode_result.success = episode_state.curLevel == ctx.data().levelsPerEpisode;
 }
 
 // Keep track of the number of steps remaining in the episode and
