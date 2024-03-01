@@ -393,9 +393,10 @@ def _update_iter(cfg : TrainConfig,
                     all_bins = user_cb.map_states_to_bins(rollouts.obs)
                     bin_counts = user_cb.bin_count[all_bins]
                     # Make reward inversely proportional to bin count
-                    reward_bonus = 1.0 / torch.sqrt(bin_counts)#[...,None].repeat(1,1,2).view(bin_counts.shape[0],-1,1) + 1)
+                    reward_bonus = 1.0 / (torch.sqrt(bin_counts) + 1) #[...,None].repeat(1,1,2).view(bin_counts.shape[0],-1,1) + 1)
                     # Make the mean reward bonus be bin_reward_boost
                     mean_reward_bonus = reward_bonus.mean()
+                    # Check that mean_reward_bonus is not zero
                     reward_bonus *= user_cb.bin_reward_boost / mean_reward_bonus
                     # Add the reward bonus to the rollouts
                     rollouts.rewards.view(-1, *rollouts.rewards.shape[2:])[:] += reward_bonus.view(reward_bonus.shape[0],-1,1)
@@ -405,12 +406,12 @@ def _update_iter(cfg : TrainConfig,
                     #if user_cb.max_progress < 1.01:
                     reward_bonus_1 = user_cb.start_bin_steps[all_bins].float()
                     #print("Reward bonus", reward_bonus_1)
-                    #mean_reward_bonus = reward_bonus_1.mean()
-                    #reward_bonus_1 *= user_cb.bin_reward_boost / mean_reward_bonus
+                    mean_reward_bonus = reward_bonus_1.mean()
+                    reward_bonus_1 *= user_cb.bin_reward_boost / mean_reward_bonus
                     #print("Normalized reward bonus", reward_bonus_1)
                     #print(reward_bonus_1.sum(axis=0))
                     #rollouts.rewards.view(-1, *rollouts.rewards.shape[2:])[:] *= 0
-                    rollouts.rewards.view(-1, *rollouts.rewards.shape[2:])[:] += reward_bonus_1.view(reward_bonus_1.shape[0],-1,1) * user_cb.bin_reward_boost * 0.5 #[...,None].repeat(1,1,2).view(reward_bonus_1.shape[0],-1,1) #* user_cb.bin_reward_boost * 0.5
+                    rollouts.rewards.view(-1, *rollouts.rewards.shape[2:])[:] += reward_bonus_1.view(reward_bonus_1.shape[0],-1,1) #* user_cb.bin_reward_boost * 0.5 #[...,None].repeat(1,1,2).view(reward_bonus_1.shape[0],-1,1) #* user_cb.bin_reward_boost * 0.5
                     '''
                     max_bin_steps = 200
                     if user_cb.bin_steps[user_cb.bin_steps < 200].size(dim=0) > 0:

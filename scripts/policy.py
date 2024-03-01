@@ -114,7 +114,7 @@ def process_obs(agent_txfm_obs_tensor, agent_interact_obs_tensor, agent_level_ty
 
     agent_level_type_obs_tensor_onehot = torch.nn.functional.one_hot(agent_level_type_obs_tensor.to(torch.int64), num_classes=6)
     entity_type_obs_tensor_onehot = torch.nn.functional.one_hot(entity_type_obs_tensor.to(torch.int64), num_classes=11)
-    entity_attr_obs_tensor_onehot = entity_attr_obs_tensor #torch.nn.functional.one_hot(entity_attr_obs_tensor.to(torch.int64), num_classes=2) # TODO: correct
+    entity_attr_obs_tensor_onehot = entity_attr_obs_tensor*0 + 1 #torch.nn.functional.one_hot(entity_attr_obs_tensor.to(torch.int64), num_classes=2) # TODO: correct
     lidar_hit_type_tensor_onehot = torch.nn.functional.one_hot(lidar_hit_type_tensor.to(torch.int64), num_classes=11)
 
     # Print all the changed object shapes

@@ -566,8 +566,8 @@ static Entity makeLava(Engine &ctx, Vector3 position,
 }
 
 static Entity makeEnemy(Engine &ctx, Vector3 position, 
-                        float move_force = 200.f,
-                        float move_torque = 200.f)
+                        float move_force = 300.f,
+                        float move_torque = 300.f)
 {
     Entity enemy = ctx.makeRenderableEntity<EnemyEntity>();
     setupRigidBodyEntity(
@@ -1051,8 +1051,8 @@ static void obstructedBlockButtonLevel(Engine &ctx)
 LevelType generateLevel(Engine &ctx)
 {
     LevelType level_type = (LevelType) (
-        //ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes));
-        ctx.data().rng.sampleI32(4, 5));
+        ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes));
+        //ctx.data().rng.sampleI32(4, 5));
 
     switch (level_type) {
     case LevelType::Chase: {
