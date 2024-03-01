@@ -117,6 +117,10 @@ Entity createAgent(Engine &ctx)
     ctx.get<GrabState>(agent).constraintEntity = Entity::none();
     ctx.get<EntityType>(agent) = EntityType::Agent;
 
+    // if no PBT, policy needs to be set explicitly to 0 to pick up the fake
+    // RewardHyperParams allocated
+    ctx.get<AgentPolicy>(agent).policyIdx = 0;
+
     return agent;
 }
 
@@ -1052,7 +1056,6 @@ LevelType generateLevel(Engine &ctx)
 {
     LevelType level_type = (LevelType) (
         ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes));
-        //ctx.data().rng.sampleI32(4, 5));
 
     switch (level_type) {
     case LevelType::Chase: {

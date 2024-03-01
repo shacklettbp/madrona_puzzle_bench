@@ -197,7 +197,7 @@ sim = madrona_puzzle_bench.SimManager(
     reward_per_dist = 0.05,
     slack_reward = -0.005,
 )
-
+sim.init()
 
 
 use_warm_up = True

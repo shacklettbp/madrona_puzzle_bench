@@ -220,6 +220,15 @@ struct DeferredDelete {
     Entity e;
 };
 
+struct IsExit {};
+
+struct IsLava {};
+
+struct EnemyState {
+    float moveForce;
+    float moveTorque;
+};
+
 struct Checkpoint {
     // Checkpoint structs.
     struct EntityState {
@@ -252,6 +261,14 @@ struct Checkpoint {
     AgentState agentState;
 };
 
+struct AgentPolicy {
+    int32_t policyIdx;
+};
+
+struct RewardHyperParams {
+    float distToExitScale;
+};
+
 struct CheckpointReset {
     int32_t reset;
 };
@@ -259,15 +276,6 @@ struct CheckpointReset {
 // For connection to the viewer.
 struct CheckpointSave {
     int32_t save;
-};
-
-struct IsExit {};
-
-struct IsLava {};
-
-struct EnemyState {
-    float moveForce;
-    float moveTorque;
 };
 
 struct RoomEntity : public madrona::Archetype<
@@ -322,6 +330,7 @@ struct Agent : public madrona::Archetype<
     // Reward, episode termination
     Reward,
     Done,
+    AgentPolicy,
 
     // Visualization: In addition to the fly camera, src/viewer.cpp can
     // view the scene from the perspective of entities with this component

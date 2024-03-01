@@ -187,7 +187,9 @@ int main(int argc, char *argv[])
         .doorWidth = 20.0f/3.0f,
         .rewardPerDist = 0.05f,
         .slackReward = -0.005f,
+        .numPBTPolicies = 0,
     });
+    mgr.init();
 
     float camera_move_speed = 10.f;
 

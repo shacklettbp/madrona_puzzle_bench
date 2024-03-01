@@ -155,6 +155,7 @@ class GoExplore:
             reward_per_dist = 0.05,
             slack_reward = -0.005,
         )
+        self.worlds.init()
 
         # Do the warm up
         use_warm_up = True

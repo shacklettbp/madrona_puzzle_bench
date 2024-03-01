@@ -174,6 +174,7 @@ def _compute_advantages(cfg : TrainConfig,
     
     # Repeat for intrinsic values and advantages if not None
     if rollouts.values_intrinsic is not None and cfg.ppo.use_intrinsic_loss:
+        seq_rewards_intrinsic = rollouts.rewards_intrinsic.view(T, N, 1)
         seq_values_intrinsic = rollouts.values_intrinsic.view(T, N, 1)
         seq_advantages_intrinsic_out = advantages_intrinsic_out.view(T, N, 1)
 
@@ -181,18 +182,18 @@ def _compute_advantages(cfg : TrainConfig,
         next_values = rollouts.bootstrap_values_intrinsic
         for i in reversed(range(cfg.steps_per_update)):
             cur_dones = seq_dones[i].to(dtype=amp.compute_dtype)
-            cur_rewards = seq_rewards[i].to(dtype=amp.compute_dtype)
+            cur_rewards_intrinsic = seq_rewards_intrinsic[i].to(dtype=amp.compute_dtype)
             cur_values = seq_values_intrinsic[i].to(dtype=amp.compute_dtype)
 
             #next_valid = 1.0 - cur_dones
 
             # delta_t = r_t + gamma * V(s_{t+1}) - V(s_t)
             if cfg.ppo.no_advantages:
-                td_err = (cur_rewards + 
+                td_err = (cur_rewards_intrinsic + 
                     #cfg.gamma * next_valid * next_values)
                     cfg.gamma * next_values)
             else:
-                td_err = (cur_rewards + 
+                td_err = (cur_rewards_intrinsic + 
                     #cfg.gamma * next_valid * next_values - cur_values)
                     cfg.gamma * next_values - cur_values)
             
