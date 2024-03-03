@@ -1181,7 +1181,7 @@ static void patternMatchLevel(Engine &ctx)
     // Setup set of locations where buttons need to be placed
     // Number of locations is random between 1 and 3
     const int num_locations = ctx.data().rng.sampleI32(1, 4);
-    Vector3 button_locations[num_locations];
+    Vector3 button_locations[3];
     float mid_room_x = (room_aabb.pMin.x + room_aabb.pMax.x) / 2.f;
     for (int i = 0; i < num_locations; ++i) {
         // Place all locations in the left half of the room, space them so that blocks placed there won't intersect
@@ -1198,22 +1198,14 @@ static void patternMatchLevel(Engine &ctx)
         makeBlock(ctx, button_locations[i].x, button_locations[i].y, block_size, true);
     }
 
-    // Set up Position entities at each location on the right side of the room that matches
-    /*
-    for (int j = 0; j < num_locations; ++j) {
-        int i = num_locations - 1 - j;
-        Entity pattern = makePattern(ctx, button_locations[i].x + (mid_room_x - room_aabb.pMin.x), button_locations[i].y, button_locations[i].z);
-        linkDoorPatterns(ctx, exit_door, { pattern });
-    }
-    */
-
-    // Visualize pattern entities with buttons
+    // Make pattern entities
     Entity pattern_list = exit_door;
     for (int i = 0; i < num_locations; ++i) {
-        Entity button = makeButton(ctx, button_locations[i].x + (mid_room_x - room_aabb.pMin.x), button_locations[i].y);
-        pattern_list = addButtonToList(ctx, pattern_list, button);
+        //Entity button = makeButton(ctx, button_locations[i].x + (mid_room_x - room_aabb.pMin.x), button_locations[i].y);
+        Entity pattern = makePattern(ctx, button_locations[i].x + (mid_room_x - room_aabb.pMin.x), button_locations[i].y, button_locations[i].z);
+        pattern_list = addPatternToList(ctx, pattern_list, pattern);
     }
-    terminateButtonList(ctx, pattern_list);
+    terminatePatternList(ctx, pattern_list);
 
     // Now make blocks in the same number of random locations on the right half of the room
     // Space them similarly to in the left half so that they won't intersect with each other
