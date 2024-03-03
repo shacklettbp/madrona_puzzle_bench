@@ -36,8 +36,7 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
     registry.registerComponent<ButtonState>();
     registry.registerComponent<PatternMatchState>();
     registry.registerComponent<OpenState>();
-    registry.registerComponent<DoorButtons>();
-    registry.registerComponent<DoorPatterns>();
+    registry.registerComponent<DoorProperties>();
     registry.registerComponent<DoorRooms>();
     registry.registerComponent<StepsRemainingObservation>();
     registry.registerComponent<EntityType>();

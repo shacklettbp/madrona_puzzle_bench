@@ -217,11 +217,14 @@ struct Level {
     Entity exit;
 };
 
+struct DoorProperties {
+    bool isPersistent;
+};
+
 // Linked buttons that control the door opening and whether or not the door
 // should remain open after the buttons are pressed once.
 struct DoorButtons {
     ButtonListElem linkedButton;
-    bool isPersistent;
 };
 
 struct DoorPatterns {
@@ -373,8 +376,9 @@ struct DoorEntity : public madrona::Archetype<
     madrona::phys::broadphase::LeafID,
 
     OpenState,
-    DoorButtons,
-    DoorPatterns,
+    DoorProperties,
+    ButtonListElem,
+    PatternListElem,
     DoorRooms,
     EntityType,
     EntityExtents,

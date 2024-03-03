@@ -608,12 +608,13 @@ inline void patternSystem(Engine &ctx,
 // Optionally, close the door if the buttons aren't pressed.
 inline void doorOpenSystem(Engine &ctx,
                            OpenState &open_state,
-                           const DoorButtons &door_buttons,
-                           const DoorPatterns &door_patterns)
+                           const DoorProperties &door_props,
+                           ButtonListElem door_button_list,
+                           PatternListElem door_pattern_list)
 {
     bool all_pressed = true;
 
-    Entity cur_button = door_buttons.linkedButton.next;
+    Entity cur_button = door_button_list.next;
     while (cur_button != Entity::none()) {
         if (!ctx.get<ButtonState>(cur_button).isPressed) {
             all_pressed = false;
@@ -623,7 +624,7 @@ inline void doorOpenSystem(Engine &ctx,
         cur_button = ctx.get<ButtonListElem>(cur_button).next;
     }
 
-    Entity cur_pattern = door_patterns.linkedPattern.next;
+    Entity cur_pattern = door_pattern_list.next;
     while (cur_pattern != Entity::none() && all_pressed) {
         if (!ctx.get<PatternMatchState>(cur_pattern).isMatched) {
             all_pressed = false;
@@ -635,7 +636,7 @@ inline void doorOpenSystem(Engine &ctx,
 
     if (all_pressed) {
         open_state.isOpen = true;
-    } else if (!door_buttons.isPersistent) {
+    } else if (!door_props.isPersistent) {
         open_state.isOpen = false;
     }
 }
@@ -1266,8 +1267,9 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
     auto door_open_sys = builder.addToGraph<ParallelForNode<Engine,
         doorOpenSystem,
             OpenState,
-            DoorButtons,
-            DoorPatterns
+            DoorProperties,
+            ButtonListElem,
+            PatternListElem
         >>({pattern_sys});
 
     auto check_exit_sys = builder.addToGraph<ParallelForNode<Engine,

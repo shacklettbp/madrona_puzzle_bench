@@ -168,45 +168,36 @@ void resetAgent(Engine &ctx,
     };
 }
 
-static void linkDoorButtons(Engine &ctx,
-                            Entity door,
-                            Span<const Entity> buttons,
-                            bool is_persistent)
+static Entity addButtonToList(Engine &ctx,
+                              Entity tail,
+                              Entity button)
 {
-    DoorButtons &door_buttons = ctx.get<DoorButtons>(door);
-
-    ButtonListElem *button_list_elem = &door_buttons.linkedButton;
-
-    auto linkButton = [&](Entity button) {
-        // This code is incorrect--loses any existing list elems
-        button_list_elem->next = button;
-        button_list_elem = &ctx.get<ButtonListElem>(button);
-        button_list_elem->next = Entity::none();
-    };
-
-    for (CountT i = 0; i < buttons.size(); i++) {
-        linkButton(buttons[i]);
-    }
-    door_buttons.isPersistent = is_persistent;
+    ButtonListElem &cur_elem = ctx.get<ButtonListElem>(tail);
+    cur_elem.next = button;
+    return button;
 }
 
-static void linkDoorPatterns(Engine &ctx,
-                            Entity door,
-                            Span<const Entity> patterns)
+static void terminateButtonList(Engine &ctx,
+                                Entity tail)
 {
-    DoorPatterns &door_patterns = ctx.get<DoorPatterns>(door);
+    ButtonListElem &cur_elem = ctx.get<ButtonListElem>(tail);
+    cur_elem.next = Entity::none();
+}
 
-    PatternListElem *pattern_list_elem = &door_patterns.linkedPattern;
+static Entity addPatternToList(Engine &ctx,
+                              Entity tail,
+                              Entity button)
+{
+    PatternListElem &cur_elem = ctx.get<PatternListElem>(tail);
+    cur_elem.next = button;
+    return button;
+}
 
-    auto linkPattern = [&](Entity pattern) {
-        pattern_list_elem->next = pattern;
-        pattern_list_elem = &ctx.get<PatternListElem>(pattern);
-        pattern_list_elem->next = Entity::none();
-    };
-
-    for (CountT i = 0; i < patterns.size(); i++) {
-        linkPattern(patterns[i]);
-    }
+static void terminatePatternList(Engine &ctx,
+                                Entity tail)
+{
+    PatternListElem &cur_elem = ctx.get<PatternListElem>(tail);
+    cur_elem.next = Entity::none();
 }
 
 static Entity makeButton(Engine &ctx,
@@ -323,13 +314,17 @@ static Entity makeDoor(Engine &ctx,
         Diag3x3::fromVec(door_dims));
     registerRigidBodyEntity(ctx, door, SimObject::Door);
     ctx.get<OpenState>(door).isOpen = false;
-    ctx.get<DoorButtons>(door) = {
-        .linkedButton = { Entity::none() },
+    ctx.get<EntityExtents>(door) = door_dims;
+
+    ctx.get<DoorProperties>(door) = {
         .isPersistent = false,
     };
-    ctx.get<DoorPatterns>(door).linkedPattern = { Entity::none() };
 
-    ctx.get<EntityExtents>(door) = door_dims;
+    // Initialize these linked lists as empty
+    // so we don't need to worry about forgetting
+    // to do this in one of the level types.
+    terminateButtonList(ctx, door);
+    terminatePatternList(ctx, door);
 
     return door;
 }
@@ -642,7 +637,8 @@ static void setupSingleRoomLevel(Engine &ctx,
                                  Entity *exit_door_out,
                                  AABB *room_aabb_out,
                                  Vector3* entrance_positions,
-                                 bool hop_wall = false)
+                                 bool hop_wall = false,
+                                 bool exit_door_is_persistent = false)
 {
     const float spawn_size = 1.5f * ctx.data().doorWidth;
     const float half_wall_width = consts::wallWidth / 2.f;
@@ -748,6 +744,9 @@ static void setupSingleRoomLevel(Engine &ctx,
         ctx.get<DoorRooms>(exit_door) = {
             .linkedRooms = { room, Entity::none() },
         };
+
+        ctx.get<DoorProperties>(exit_door).isPersistent =
+            exit_door_is_persistent;
 
         *exit_door_out = exit_door;
     }
@@ -986,7 +985,7 @@ static void singleButtonLevel(Engine &ctx)
 
     Entity exit_door;
     AABB room_aabb;
-    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb, nullptr);
+    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb, nullptr, false, true);
 
     {
         float button_x = randBetween(ctx,
@@ -999,7 +998,8 @@ static void singleButtonLevel(Engine &ctx)
 
         Entity button = makeButton(ctx, button_x, button_y);
 
-        linkDoorButtons(ctx, exit_door, { button }, true);
+        terminateButtonList(ctx,
+            addButtonToList(ctx, exit_door, button));
     }
 }
 
@@ -1028,7 +1028,8 @@ static void singleBlockButtonLevel(Engine &ctx)
 
         Entity button = makeButton(ctx, button_x, button_y);
 
-        linkDoorButtons(ctx, exit_door, { button }, false);
+        terminateButtonList(ctx,
+            addButtonToList(ctx, exit_door, button));
     }
 
     {
@@ -1071,7 +1072,8 @@ static void obstructedBlockButtonLevel(Engine &ctx)
 
         Entity button = makeButton(ctx, button_x, button_y);
 
-        linkDoorButtons(ctx, exit_door, { button }, false);
+        terminateButtonList(ctx,
+            addButtonToList(ctx, exit_door, button));
     }
 
     {
@@ -1132,7 +1134,6 @@ static void blockStackLevel(Engine &ctx)
     const float half_button_width = button_width / 2.f;
     const float half_block_size = block_size / 2.f;
 
-    Entity exit_door;
     AABB room_aabb;
     setupSingleRoomLevel(ctx, level_size, nullptr, &room_aabb, nullptr, true);
 
@@ -1207,10 +1208,12 @@ static void patternMatchLevel(Engine &ctx)
     */
 
     // Visualize pattern entities with buttons
+    Entity pattern_list = exit_door;
     for (int i = 0; i < num_locations; ++i) {
         Entity button = makeButton(ctx, button_locations[i].x + (mid_room_x - room_aabb.pMin.x), button_locations[i].y);
-        linkDoorButtons(ctx, exit_door, { button }, false);
+        pattern_list = addButtonToList(ctx, pattern_list, button);
     }
+    terminateButtonList(ctx, pattern_list);
 
     // Now make blocks in the same number of random locations on the right half of the room
     // Space them similarly to in the left half so that they won't intersect with each other
@@ -1225,8 +1228,8 @@ static void patternMatchLevel(Engine &ctx)
 
 LevelType generateLevel(Engine &ctx)
 {
-    LevelType level_type = (LevelType) (6);
-    //    ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes));
+    LevelType level_type = (LevelType)
+        ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes);
 
     switch (level_type) {
     case LevelType::Chase: {
