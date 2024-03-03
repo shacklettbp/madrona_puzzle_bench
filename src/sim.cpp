@@ -149,6 +149,9 @@ inline void loadCheckpointSystem(Engine &ctx, CheckpointReset &reset)
             case EntityType::Button: {
                 ctx.get<ButtonState>(e) = state_in.button;
             } break;
+            //case EntityType::Pattern: {
+            //    ctx.get<PatternMatchState>(e) = state_in.pattern;
+            //} break;
             default: break;
             }
 
@@ -237,6 +240,9 @@ inline void checkpointSystem(Engine &ctx, CheckpointSave &save)
             case EntityType::Button: {
                 state_out.button = ctx.get<ButtonState>(e);
             } break;
+            //case EntityType::Pattern: {
+            //    state_out.pattern = ctx.get<PatternMatchState>(e);
+            //} break;
             default: break;
             }
 
@@ -560,11 +566,50 @@ inline void buttonSystem(Engine &ctx,
     state.isPressed = button_pressed;
 }
 
+// Check if there is an entity on top of the pattern
+// and update PatternMatchState if so.
+inline void patternSystem(Engine &ctx,
+                          Position pos,
+                          PatternMatchState &state)
+{
+    const float pattern_width = ctx.data().buttonWidth;
+    const float pattern_press_size = 0.4f * pattern_width;
+
+    AABB pattern_aabb {
+        .pMin = pos + Vector3 { 
+            -pattern_press_size, 
+            -pattern_press_size,
+            0.f,
+        },
+        .pMax = pos + Vector3 { 
+            pattern_press_size, 
+            pattern_press_size,
+            0.3f
+        },
+    };
+
+    bool pattern_matched = false;
+    RigidBodyPhysicsSystem::findEntitiesWithinAABB(
+            ctx, pattern_aabb, [&](Entity e) {
+        auto response_type_ref = ctx.getSafe<ResponseType>(e);
+
+        if (!response_type_ref.valid() ||
+                response_type_ref.value() != ResponseType::Dynamic) {
+            return;
+        }
+
+        pattern_matched = true;
+    });
+
+    state.isMatched = pattern_matched;
+}
+
 // Check if all the buttons linked to the door are pressed and open if so.
 // Optionally, close the door if the buttons aren't pressed.
 inline void doorOpenSystem(Engine &ctx,
                            OpenState &open_state,
-                           const DoorButtons &door_buttons)
+                           const DoorButtons &door_buttons,
+                           const DoorPatterns &door_patterns)
 {
     bool all_pressed = true;
 
@@ -576,6 +621,16 @@ inline void doorOpenSystem(Engine &ctx,
         }
 
         cur_button = ctx.get<ButtonListElem>(cur_button).next;
+    }
+
+    Entity cur_pattern = door_patterns.linkedPattern.next;
+    while (cur_pattern != Entity::none() && all_pressed) {
+        if (!ctx.get<PatternMatchState>(cur_pattern).isMatched) {
+            all_pressed = false;
+            break;
+        }
+
+        cur_pattern = ctx.get<PatternListElem>(cur_pattern).next;
     }
 
     if (all_pressed) {
@@ -747,6 +802,10 @@ inline void collectObservationsSystem(
             attr1 = ctx.get<ButtonState>(e).isPressed ? 1 : 0;
             attr2 = 0;
         } break;
+        //case EntityType::Pattern: {
+        //    attr1 = ctx.get<PatternMatchState>(e).isMatched ? 1 : 0;
+        //    attr2 = 0;
+        //} break;
         default: {
             attr1 = 0;
             attr2 = 0;
@@ -1111,6 +1170,8 @@ static TaskGraphNodeID sortEntities(TaskGraphBuilder &builder,
         builder, {sort_sys});
     sort_sys = queueSortByWorld<LavaEntity>(
         builder, {sort_sys});
+    sort_sys = queueSortByWorld<PositionEntity>(
+        builder, {sort_sys});
 
     return sort_sys;
 }
@@ -1193,13 +1254,21 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
             Position,
             ButtonState
         >>({enemy_post_phys_sys});
+
+    // Check patterns
+    auto pattern_sys = builder.addToGraph<ParallelForNode<Engine,
+        patternSystem,
+            Position,
+            PatternMatchState
+        >>({button_sys});
     
     // Set door to start opening if button conditions are met
     auto door_open_sys = builder.addToGraph<ParallelForNode<Engine,
         doorOpenSystem,
             OpenState,
-            DoorButtons
-        >>({button_sys});
+            DoorButtons,
+            DoorPatterns
+        >>({pattern_sys});
 
     auto check_exit_sys = builder.addToGraph<ParallelForNode<Engine,
         checkExitSystem,
@@ -1380,6 +1449,7 @@ Sim::Sim(Engine &ctx,
 
     simEntityQuery = ctx.query<Entity, EntityType>();
     buttonQuery = ctx.query<Position, ButtonState>();
+    patternQuery = ctx.query<Entity, PatternMatchState>();
 
     ctx.singleton<CheckpointReset>().reset = 0;
     ctx.singleton<CheckpointSave>().save = 1;

@@ -178,6 +178,7 @@ static void linkDoorButtons(Engine &ctx,
     ButtonListElem *button_list_elem = &door_buttons.linkedButton;
 
     auto linkButton = [&](Entity button) {
+        // This code is incorrect--loses any existing list elems
         button_list_elem->next = button;
         button_list_elem = &ctx.get<ButtonListElem>(button);
         button_list_elem->next = Entity::none();
@@ -187,6 +188,25 @@ static void linkDoorButtons(Engine &ctx,
         linkButton(buttons[i]);
     }
     door_buttons.isPersistent = is_persistent;
+}
+
+static void linkDoorPatterns(Engine &ctx,
+                            Entity door,
+                            Span<const Entity> patterns)
+{
+    DoorPatterns &door_patterns = ctx.get<DoorPatterns>(door);
+
+    PatternListElem *pattern_list_elem = &door_patterns.linkedPattern;
+
+    auto linkPattern = [&](Entity pattern) {
+        pattern_list_elem->next = pattern;
+        pattern_list_elem = &ctx.get<PatternListElem>(pattern);
+        pattern_list_elem->next = Entity::none();
+    };
+
+    for (CountT i = 0; i < patterns.size(); i++) {
+        linkPattern(patterns[i]);
+    }
 }
 
 static Entity makeButton(Engine &ctx,
@@ -227,12 +247,29 @@ static Entity makeButton(Engine &ctx,
     return button;
 }
 
+static Entity makePattern(Engine &ctx,
+                           float x,
+                           float y,
+                           float z)
+{
+    Entity pattern = ctx.makeRenderableEntity<PatternEntity>();
+
+    ctx.get<Position>(pattern) = Vector3 { x, y, z };
+    ctx.get<Scale>(pattern) = Diag3x3 { 1, 1, 1 };
+
+    ctx.get<PatternMatchState>(pattern).isMatched = false;
+
+    return pattern;
+}
+
 static Entity makeBlock(Engine &ctx,
                        float block_x,
                        float block_y,
-                       float block_size = 1.f)
+                       float block_size = 1.f,
+                       bool is_fixed = false)
 {
     Entity block = ctx.makeRenderableEntity<PhysicsEntity>();
+    ResponseType response_type = is_fixed ? ResponseType::Static : ResponseType::Dynamic;
     setupRigidBodyEntity(
         ctx,
         block,
@@ -244,7 +281,7 @@ static Entity makeBlock(Engine &ctx,
         Quat { 1, 0, 0, 0 },
         SimObject::Block,
         EntityType::Block,
-        ResponseType::Dynamic,
+        response_type,
         Diag3x3 {
             block_size,
             block_size,
@@ -288,8 +325,9 @@ static Entity makeDoor(Engine &ctx,
     ctx.get<OpenState>(door).isOpen = false;
     ctx.get<DoorButtons>(door) = {
         .linkedButton = { Entity::none() },
-        .isPersistent = true,
+        .isPersistent = false,
     };
+    ctx.get<DoorPatterns>(door).linkedPattern = { Entity::none() };
 
     ctx.get<EntityExtents>(door) = door_dims;
 
@@ -1125,10 +1163,70 @@ static void blockStackLevel(Engine &ctx)
     }
 }
 
+static void patternMatchLevel(Engine &ctx)
+{
+    const float level_size = 20.f;
+    const float block_size = 2;
+
+    const float button_width = ctx.data().buttonWidth;
+
+    const float half_button_width = button_width / 2.f;
+    const float half_block_size = block_size / 2.f;
+
+    Entity exit_door;
+    AABB room_aabb;
+    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb, nullptr);
+
+    // Setup set of locations where buttons need to be placed
+    // Number of locations is random between 1 and 3
+    const int num_locations = ctx.data().rng.sampleI32(1, 4);
+    Vector3 button_locations[num_locations];
+    float mid_room_x = (room_aabb.pMin.x + room_aabb.pMax.x) / 2.f;
+    for (int i = 0; i < num_locations; ++i) {
+        // Place all locations in the left half of the room, space them so that blocks placed there won't intersect
+        // Add the locations to the vector
+        button_locations[i] = Vector3 {
+            room_aabb.pMin.x + half_block_size + (i + 1) * (mid_room_x - room_aabb.pMin.x) / (num_locations + 1),
+            randBetween(ctx, room_aabb.pMin.y + half_block_size, room_aabb.pMax.y - 2.5*half_block_size),
+            0.f,
+        };
+    }
+
+    // Place a fixed block at each location for agent to see pattern
+    for (int i = 0; i < num_locations; ++i) {
+        makeBlock(ctx, button_locations[i].x, button_locations[i].y, block_size, true);
+    }
+
+    // Set up Position entities at each location on the right side of the room that matches
+    /*
+    for (int j = 0; j < num_locations; ++j) {
+        int i = num_locations - 1 - j;
+        Entity pattern = makePattern(ctx, button_locations[i].x + (mid_room_x - room_aabb.pMin.x), button_locations[i].y, button_locations[i].z);
+        linkDoorPatterns(ctx, exit_door, { pattern });
+    }
+    */
+
+    // Visualize pattern entities with buttons
+    for (int i = 0; i < num_locations; ++i) {
+        Entity button = makeButton(ctx, button_locations[i].x + (mid_room_x - room_aabb.pMin.x), button_locations[i].y);
+        linkDoorButtons(ctx, exit_door, { button }, false);
+    }
+
+    // Now make blocks in the same number of random locations on the right half of the room
+    // Space them similarly to in the left half so that they won't intersect with each other
+    for (int i = 0; i < num_locations; ++i) {
+        float block_x = mid_room_x + half_block_size + (i + 1) * (room_aabb.pMax.x - mid_room_x) / (num_locations + 1);
+        float block_y = randBetween(ctx, room_aabb.pMin.y + half_block_size, room_aabb.pMax.y - 2.5*half_block_size);
+        makeBlock(ctx, block_x, block_y, block_size);
+    }
+
+    return;
+}
+
 LevelType generateLevel(Engine &ctx)
 {
-    LevelType level_type = (LevelType) (
-        ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes));
+    LevelType level_type = (LevelType) (6);
+    //    ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes));
 
     switch (level_type) {
     case LevelType::Chase: {
@@ -1148,6 +1246,9 @@ LevelType generateLevel(Engine &ctx)
     } break;
     case LevelType::BlockStack: {
         blockStackLevel(ctx);
+    } break;
+    case LevelType::PatternMatch: {
+        patternMatchLevel(ctx);
     } break;
     default: MADRONA_UNREACHABLE();
     }
@@ -1183,6 +1284,15 @@ void destroyLevel(Engine &ctx)
 
         lvl.rooms.next = Entity::none();
     }
+
+    // Delete all pattern entities
+    ctx.iterateQuery(ctx.data().patternQuery, [
+        &ctx
+    ](Entity e, PatternMatchState &state)
+    {
+        Loc l = ctx.makeTemporary<DeferredDeleteEntity>();
+        ctx.get<DeferredDelete>(l).e = e;
+    });
 
     ctx.destroyRenderableEntity(lvl.exit);
 }

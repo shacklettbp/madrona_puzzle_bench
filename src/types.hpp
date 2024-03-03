@@ -43,6 +43,7 @@ enum class LevelType : uint32_t {
     SingleBlockButton,
     ObstructedBlockButton,
     BlockStack,
+    PatternMatch,
     NumTypes,
 };
 
@@ -59,6 +60,7 @@ enum class EntityType : uint32_t {
     Key,
     Enemy,
     Wall,
+    Pattern,
     NumTypes,
 };
 
@@ -198,12 +200,17 @@ struct ButtonState {
     bool isPressed;
 };
 
+struct PatternMatchState {
+    bool isMatched;
+};
+
 struct EntityLinkedListElem {
     Entity next;
 };
 
 struct RoomListElem : EntityLinkedListElem {};
 struct ButtonListElem : EntityLinkedListElem {};
+struct PatternListElem : EntityLinkedListElem {};
 
 struct Level {
     RoomListElem rooms;
@@ -215,6 +222,10 @@ struct Level {
 struct DoorButtons {
     ButtonListElem linkedButton;
     bool isPersistent;
+};
+
+struct DoorPatterns {
+    PatternListElem linkedPattern;
 };
 
 struct DeferredDelete {
@@ -240,6 +251,7 @@ struct Checkpoint {
         union {
             OpenState doorOpen;
             ButtonState button;
+            //PatternMatchState pattern;
         };
     };
     
@@ -362,6 +374,7 @@ struct DoorEntity : public madrona::Archetype<
 
     OpenState,
     DoorButtons,
+    DoorPatterns,
     DoorRooms,
     EntityType,
     EntityExtents,
@@ -465,5 +478,18 @@ struct LavaEntity : public madrona::Archetype<
     IsLava
 > {};
 
+// Add something to track of pattern locations
+struct PatternEntity: public madrona::Archetype<
+    Position,
+    Rotation,
+    Scale,
+    ObjectID, 
+    
+    PatternMatchState,
+    //EntityType,
+    //EntityExtents,
+    PatternListElem,
+    madrona::render::Renderable
+> {}; 
 
 }
