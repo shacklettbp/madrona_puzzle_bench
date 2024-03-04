@@ -33,6 +33,8 @@ arg_parser.add_argument('--start-in-discovered-rooms', action='store_true')
 arg_parser.add_argument('--reward-mode', type=str, required=True)
 arg_parser.add_argument('--num-worlds', type=int, required=True)
 arg_parser.add_argument('--gpu-sim', action='store_true')
+arg_parser.add_argument('--width-frac', type=float, default=1.0)
+arg_parser.add_argument('--num-levels', type=int, default=1)
 
 # Learning args
 arg_parser.add_argument('--num-updates', type=int, required=True)
@@ -149,8 +151,8 @@ class GoExplore:
             sim_flags = (int)(sim_flags),
             reward_mode = reward_mode,
             episode_len = 200,
-            levels_per_episode = 1,
-            button_width = 1.3,
+            levels_per_episode = args.num_levels,
+            button_width = 1.3 * args.width_frac,
             door_width = 20.0 / 3.,
             reward_per_dist = 0.05,
             slack_reward = -0.005,
@@ -211,7 +213,7 @@ class GoExplore:
         start_bins = self.map_states_to_bins(self.obs)[0,:]
         self.start_bin_steps[start_bins] = 0
 
-        self.actions_num_buckets = [4, 8, 5, 2]
+        self.actions_num_buckets = [4, 8, 5, 3]
         self.action_space = Box(-float('inf'),float('inf'),(sum(self.actions_num_buckets),))
 
         # Callback

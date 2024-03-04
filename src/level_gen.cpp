@@ -1270,9 +1270,10 @@ static void chickenCoopLevel(Engine &ctx)
     const float coop_y = randBetween(ctx, room_aabb.pMin.y + coop_half_size, room_aabb.pMax.y - coop_half_size);
     makeCoop(ctx, Vector3 { coop_x, coop_y, 0.f }, Diag3x3 { coop_size, coop_size, 2.f });
 
-    // Make 3 enemy chickens, add them each to the chickenList
+    // Make up to 3 enemy chickens, add them each to the chickenList
+    int num_chickens = ctx.data().rng.sampleI32(1, 4);
     Entity chicken_list = exit_door;
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < num_chickens; ++i) {
         Vector3 chicken_spawn = room_aabb.pMin;
         chicken_spawn.y += level_size / 2.f;
         chicken_spawn.y += randBetween(ctx, 0.f, room_aabb.pMax.y - chicken_spawn.y);
