@@ -1237,7 +1237,9 @@ static TaskGraphNodeID sortEntities(TaskGraphBuilder &builder,
         builder, {sort_sys});
     sort_sys = queueSortByWorld<LavaEntity>(
         builder, {sort_sys});
-    sort_sys = queueSortByWorld<PositionEntity>(
+    sort_sys = queueSortByWorld<PatternEntity>(
+        builder, {sort_sys});
+    sort_sys = queueSortByWorld<CoopEntity>(
         builder, {sort_sys});
 
     return sort_sys;

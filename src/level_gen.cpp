@@ -1285,8 +1285,8 @@ static void chickenCoopLevel(Engine &ctx)
 
 LevelType generateLevel(Engine &ctx)
 {
-    LevelType level_type = (LevelType) //(7);
-        ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes);
+    LevelType level_type = (LevelType)ctx.data().rng.sampleI32(
+        0, (uint32_t)LevelType::NumTypes);
 
     switch (level_type) {
     case LevelType::Chase: {
