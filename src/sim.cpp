@@ -127,7 +127,8 @@ inline void loadCheckpointSystem(Engine &ctx, CheckpointReset &reset)
         ctx.iterateQuery(ctx.data().simEntityQuery,
         [&](Entity e, EntityType type) {
             if (type == EntityType::None || type == EntityType::Agent ||
-                    type == EntityType::Wall) {
+                    type == EntityType::Wall ||
+                    type == EntityType::Coop) {
                 return;
             }
 
@@ -218,7 +219,8 @@ inline void checkpointSystem(Engine &ctx, CheckpointSave &save)
         ctx.iterateQuery(ctx.data().simEntityQuery,
         [&](Entity e, EntityType type) {
             if (type == EntityType::None || type == EntityType::Agent ||
-                    type == EntityType::Wall) {
+                    type == EntityType::Wall ||
+                    type == EntityType::Coop) {
                 return;
             }
 
