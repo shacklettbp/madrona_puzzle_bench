@@ -643,10 +643,9 @@ inline void coopSystem(Engine &ctx,
     CountT cur_obs_idx = 0;
     RigidBodyPhysicsSystem::findEntitiesWithinAABB(
             ctx, coop_aabb, [&](Entity e) {
-        auto response_type_ref = ctx.getSafe<ResponseType>(e);
-
-        if (!response_type_ref.valid() ||
-                response_type_ref.value() != ResponseType::Dynamic) {
+        auto entity_type_ref = ctx.getSafe<EntityType>(e);
+        if (!entity_type_ref.valid() ||
+                entity_type_ref.value() != EntityType::Enemy) {
             return;
         }
 
