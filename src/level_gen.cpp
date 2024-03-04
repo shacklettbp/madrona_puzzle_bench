@@ -200,6 +200,22 @@ static void terminatePatternList(Engine &ctx,
     cur_elem.next = Entity::none();
 }
 
+static Entity addChickenToList(Engine &ctx,
+                              Entity tail,
+                              Entity chicken)
+{
+    ChickenListElem &cur_elem = ctx.get<ChickenListElem>(tail);
+    cur_elem.next = chicken;
+    return chicken;
+}
+
+static void terminateChickenList(Engine &ctx,
+                                Entity tail)
+{
+    ChickenListElem &cur_elem = ctx.get<ChickenListElem>(tail);
+    cur_elem.next = Entity::none();
+}
+
 static Entity makeButton(Engine &ctx,
                          float button_x,
                          float button_y)
@@ -325,6 +341,7 @@ static Entity makeDoor(Engine &ctx,
     // to do this in one of the level types.
     terminateButtonList(ctx, door);
     terminatePatternList(ctx, door);
+    terminateChickenList(ctx, door);
 
     return door;
 }
@@ -344,6 +361,23 @@ static Entity makeWall(Engine &ctx, Vector3 center, Diag3x3 scale)
     registerRigidBodyEntity(ctx, wall, SimObject::Wall);
 
     return wall;
+}
+
+static Entity makeCoop(Engine &ctx, Vector3 center, Diag3x3 scale)
+{
+    Entity coop = ctx.makeRenderableEntity<CoopEntity>();
+
+    ctx.get<Position>(coop) = center;
+    ctx.get<Scale>(coop) = scale;
+    //ctx.get<ObjectID>(coop) = ObjectID { (int32_t)SimObject::Coop };
+    ctx.get<EntityType>(coop) = EntityType::Coop;
+    ctx.get<EntityExtents>(coop) = Vector3 {
+        scale.d0,
+        scale.d1,
+        scale.d2
+    };
+
+    return coop;
 }
 
 static void makeRoomWalls(Engine &ctx,
@@ -603,8 +637,9 @@ static Entity makeLava(Engine &ctx, Vector3 position,
 }
 
 static Entity makeEnemy(Engine &ctx, Vector3 position, 
-                        float move_force = 300.f,
-                        float move_torque = 300.f)
+                        float move_force = 200.f,
+                        float move_torque = 200.f,
+                        bool isChicken = false)
 {
     Entity enemy = ctx.makeRenderableEntity<EnemyEntity>();
     setupRigidBodyEntity(
@@ -621,6 +656,8 @@ static Entity makeEnemy(Engine &ctx, Vector3 position,
     ctx.get<EnemyState>(enemy) = EnemyState {
         .moveForce = move_force,
         .moveTorque = move_torque,
+        .isChicken = isChicken,
+        .isDead = false,
     };
 
     ctx.get<EntityExtents>(enemy) = Vector3 {
@@ -764,7 +801,7 @@ static void chaseLevel(Engine &ctx)
     enemy_spawn.y += randBetween(ctx, 0.f, room_aabb.pMax.y - enemy_spawn.y);
     enemy_spawn.x = randBetween(ctx, room_aabb.pMin.x, room_aabb.pMax.x);
 
-    makeEnemy(ctx, enemy_spawn);
+    makeEnemy(ctx, enemy_spawn, 350.f, 350.f);
 }
 
 static void lavaPathLevel(Engine &ctx)
@@ -1218,9 +1255,37 @@ static void patternMatchLevel(Engine &ctx)
     return;
 }
 
+static void chickenCoopLevel(Engine &ctx)
+{
+    const float level_size = 20.f;
+
+    AABB room_aabb;
+    Entity exit_door;
+    setupSingleRoomLevel(ctx, level_size, &exit_door, &room_aabb, nullptr);
+
+    // Create the "coop" region--this is where we have to bring the "chickens" to
+    const float coop_size = 5.f;
+    const float coop_half_size = coop_size / 2.f;
+    const float coop_x = randBetween(ctx, room_aabb.pMin.x + coop_half_size, room_aabb.pMax.x - coop_half_size);
+    const float coop_y = randBetween(ctx, room_aabb.pMin.y + coop_half_size, room_aabb.pMax.y - coop_half_size);
+    makeCoop(ctx, Vector3 { coop_x, coop_y, 0.f }, Diag3x3 { coop_size, coop_size, 2.f });
+
+    // Make 3 enemy chickens, add them each to the chickenList
+    Entity chicken_list = exit_door;
+    for (int i = 0; i < 3; ++i) {
+        Vector3 chicken_spawn = room_aabb.pMin;
+        chicken_spawn.y += level_size / 2.f;
+        chicken_spawn.y += randBetween(ctx, 0.f, room_aabb.pMax.y - chicken_spawn.y);
+        chicken_spawn.x = randBetween(ctx, room_aabb.pMin.x, room_aabb.pMax.x);
+        Entity chicken = makeEnemy(ctx, chicken_spawn, 100.f, 100.f, true);
+        chicken_list = addChickenToList(ctx, chicken_list, chicken);
+    }
+    terminateChickenList(ctx, chicken_list);
+}
+
 LevelType generateLevel(Engine &ctx)
 {
-    LevelType level_type = (LevelType)
+    LevelType level_type = (LevelType) //(7);
         ctx.data().rng.sampleI32(0, (uint32_t)LevelType::NumTypes);
 
     switch (level_type) {
@@ -1244,6 +1309,9 @@ LevelType generateLevel(Engine &ctx)
     } break;
     case LevelType::PatternMatch: {
         patternMatchLevel(ctx);
+    } break;
+    case LevelType::ChickenCoop: {
+        chickenCoopLevel(ctx);
     } break;
     default: MADRONA_UNREACHABLE();
     }

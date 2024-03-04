@@ -44,6 +44,7 @@ enum class LevelType : uint32_t {
     ObstructedBlockButton,
     BlockStack,
     PatternMatch,
+    ChickenCoop,
     NumTypes,
 };
 
@@ -61,6 +62,7 @@ enum class EntityType : uint32_t {
     Enemy,
     Wall,
     Pattern,
+    Coop,
     NumTypes,
 };
 
@@ -204,6 +206,10 @@ struct PatternMatchState {
     bool isMatched;
 };
 
+struct CoopState {
+    bool isOccupied;
+};
+
 struct EntityLinkedListElem {
     Entity next;
 };
@@ -211,6 +217,7 @@ struct EntityLinkedListElem {
 struct RoomListElem : EntityLinkedListElem {};
 struct ButtonListElem : EntityLinkedListElem {};
 struct PatternListElem : EntityLinkedListElem {};
+struct ChickenListElem : EntityLinkedListElem {};
 
 struct Level {
     RoomListElem rooms;
@@ -223,13 +230,22 @@ struct DoorProperties {
 
 // Linked buttons that control the door opening and whether or not the door
 // should remain open after the buttons are pressed once.
+// I think we can remove these two
+/*
 struct DoorButtons {
     ButtonListElem linkedButton;
 };
 
 struct DoorPatterns {
     PatternListElem linkedPattern;
+};*/
+
+/*
+struct DoorChickens {
+    ChickenListElem linkedChicken;
+    Entity coop;
 };
+*/
 
 struct DeferredDelete {
     Entity e;
@@ -242,6 +258,8 @@ struct IsLava {};
 struct EnemyState {
     float moveForce;
     float moveTorque;
+    bool isChicken;
+    bool isDead;
 };
 
 struct Checkpoint {
@@ -379,6 +397,7 @@ struct DoorEntity : public madrona::Archetype<
     DoorProperties,
     ButtonListElem,
     PatternListElem,
+    ChickenListElem,
     DoorRooms,
     EntityType,
     EntityExtents,
@@ -457,6 +476,7 @@ struct EnemyEntity : public madrona::Archetype<
     madrona::phys::broadphase::LeafID,
 
     EntityType,
+    ChickenListElem,
     EntityExtents,
     EnemyState,
     madrona::render::Renderable
@@ -495,5 +515,17 @@ struct PatternEntity: public madrona::Archetype<
     PatternListElem,
     madrona::render::Renderable
 > {}; 
+
+struct CoopEntity: public madrona::Archetype<
+    Position,
+    Rotation,
+    Scale,
+    ObjectID, 
+    CoopState,
+    ChickenListElem,
+    EntityType,
+    EntityExtents,
+    madrona::render::Renderable
+> {};
 
 }

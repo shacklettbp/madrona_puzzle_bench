@@ -35,6 +35,7 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
     registry.registerComponent<Progress>();
     registry.registerComponent<ButtonState>();
     registry.registerComponent<PatternMatchState>();
+    registry.registerComponent<CoopState>();
     registry.registerComponent<OpenState>();
     registry.registerComponent<DoorProperties>();
     registry.registerComponent<DoorRooms>();
@@ -49,6 +50,7 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
 
     registry.registerComponent<ButtonListElem>();
     registry.registerComponent<PatternListElem>();
+    registry.registerComponent<ChickenListElem>();
 
     registry.registerComponent<IsExit>();
     registry.registerComponent<IsLava>();
@@ -73,6 +75,7 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
     registry.registerArchetype<EnemyEntity>();
     registry.registerArchetype<LavaEntity>();
     registry.registerArchetype<PatternEntity>();
+    registry.registerArchetype<CoopEntity>();
 
     registry.registerArchetype<DeferredDeleteEntity>();
 

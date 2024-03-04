@@ -137,6 +137,7 @@ struct Sim : public madrona::WorldBase {
     Query<Entity, EntityType> simEntityQuery;
     Query<Position, ButtonState> buttonQuery;
     Query<Entity, PatternMatchState> patternQuery;
+    Query<Position, CoopState> coopQuery;
 };
 
 class Engine : public ::madrona::CustomContext<Engine, Sim> {

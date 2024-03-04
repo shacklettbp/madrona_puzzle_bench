@@ -490,42 +490,57 @@ inline void enemyActSystem(Engine &ctx,
     Vector3 to_agent = agent_pos - pos;
     float dist_to_agent = to_agent.length();
 
-    if (dist_to_agent <= 1e-5f) {
+    if (dist_to_agent <= 1e-5f || enemy_state.isDead) {
+        // Set both to 0
+        ext_force = Vector3::zero();
+        ext_torque = Vector3::zero();
         return;
     }
-     
-    to_agent /= dist_to_agent;
 
-    ext_force = enemy_state.moveForce * rot.rotateVec(math::fwd);
-
-    Vector3 to_agent_local = rot.inv().rotateVec(to_agent);
-
-    float theta = -atan2f(to_agent_local.x, to_agent_local.y);
-
-    ext_torque = Vector3 {
-        0.f,
-        0.f,
-        theta * enemy_state.moveTorque,
-    };
+    if (enemy_state.isChicken) {
+        ext_force = enemy_state.moveForce * rot.rotateVec(math::fwd) * 1.0f;
+        // Chicken has randomness to torque
+        ext_torque = Vector3 {
+            0.f,
+            0.f,
+            (ctx.data().rng.sampleUniform()*2.0f - 1.0f) *
+             enemy_state.moveTorque * 2.0f,
+        };
+    } else {
+        to_agent /= dist_to_agent;
+        Vector3 to_agent_local = rot.inv().rotateVec(to_agent);
+        float theta = -atan2f(to_agent_local.x, to_agent_local.y);
+        ext_force = enemy_state.moveForce * rot.rotateVec(math::fwd);
+        // Rotate towards the agent
+        ext_torque = Vector3 {
+            0.f,
+            0.f,
+            theta * enemy_state.moveTorque,
+        };
+    }
 }
 
 inline void enemyPostPhysicsSystem(Engine &ctx,
                                    Position pos,
                                    Velocity &vel,
-                                   EnemyState)
+                                   EnemyState &enemy_state)
 {
     vel = { Vector3::zero(), Vector3::zero() };
 
-    Vector3 agent_pos = ctx.get<Position>(ctx.data().agent);
-    Vector3 to_agent = agent_pos - pos;
-
-    float dist_to_agent = to_agent.length();
-
-    if (dist_to_agent > 2.5f * consts::agentRadius) {
+    if (enemy_state.isChicken) {
+        // Check if the chicken is in the coop
         return;
+    } else {
+        Vector3 agent_pos = ctx.get<Position>(ctx.data().agent);
+        Vector3 to_agent = agent_pos - pos;
+
+        float dist_to_agent = to_agent.length();
+
+        if (dist_to_agent > 2.5f * consts::agentRadius) {
+            return;
+        }
+        ctx.singleton<EpisodeState>().isDead = true;
     }
-    
-    ctx.singleton<EpisodeState>().isDead = true;
 }
 
 // Checks if there is an entity standing on the button and updates
@@ -604,13 +619,52 @@ inline void patternSystem(Engine &ctx,
     state.isMatched = pattern_matched;
 }
 
+// Check if all chickens in coop and update CoopState if so.
+inline void coopSystem(Engine &ctx,
+                          Position pos,
+                          Scale scale,
+                          CoopState &state)
+{
+    AABB coop_aabb {
+        .pMin = pos + Vector3 { 
+            -scale.d0 * 0.5f, 
+            -scale.d1 * 0.5f,
+            0.f,
+        },
+        .pMax = pos + Vector3 { 
+            scale.d0 * 0.5f, 
+            scale.d1 * 0.5f,
+            3.0f
+        },
+    };
+
+    CountT cur_obs_idx = 0;
+    RigidBodyPhysicsSystem::findEntitiesWithinAABB(
+            ctx, coop_aabb, [&](Entity e) {
+        auto response_type_ref = ctx.getSafe<ResponseType>(e);
+
+        if (!response_type_ref.valid() ||
+                response_type_ref.value() != ResponseType::Dynamic) {
+            return;
+        }
+
+        if (ctx.get<EnemyState>(e).isChicken) {
+            ctx.get<EnemyState>(e).isDead = true;
+            cur_obs_idx += 1;
+        }
+    });
+
+    state.isOccupied = cur_obs_idx == 3;
+}
+
 // Check if all the buttons linked to the door are pressed and open if so.
 // Optionally, close the door if the buttons aren't pressed.
 inline void doorOpenSystem(Engine &ctx,
                            OpenState &open_state,
                            const DoorProperties &door_props,
                            ButtonListElem door_button_list,
-                           PatternListElem door_pattern_list)
+                           PatternListElem door_pattern_list,
+                           ChickenListElem door_chicken_list)
 {
     bool all_pressed = true;
 
@@ -632,6 +686,16 @@ inline void doorOpenSystem(Engine &ctx,
         }
 
         cur_pattern = ctx.get<PatternListElem>(cur_pattern).next;
+    }
+
+    Entity cur_chicken = door_chicken_list.next;
+    while (cur_chicken != Entity::none() && all_pressed) {
+        if (!ctx.get<EnemyState>(cur_chicken).isDead) {
+            all_pressed = false;
+            break;
+        }
+
+        cur_chicken = ctx.get<ChickenListElem>(cur_chicken).next;
     }
 
     if (all_pressed) {
@@ -1262,6 +1326,14 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
             Position,
             PatternMatchState
         >>({button_sys});
+
+    // Check chicken coop
+    auto coop_sys = builder.addToGraph<ParallelForNode<Engine,
+        coopSystem,
+            Position,
+            Scale, 
+            CoopState
+        >>({pattern_sys});
     
     // Set door to start opening if button conditions are met
     auto door_open_sys = builder.addToGraph<ParallelForNode<Engine,
@@ -1269,8 +1341,9 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
             OpenState,
             DoorProperties,
             ButtonListElem,
-            PatternListElem
-        >>({pattern_sys});
+            PatternListElem,
+            ChickenListElem
+        >>({coop_sys});
 
     auto check_exit_sys = builder.addToGraph<ParallelForNode<Engine,
         checkExitSystem,
@@ -1452,6 +1525,7 @@ Sim::Sim(Engine &ctx,
     simEntityQuery = ctx.query<Entity, EntityType>();
     buttonQuery = ctx.query<Position, ButtonState>();
     patternQuery = ctx.query<Entity, PatternMatchState>();
+    coopQuery = ctx.query<Position, CoopState>();
 
     ctx.singleton<CheckpointReset>().reset = 0;
     ctx.singleton<CheckpointSave>().save = 1;
