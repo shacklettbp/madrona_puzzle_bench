@@ -42,7 +42,7 @@ def setup_obs(sim):
 
     # Now process the tensors into a form good for the policy
     # Convert enums to one-hot
-    agent_level_type_obs_tensor_onehot = torch.nn.functional.one_hot(agent_level_type_obs_tensor.to(torch.int64), num_classes=6)
+    agent_level_type_obs_tensor_onehot = torch.nn.functional.one_hot(agent_level_type_obs_tensor.to(torch.int64), num_classes=8)
     entity_type_obs_tensor_onehot = torch.nn.functional.one_hot(entity_type_obs_tensor.to(torch.int64), num_classes=11)
     entity_attr_obs_tensor_onehot = entity_attr_obs_tensor #torch.nn.functional.one_hot(entity_attr_obs_tensor.to(torch.int64), num_classes=2) # TODO: correct
     lidar_hit_type_tensor_onehot = torch.nn.functional.one_hot(lidar_hit_type_tensor.to(torch.int64), num_classes=11)
@@ -112,7 +112,7 @@ def setup_obs(sim):
 
 def process_obs(agent_txfm_obs_tensor, agent_interact_obs_tensor, agent_level_type_obs_tensor, agent_exit_obs_tensor, entity_physics_state_obs_tensor, entity_type_obs_tensor, entity_attr_obs_tensor, lidar_depth_tensor, lidar_hit_type_tensor, steps_remaining_tensor):
 
-    agent_level_type_obs_tensor_onehot = torch.nn.functional.one_hot(agent_level_type_obs_tensor.to(torch.int64), num_classes=6)
+    agent_level_type_obs_tensor_onehot = torch.nn.functional.one_hot(agent_level_type_obs_tensor.to(torch.int64), num_classes=8)
     entity_type_obs_tensor_onehot = torch.nn.functional.one_hot(entity_type_obs_tensor.to(torch.int64), num_classes=11)
     entity_attr_obs_tensor_onehot = entity_attr_obs_tensor*0 + 1 #torch.nn.functional.one_hot(entity_attr_obs_tensor.to(torch.int64), num_classes=2) # TODO: correct
     lidar_hit_type_tensor_onehot = torch.nn.functional.one_hot(lidar_hit_type_tensor.to(torch.int64), num_classes=11)

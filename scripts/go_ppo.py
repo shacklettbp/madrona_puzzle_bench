@@ -349,6 +349,25 @@ class GoExplore:
             door_obs = states[6][...,0].max(dim=-1)[0].view(-1, self.num_worlds)
             #print("Shapes", self_obs.shape, y_out.shape)
             return (y_out + granularity*door_obs + granularity*2*level_obs).int()
+        elif self.binning == "y_z_pos_door":
+            # Bin according to the y position of each agent
+            # Determine granularity from num_bins
+            granularity = torch.sqrt(torch.tensor(self.num_bins)).int().item()
+            increment = 1.11/granularity
+            #print("States shape", states[0].shape)
+            self_obs = states[0].view(-1, self.num_worlds, 10)
+            y_0 = torch.clamp((self_obs[..., 1] + 20)/40, 0, 1.1) // increment # Granularity of 0.01 on the y
+            y_out = (y_0).int()
+            z_out = self_obs[...,2].int()
+            #print("Max agent 0 progress", self_obs[:, 0, 3].max())
+            #print("Max agent 1 progress", self_obs[:, 1, 3].max())
+            # Also incorporate the scene id
+            level_obs = states[2].view(-1, self.num_worlds)
+            #print(states[2].shape)
+            # We get door open/button press from attr_1
+            door_obs = states[6][...,0].max(dim=-1)[0].view(-1, self.num_worlds)
+            #print("Shapes", self_obs.shape, y_out.shape)
+            return (y_out + granularity*z_out + granularity*5*door_obs + granularity*5*2*level_obs).int()
         elif self.binning == "x_y":
             # Bin according to the y position of each agent
             # Determine granularity from num_bins
@@ -515,7 +534,7 @@ class GoExplore:
                     success_frac = (update_results.rewards[:,desired_samples:] >= 1.00).reshape(-1, success_filter.shape[-1])[success_filter].float().mean().cpu().item() # Reward of 1 for room, 10 for whole set of rooms
                     # Break this down for each level type, which is obs[2]
                     level_type_success_fracs = []
-                    for i in range(6):
+                    for i in range(8):
                         level_type_success_fracs.append((update_results.rewards[:,desired_samples:][(update_results.obs[2][0][:,desired_samples:] == i)*(update_results.dones[:,desired_samples:] == 1.0)] >= 1.00).float().mean().cpu().item())
                 else:
                     success_frac = 0
@@ -525,10 +544,10 @@ class GoExplore:
                 success_frac_all = (update_results.rewards >= 1.00).reshape(-1, success_filter_all.shape[-1])[success_filter_all].float().mean().cpu().item() # Reward of 1 for room, 10 for whole set of rooms
                 level_type_success_fracs_all = []
                 if success_filter_all.sum() > 0:
-                    for i in range(6):
+                    for i in range(8):
                         level_type_success_fracs_all.append((update_results.rewards[(update_results.obs[2][0] == i)*(update_results.dones == 1.0)] >= 1.00).float().mean().cpu().item())
                 else:
-                    level_type_success_fracs_all = [0, 0, 0, 0, 0, 0]
+                    level_type_success_fracs_all = [0, 0, 0, 0, 0, 0, 0, 0]
 
                 # compute visits to second and third room
                 #print("Update results shape", update_results.obs[0].shape, update_results.obs[3].shape)
@@ -582,6 +601,8 @@ class GoExplore:
                 "success_frac_3": level_type_success_fracs[3],
                 "success_frac_4": level_type_success_fracs[4],
                 "success_frac_5": level_type_success_fracs[5],
+                "success_frac_6": level_type_success_fracs[6],
+                "success_frac_7": level_type_success_fracs[7],
                 # Also log unfiltered versions of success_fracs
                 "success_frac_all": success_frac_all,
                 "success_frac_0_all": level_type_success_fracs_all[0],
@@ -590,6 +611,8 @@ class GoExplore:
                 "success_frac_3_all": level_type_success_fracs_all[3],
                 "success_frac_4_all": level_type_success_fracs_all[4],
                 "success_frac_5_all": level_type_success_fracs_all[5],
+                "success_frac_6_all": level_type_success_fracs_all[6],
+                "success_frac_7_all": level_type_success_fracs_all[7],
                 }
             )
             if args.use_intrinsic_loss:

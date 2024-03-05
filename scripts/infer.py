@@ -53,6 +53,7 @@ sim = madrona_puzzle_bench.SimManager(
     reward_per_dist = 0.05,
     slack_reward = -0.005,
 )
+sim.init()
 
 obs, num_obs_features = setup_obs(sim)
 policy = make_policy(num_obs_features, args.num_channels, args.separate_value)

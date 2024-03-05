@@ -98,7 +98,7 @@ class LearningCallback:
                 success_frac = (update_results.rewards >= 1.00).reshape(-1, success_filter.shape[-1])[success_filter].float().mean().cpu().item() # Reward of 1 for room, 10 for whole set of rooms
                 # Break this down for each level type, which is obs[2]
                 level_type_success_fracs = []
-                for i in range(6):
+                for i in range(8):
                     level_type_success_fracs.append((update_results.rewards[(update_results.obs[2][0] == i)*(update_results.dones == 1.0)] >= 1.00).float().mean().cpu().item())
 
             value_mean = update_results.values.mean().cpu().item()
@@ -150,6 +150,8 @@ class LearningCallback:
             "success_frac_3": level_type_success_fracs[3],
             "success_frac_4": level_type_success_fracs[4],
             "success_frac_5": level_type_success_fracs[5],
+            "success_frac_6": level_type_success_fracs[6],
+            "success_frac_7": level_type_success_fracs[7],
             }
         )
         if args.use_intrinsic_loss:
