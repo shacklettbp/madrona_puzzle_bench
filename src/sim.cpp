@@ -365,7 +365,7 @@ inline void jumpSystem(Engine &ctx,
     }
 
     // Jump!
-    external_force.z += rot.rotateVec({ 0.0f, 0.0f, 3000.0f }).z;
+    external_force.z += rot.rotateVec({ 0.0f, 0.0f, 2000.0f }).z;
 }
 
 // Translates discrete actions from the Action component to forces
