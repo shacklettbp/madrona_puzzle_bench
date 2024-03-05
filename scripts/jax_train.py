@@ -3,7 +3,6 @@ from jax import lax, random, numpy as jnp
 from jax.experimental import checkify
 import flax
 from flax import linen as nn
-from flax.metrics import tensorboard
 
 import argparse
 from functools import partial
@@ -18,6 +17,7 @@ from madrona_puzzle_bench.madrona import ExecMode
 import madrona_learn
 from madrona_learn import (
     TrainConfig, CustomMetricConfig, PPOConfig, PBTConfig, ParamExplore,
+    SummaryWriter,
 )
 
 from jax_policy import make_policy
@@ -75,7 +75,7 @@ jax_gpu = jax.devices()[0].platform == 'gpu'
 
 sim_init, sim_step = sim.jax(jax_gpu)
 
-tb_writer = tensorboard.SummaryWriter(os.path.join(args.tb_dir, args.run_name))
+tb_writer = SummaryWriter(os.path.join(args.tb_dir, args.run_name))
 
 def metrics_cb(metrics, epoch, mb, train_state):
     return metrics
@@ -137,7 +137,7 @@ def host_cb(update_id, metrics, train_state_mgr):
     return ()
 
 def iter_cb(update_idx, metrics, train_state_mgr):
-    cb = partial(jax.experimental.io_callback, host_cb, ())
+    cb = partial(jax.experimental.io_callback, host_cb, (), ordered=True)
     noop = lambda *args: ()
 
     update_id = update_idx + 1
