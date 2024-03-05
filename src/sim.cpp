@@ -323,21 +323,7 @@ inline void generateLevelSystem(Engine &ctx, EpisodeState &episode_state)
     };
 }
 
-// Implements a jump action by casting a short ray below the agent
-// to check for a surface, then applying a strong upward force
-// over a single timestep.
-inline void jumpSystem(Engine &ctx,
-                           Action &action,
-                           Position &pos, 
-                           Rotation &rot,
-                           Scale &s,
-                           ExternalForce &external_force)
-{
-
-    if (action.interact != 2) {
-        return;
-    };
-
+inline bool onGround(Engine &ctx, const Position &pos, const Rotation &rot, const Scale &s){
     float hit_t;
     Vector3 hit_normal;
 
@@ -354,6 +340,27 @@ inline void jumpSystem(Engine &ctx,
     Entity grab_entity = bvh.traceRay(ray_o, ray_d, &hit_t, &hit_normal, max_t);
 
     if (grab_entity == Entity::none()) {
+        return false;
+    }
+    return true;
+}
+
+// Implements a jump action by casting a short ray below the agent
+// to check for a surface, then applying a strong upward force
+// over a single timestep.
+inline void jumpSystem(Engine &ctx,
+                           Action &action,
+                           Position &pos, 
+                           Rotation &rot,
+                           Scale &s,
+                           ExternalForce &external_force)
+{
+
+    if (action.interact != 2) {
+        return;
+    };
+
+    if (!onGround(ctx, pos, rot, s)) {
         return;
     }
 
@@ -363,17 +370,23 @@ inline void jumpSystem(Engine &ctx,
 
 // Translates discrete actions from the Action component to forces
 // used by the physics simulation.
-inline void movementSystem(Engine &,
+inline void movementSystem(Engine &ctx,
                            Action &action,
+                           Position &pos,
                            Rotation &rot, 
+                           Scale &s,
                            ExternalForce &external_force,
                            ExternalTorque &external_torque)
 {
-
-    constexpr float move_max = 1000;
+    Quat cur_rot = rot;
+    float move_max = 1000;
     constexpr float turn_max = 320;
 
-    Quat cur_rot = rot;
+    if (!onGround(ctx, pos, rot, s)) {
+        //external_force = cur_rot.rotateVec({ 0, 0, 0 });
+        //return;
+        move_max = 300;
+    }
 
     float move_amount = action.moveAmount *
         (move_max / (consts::numMoveAmountBuckets - 1));
@@ -752,6 +765,7 @@ inline void agentZeroVelSystem(Engine &,
     vel.linear.z = fminf(vel.linear.z, 0);
 
     vel.angular = Vector3::zero();
+    return;
 }
 
 // This system packages all the egocentric observations together 
@@ -1252,7 +1266,9 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
     auto move_sys = builder.addToGraph<ParallelForNode<Engine,
         movementSystem,
             Action,
+            Position,
             Rotation,
+            Scale,
             ExternalForce,
             ExternalTorque
         >>({});
