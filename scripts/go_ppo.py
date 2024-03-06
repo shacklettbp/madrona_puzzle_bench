@@ -35,6 +35,7 @@ arg_parser.add_argument('--num-worlds', type=int, required=True)
 arg_parser.add_argument('--gpu-sim', action='store_true')
 arg_parser.add_argument('--width-frac', type=float, default=1.0)
 arg_parser.add_argument('--num-levels', type=int, default=1)
+arg_parser.add_argument('--no-level-obs', action='store_true')
 
 # Learning args
 arg_parser.add_argument('--num-updates', type=int, required=True)
@@ -191,7 +192,7 @@ class GoExplore:
         self.max_return = 0
         self.max_progress = -1000
 
-        self.obs, num_obs_features = setup_obs(self.worlds)
+        self.obs, num_obs_features = setup_obs(self.worlds, args.no_level_obs)
         self.policy = make_policy(num_obs_features, args.num_channels, args.separate_value, intrinsic=args.use_intrinsic_loss)
         self.actions = self.worlds.action_tensor().to_torch()
         self.dones = self.worlds.done_tensor().to_torch()

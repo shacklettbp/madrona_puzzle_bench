@@ -32,6 +32,7 @@ arg_parser.add_argument('--start-in-discovered-rooms', action='store_true')
 arg_parser.add_argument('--reward-mode', type=str, required=True)
 arg_parser.add_argument('--num-worlds', type=int, required=True)
 arg_parser.add_argument('--gpu-sim', action='store_true')
+arg_parser.add_argument('--no-level-obs', action='store_true')
 
 # Learning args
 arg_parser.add_argument('--num-updates', type=int, required=True)
@@ -238,7 +239,7 @@ else:
 ckpt_dir.mkdir(exist_ok=True, parents=True)
 
 
-obs, num_obs_features = setup_obs(sim)
+obs, num_obs_features = setup_obs(sim, args.no_level_obs)
 policy = make_policy(num_obs_features, args.num_channels, args.separate_value, intrinsic=args.use_intrinsic_loss)
 
 actions = sim.action_tensor().to_torch()
