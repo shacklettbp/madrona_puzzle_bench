@@ -332,7 +332,7 @@ inline bool onGround(Engine &ctx, const Position &pos, const Rotation &rot, cons
     // Scale the relative to the agent's height.
     // Assume math.up is normalized and positive.
     float halfHeight = 0.5f * Vector3{s.d0, s.d1, s.d2}.dot(math::up);
-    Vector3 ray_o = pos + halfHeight * rot.rotateVec(math::up);
+    Vector3 ray_o =   + halfHeight * rot.rotateVec(math::up);
     Vector3 ray_d = rot.rotateVec(-math::up);
 
     const float max_t = halfHeight;
@@ -365,7 +365,7 @@ inline void jumpSystem(Engine &ctx,
     }
 
     // Jump!
-    external_force.z += rot.rotateVec({ 0.0f, 0.0f, 2000.0f }).z;
+    external_force.z += rot.rotateVec({ 0.0f, 0.0f, 3000.0f }).z;
 }
 
 // Translates discrete actions from the Action component to forces
@@ -379,14 +379,12 @@ inline void movementSystem(Engine &ctx,
                            ExternalTorque &external_torque)
 {
     Quat cur_rot = rot;
-    float move_max = 1000;
-    constexpr float turn_max = 320;
+    float move_max = 800; //1000;
+    constexpr float turn_max = 240; //320;
 
-    if (!onGround(ctx, pos, rot, s)) {
-        //external_force = cur_rot.rotateVec({ 0, 0, 0 });
-        //return;
-        move_max = 300;
-    }
+    //if (!onGround(ctx, pos, rot, s)) {
+        //move_max = 500;
+    //}
 
     float move_amount = action.moveAmount *
         (move_max / (consts::numMoveAmountBuckets - 1));

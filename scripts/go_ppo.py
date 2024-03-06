@@ -213,7 +213,7 @@ class GoExplore:
         start_bins = self.map_states_to_bins(self.obs)[0,:]
         self.start_bin_steps[start_bins] = 0
 
-        self.actions_num_buckets = [4, 8, 5, 3]
+        self.actions_num_buckets = [4, 8, 5, 2]
         self.action_space = Box(-float('inf'),float('inf'),(sum(self.actions_num_buckets),))
 
         # Callback

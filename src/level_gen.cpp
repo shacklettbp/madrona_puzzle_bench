@@ -637,8 +637,8 @@ static Entity makeLava(Engine &ctx, Vector3 position,
 }
 
 static Entity makeEnemy(Engine &ctx, Vector3 position, 
-                        float move_force = 200.f,
-                        float move_torque = 200.f,
+                        float move_force = 160.f,
+                        float move_torque = 160.f,
                         bool isChicken = false)
 {
     Entity enemy = ctx.makeRenderableEntity<EnemyEntity>();
@@ -801,7 +801,7 @@ static void chaseLevel(Engine &ctx)
     enemy_spawn.y += randBetween(ctx, 0.f, room_aabb.pMax.y - enemy_spawn.y);
     enemy_spawn.x = randBetween(ctx, room_aabb.pMin.x, room_aabb.pMax.x);
 
-    makeEnemy(ctx, enemy_spawn, 350.f, 350.f);
+    makeEnemy(ctx, enemy_spawn, 280.f, 280.f);
 }
 
 static void lavaPathLevel(Engine &ctx)
@@ -1306,7 +1306,10 @@ LevelType generateLevel(Engine &ctx)
         obstructedBlockButtonLevel(ctx);
     } break;
     case LevelType::BlockStack: {
-        blockStackLevel(ctx);
+        // Also do obstructedBlockButton here for now
+        level_type = LevelType::ObstructedBlockButton;
+        obstructedBlockButtonLevel(ctx);
+        //blockStackLevel(ctx);
     } break;
     case LevelType::PatternMatch: {
         patternMatchLevel(ctx);
