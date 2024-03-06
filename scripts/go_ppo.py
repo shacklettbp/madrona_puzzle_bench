@@ -368,7 +368,7 @@ class GoExplore:
             door_obs = states[6][...,0].max(dim=-1)[0].view(-1, self.num_worlds)
             #print("Shapes", self_obs.shape, y_out.shape)
             return (y_out + granularity*z_out + granularity*5*door_obs + granularity*5*2*level_obs).int()
-        elif self.binning == "y_z_pos_door_entities":
+        elif self.binning == "y_pos_door_entities":
             # Bin according to the y position of each agent
             # Determine granularity from num_bins
             granularity = torch.sqrt(torch.tensor(self.num_bins)).int().item()
@@ -386,12 +386,13 @@ class GoExplore:
             # We get door open/button press from attr_1
             door_obs = states[6][...,0].max(dim=-1)[0].view(-1, self.num_worlds)
             # Entity obs
-            entity_obs = states[7].view(-1, self.num_worlds, 9, states[7].shape[-1])
+            entity_obs = states[4].view(-1, self.num_worlds, 9, states[4].shape[-1])
             # Normalize this
-            entity_obs_norm = torch.clamp((entity_obs[..., 2] - 20)/40, 0, 1.0)
-            block_val = (entity_obs_norm[..., 2].mean(dim=2).sum(dim=2)*8).int() % 10
+            entity_sum_dist = torch.abs(entity_obs[..., 0]).min(dim=2)[0] + torch.abs(entity_obs[..., 1]).min(dim=2)[0]
+            entity_obs_norm = (entity_sum_dist - entity_sum_dist.min())/(entity_sum_dist.max() - entity_sum_dist.min())
+            block_val = (entity_obs_norm * 10).int() % 10
             #print("Shapes", self_obs.shape, y_out.shape)
-            return (y_out + granularity*z_out + granularity*5*door_obs + granularity*5*2*level_obs).int()
+            return (y_out + granularity*door_obs + granularity*2*level_obs + granularity*2*8*block_val).int()
         elif self.binning == "x_y":
             # Bin according to the y position of each agent
             # Determine granularity from num_bins
