@@ -13,7 +13,7 @@ from madrona_puzzle_bench_learn.rnn import LSTM
 import math
 import torch
 
-def setup_obs(sim):
+def setup_obs(sim, level_type_obs = True):
     # First define all the observation tensors
     agent_txfm_obs_tensor = sim.agent_txfm_obs_tensor().to_torch() # Scalars
     agent_interact_obs_tensor = sim.agent_interact_obs_tensor().to_torch() # Bool, whether or not grabbing
@@ -25,6 +25,9 @@ def setup_obs(sim):
     lidar_depth_tensor = sim.lidar_depth_tensor().to_torch() # Scalars
     lidar_hit_type_tensor = sim.lidar_hit_type().to_torch() # Enum (EntityType)
     steps_remaining_tensor = sim.steps_remaining_tensor().to_torch() # Int but dont' need to convert
+
+    if not level_type_obs:
+        agent_level_type_obs_tensor = torch.zeros_like(agent_level_type_obs_tensor)
 
     # print all shapes for debugging purposes
     '''
