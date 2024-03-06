@@ -61,7 +61,7 @@ policy = make_policy(num_obs_features, args.num_channels, args.separate_value)
 weights = LearningState.load_policy_weights(args.ckpt_path)
 policy.load_state_dict(weights)
 
-policy = policy.to(torch.device(f"cuda:{args.gpu_id}"))
+policy = policy.to(torch.device(f"cuda:{args.gpu_id}")) if args.gpu_sim else policy.to(torch.device('cpu'))
 
 actions = sim.action_tensor().to_torch()
 dones = sim.done_tensor().to_torch()
@@ -85,7 +85,7 @@ for i in range(args.num_steps):
         action_dists, values, cur_rnn_states = policy(cur_rnn_states, *obs)
         #action_dists.best(actions)
         # Make placeholders for actions_out and log_probs_out
-        if False:
+        if True:
             log_probs_out = torch.zeros_like(actions).float()
             action_dists.sample(actions, log_probs_out)
         else:
