@@ -23,6 +23,7 @@ arg_parser.add_argument('--use-fixed-world', action='store_true')
 
 arg_parser.add_argument('--num-worlds', type=int, required=True)
 arg_parser.add_argument('--num-steps', type=int, required=True)
+arg_parser.add_argument('--no-level-obs', action='store_true')
 
 arg_parser.add_argument('--num-channels', type=int, default=256)
 arg_parser.add_argument('--separate-value', action='store_true')
@@ -55,7 +56,7 @@ sim = madrona_puzzle_bench.SimManager(
 )
 sim.init()
 
-obs, num_obs_features = setup_obs(sim)
+obs, num_obs_features = setup_obs(sim, args.no_level_obs)
 policy = make_policy(num_obs_features, args.num_channels, args.separate_value)
 
 weights = LearningState.load_policy_weights(args.ckpt_path)
