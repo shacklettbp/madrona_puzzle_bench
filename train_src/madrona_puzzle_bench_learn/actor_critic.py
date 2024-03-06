@@ -201,6 +201,56 @@ class ActorCritic(nn.Module):
 
         return log_probs, entropies, values, values_intrinsic, reward_intrinsic
 
+# The attention-based architecture from hide and seek
+class EntitySelfAttentionNet(nn.Module):
+    def __init__(self, obs_features, entity_features, num_embed_channels, num_out_channels, num_heads):
+        super(EntitySelfAttentionNet, self).__init__()
+        self.num_embed_channels = num_embed_channels
+        self.num_out_channels = num_out_channels
+        self.num_heads = num_heads
+        self.embed_concat_self = embed_concat_self
+
+        # Initialize the embedding layer for self
+        self.self_embed = nn.Sequential(
+            nn.Linear(obs_features, num_embed_channels),
+            nn.LayerNorm(num_embed_channels)
+        )
+
+        # Initialize a single embedding layer for the entities
+        self.entity_embed = nn.Sequential(
+            nn.Linear(entity_features, num_embed_channels),
+            nn.LayerNorm(num_embed_channels)
+        )
+
+        # Attention and feed-forward layers
+        self.multihead_attn = nn.MultiheadAttention(embed_dim=num_embed_channels, num_heads=num_heads)
+        self.ff = nn.Sequential(
+            nn.Linear(num_out_channels, num_out_channels),
+            nn.LayerNorm(num_out_channels),
+            nn.LeakyReLU(),
+            nn.Linear(num_out_channels, num_out_channels),
+            nn.LayerNorm(num_out_channels)
+        )
+
+    def forward(self, x_self, x_entities):
+        x_self = x_self.unsqueeze(-2)
+
+        embed_self = F.leaky_relu(self.self_embed(x_self))
+
+        embedded_entities = [embed_self]
+        
+        embedding = F.leaky_relu(self.entity_embed(x_entities))
+        embedded_entities.append(embedding)
+
+        embedded_entities = torch.cat(embedded_entities, dim=-2)
+        attn_output, _ = self.multihead_attn(embedded_entities, embedded_entities, embedded_entities)
+        attn_output = attn_output.mean(dim=-2)
+        
+        # Feedforward network
+        ff_out = self.ff(attn_output)
+
+        return ff_out
+
 class BackboneEncoder(nn.Module):
     def __init__(self, net):
         super().__init__()
