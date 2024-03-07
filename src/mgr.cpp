@@ -786,6 +786,7 @@ Manager::Impl * Manager::Impl::init(
             },
             sim_cfg,
             world_inits.data(),
+            (CountT)TaskGraphID::NumGraphs,
         };
 
         WorldReset *world_reset_buffer = 
