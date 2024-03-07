@@ -128,7 +128,19 @@ struct Manager::Impl {
 
     inline virtual ~Impl() {}
 
-    virtual void run() = 0;
+    virtual void init() = 0;
+    virtual void step() = 0;
+
+    inline void renderStep()
+    {
+        if (renderMgr.has_value()) {
+            renderMgr->readECS();
+        }
+
+        if (cfg.enableBatchRenderer) {
+            renderMgr->batchRender();
+        }
+    }
 
 #ifdef MADRONA_CUDA_SUPPORT
     virtual void gpuStreamInit(cudaStream_t strm, void **buffers, Manager &) = 0;
@@ -173,9 +185,16 @@ struct Manager::CPUImpl final : Manager::Impl {
         free(rewardHyperParams);
     }
 
-    inline virtual void run()
+    inline virtual void init() final
     {
-        cpuExec.run();
+        cpuExec.runTaskGraph(TaskGraphID::Init);
+        renderStep();
+    }
+
+    inline virtual void step() final
+    {
+        cpuExec.runTaskGraph(TaskGraphID::Step);
+        renderStep();
     }
 
 #ifdef MADRONA_CUDA_SUPPORT
@@ -211,6 +230,8 @@ struct Manager::CPUImpl final : Manager::Impl {
 #ifdef MADRONA_CUDA_SUPPORT
 struct Manager::CUDAImpl final : Manager::Impl {
     MWCudaExecutor gpuExec;
+    MWCudaLaunchGraph initGraph;
+    MWCudaLaunchGraph stepGraph;
 
     inline CUDAImpl(const Manager::Config &mgr_cfg,
                    PhysicsLoader &&phys_loader,
@@ -226,7 +247,9 @@ struct Manager::CUDAImpl final : Manager::Impl {
                reset_buffer, checkpoint_save_buffer,
                checkpoint_load_buffer, action_buffer, reward_hyper_params,
                std::move(render_gpu_state), std::move(render_mgr)),
-          gpuExec(std::move(gpu_exec))
+          gpuExec(std::move(gpu_exec)),
+          initGraph(gpuExec.buildLaunchGraph(TaskGraphID::Init)),
+          stepGraph(gpuExec.buildLaunchGraph(TaskGraphID::Step))
     {}
 
     inline virtual ~CUDAImpl() final
@@ -234,9 +257,16 @@ struct Manager::CUDAImpl final : Manager::Impl {
         REQ_CUDA(cudaFree(rewardHyperParams));
     }
 
-    inline virtual void run()
+    inline virtual void init() final
     {
-        gpuExec.run();
+        gpuExec.run(initGraph);
+        renderStep();
+    }
+
+    inline virtual void step() final
+    {
+        gpuExec.run(stepGraph);
+        renderStep();
     }
 
 #ifdef MADRONA_CUDA_SUPPORT
@@ -273,18 +303,13 @@ struct Manager::CUDAImpl final : Manager::Impl {
             resets_staging[i].reset = 1;
         }
 
-        auto resetSyncStep = [&]()
-        {
-            cudaMemcpyAsync(worldResetBuffer, resets_staging.data(),
-                       sizeof(WorldReset) * cfg.numWorlds,
-                       cudaMemcpyHostToDevice, strm);
-            gpuExec.runAsync(strm);
-            REQ_CUDA(cudaStreamSynchronize(strm));
-        };
-
-        resetSyncStep();
-
+        cudaMemcpyAsync(worldResetBuffer, resets_staging.data(),
+                   sizeof(WorldReset) * cfg.numWorlds,
+                   cudaMemcpyHostToDevice, strm);
+        gpuExec.runAsync(initGraph, strm);
         copyOutObservations(strm, buffers, mgr);
+
+        REQ_CUDA(cudaStreamSynchronize(strm));
     }
 
     virtual void gpuStreamStep(cudaStream_t strm, void **buffers, Manager &mgr)
@@ -304,7 +329,7 @@ struct Manager::CUDAImpl final : Manager::Impl {
             copyToSim(mgr.rewardHyperParamsTensor(), *buffers++);
         }
 
-        gpuExec.runAsync(strm);
+        gpuExec.runAsync(stepGraph, strm);
 
         buffers = copyOutObservations(strm, buffers, mgr);
 
@@ -709,6 +734,7 @@ Manager::Impl * Manager::Impl::init(
             .numWorldDataBytes = sizeof(Sim),
             .worldDataAlignment = alignof(Sim),
             .numWorlds = mgr_cfg.numWorlds,
+            .numTaskGraphs = (uint32_t)TaskGraphID::NumGraphs,
             .numExportedBuffers = (uint32_t)ExportID::NumExports, 
         }, {
             { GPU_HIDESEEK_SRC_LIST },
@@ -835,20 +861,12 @@ void Manager::init()
         triggerReset(i);
     }
 
-    step();
+    impl_->init();
 }
 
 void Manager::step()
 {
-    impl_->run();
-
-    if (impl_->renderMgr.has_value()) {
-        impl_->renderMgr->readECS();
-    }
-
-    if (impl_->cfg.enableBatchRenderer) {
-        impl_->renderMgr->batchRender();
-    }
+    impl_->step();
 }
 
 #ifdef MADRONA_CUDA_SUPPORT

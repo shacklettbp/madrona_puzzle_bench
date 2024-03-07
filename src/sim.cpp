@@ -99,7 +99,7 @@ static EpisodeState initEpisodeState()
         .curLevel = 0,
         .isDead = false,
         .reachedExit = false,
-        .episodeFinished = false,
+        .episodeFinished = true,
     };
 }
 
@@ -1232,10 +1232,8 @@ TaskGraphNodeID queueSortByWorld(TaskGraphBuilder &builder,
 static TaskGraphNodeID sortEntities(TaskGraphBuilder &builder,
                                     Span<const TaskGraphNodeID> deps)
 {
-    auto sort_sys = queueSortByWorld<Agent>(
+    auto sort_sys = queueSortByWorld<PhysicsEntity>(
         builder, deps);
-    sort_sys = queueSortByWorld<PhysicsEntity>(
-        builder, {sort_sys});
     sort_sys = queueSortByWorld<ButtonEntity>(
         builder, {sort_sys});
     sort_sys = queueSortByWorld<DoorEntity>(
@@ -1257,11 +1255,10 @@ static TaskGraphNodeID sortEntities(TaskGraphBuilder &builder,
 }
 #endif
 
-// Build the task graph
-void Sim::setupTasks(TaskGraphManager &taskgraph_mgr, const Config &cfg)
+static TaskGraphNodeID setupSimTasks(TaskGraphBuilder &builder,
+                                     const Sim::Config &,
+                                     Span<const TaskGraphNodeID> deps)
 {
-    auto builder = taskgraph_mgr.init();
-
     // Turn policy actions into movement
     auto move_sys = builder.addToGraph<ParallelForNode<Engine,
         movementSystem,
@@ -1271,7 +1268,7 @@ void Sim::setupTasks(TaskGraphManager &taskgraph_mgr, const Config &cfg)
             Scale,
             ExternalForce,
             ExternalTorque
-        >>({});
+        >>(deps);
 
     // Scripted door behavior
     auto set_door_pos_sys = builder.addToGraph<ParallelForNode<Engine,
@@ -1377,11 +1374,18 @@ void Sim::setupTasks(TaskGraphManager &taskgraph_mgr, const Config &cfg)
             IsLava 
         >>({check_exit_sys});
 
+    return lava_sys;
+}
+
+static TaskGraphNodeID setupRewardAndDoneTasks(TaskGraphBuilder &builder,
+                                               const Sim::Config &cfg,
+                                               Span<const TaskGraphNodeID> deps)
+{
     // Check if the episode is over
     auto update_episode_state_sys = builder.addToGraph<ParallelForNode<Engine,
         updateEpisodeStateSystem,
             EpisodeState
-        >>({lava_sys});
+        >>(deps);
 
     TaskGraphNodeID reward_sys =
         queueRewardSystem(cfg, builder, {update_episode_state_sys});
@@ -1391,17 +1395,20 @@ void Sim::setupTasks(TaskGraphManager &taskgraph_mgr, const Config &cfg)
             Done
         >>({reward_sys});
 
-    auto sim_done = done_sys;
-#ifdef MADRONA_GPU_MODE
-    // A sort is currently necessary so cleanupLevelSystem works properly
-    sim_done = sortEntities(builder, {sim_done});
-#endif
+    return done_sys;
+}
+
+static TaskGraphNodeID setupResetAndGenTasks(TaskGraphBuilder &builder,
+                                             const Sim::Config &cfg,
+                                             Span<const TaskGraphNodeID> deps)
+{
+    (void)cfg;
 
     // Conditionally reset the world if the episode is over
     auto new_episode_sys = builder.addToGraph<ParallelForNode<Engine,
         newEpisodeSystem,
            EpisodeState 
-        >>({sim_done});
+        >>(deps);
 
     // FIXME
     auto cleanup_level = builder.addToGraph<ParallelForNode<Engine,
@@ -1432,6 +1439,7 @@ void Sim::setupTasks(TaskGraphManager &taskgraph_mgr, const Config &cfg)
 #ifdef MADRONA_GPU_MODE
     post_gen = sortEntities(builder, {post_gen});
 #endif
+
     // Conditionally load the checkpoint here including Done, Reward, 
     // and StepsRemaining. With Observations this should reconstruct 
     // all state that the training code needs.
@@ -1453,6 +1461,13 @@ void Sim::setupTasks(TaskGraphManager &taskgraph_mgr, const Config &cfg)
     auto post_reset_broadphase = phys::RigidBodyPhysicsSystem::setupBroadphaseTasks(
         builder, {checkpoint_sys});
 
+    return post_reset_broadphase;
+}
+
+static TaskGraphNodeID setupPostGenTasks(TaskGraphBuilder &builder,
+                                         const Sim::Config &cfg,
+                                         Span<const TaskGraphNodeID> deps)
+{
     // The lidar system
 #ifdef MADRONA_GPU_MODE
     // Note the use of CustomParallelForNode to create a taskgraph node
@@ -1468,10 +1483,10 @@ void Sim::setupTasks(TaskGraphManager &taskgraph_mgr, const Config &cfg)
             Entity,
             LidarDepth,
             LidarHitType
-        >>({post_reset_broadphase});
+        >>(deps);
 
     if (cfg.renderBridge) {
-        RenderingSystem::setupTasks(builder, {load_checkpoint_sys});
+        RenderingSystem::setupTasks(builder, deps);
     }
 
 
@@ -1481,7 +1496,7 @@ void Sim::setupTasks(TaskGraphManager &taskgraph_mgr, const Config &cfg)
 #endif
 
     // Finally, collect observations for the next step.
-    builder.addToGraph<ParallelForNode<Engine,
+    return builder.addToGraph<ParallelForNode<Engine,
         collectObservationsSystem,
             Position,
             Rotation,
@@ -1493,9 +1508,40 @@ void Sim::setupTasks(TaskGraphManager &taskgraph_mgr, const Config &cfg)
             EntityPhysicsStateObsArray,
             EntityTypeObsArray,
             EntityAttributesObsArray
-        >>({checkpoint_sys});
+        >>({lidar});
+}
 
-    taskgraph_mgr.build(TaskGraphID::Step, std::move(builder));
+static void setupInitTasks(TaskGraphBuilder &builder, const Sim::Config &cfg)
+{
+#ifdef MADRONA_GPU_MODE
+    auto sort_agent = queueSortByWorld<Agent>(builder, {});
+#endif
+
+    auto post_gen = setupResetAndGenTasks(builder, cfg, { 
+#ifdef MADRONA_GPU_MODE
+        sort_agent,
+#endif
+    });
+
+    setupPostGenTasks(builder, cfg, {post_gen});
+}
+
+static void setupStepTasks(TaskGraphBuilder &builder, const Sim::Config &cfg)
+{
+    auto sim_done = setupSimTasks(builder, cfg, {});
+    auto reward_and_dones = setupRewardAndDoneTasks(builder, cfg, {sim_done});
+    auto post_gen = setupResetAndGenTasks(builder, cfg, {reward_and_dones});
+    setupPostGenTasks(builder, cfg, {post_gen});
+}
+
+// Build the task graph
+void Sim::setupTasks(TaskGraphManager &taskgraph_mgr, const Config &cfg)
+{
+    TaskGraphBuilder &init_builder = taskgraph_mgr.init(TaskGraphID::Init);
+    setupInitTasks(init_builder, cfg);
+
+    TaskGraphBuilder &step_builder = taskgraph_mgr.init(TaskGraphID::Step);
+    setupStepTasks(step_builder, cfg);
 }
 
 Sim::Sim(Engine &ctx,
