@@ -1,7 +1,8 @@
 from madrona_puzzle_bench_learn import (
     ActorCritic, DiscreteActor, Critic, 
     BackboneShared, BackboneSeparate,
-    BackboneEncoder, RecurrentBackboneEncoder, RNDModel
+    BackboneEncoder, RecurrentBackboneEncoder, RNDModel,
+    EntitySelfAttentionNet
 )
 
 from madrona_puzzle_bench_learn.models import (
@@ -13,7 +14,7 @@ from madrona_puzzle_bench_learn.rnn import LSTM
 import math
 import torch
 
-def setup_obs(sim, level_type_obs = True):
+def setup_obs(sim, no_level_obs = False, use_onehot = True, separate_entity = False):
     # First define all the observation tensors
     agent_txfm_obs_tensor = sim.agent_txfm_obs_tensor().to_torch() # Scalars
     agent_interact_obs_tensor = sim.agent_interact_obs_tensor().to_torch() # Bool, whether or not grabbing
@@ -26,7 +27,7 @@ def setup_obs(sim, level_type_obs = True):
     lidar_hit_type_tensor = sim.lidar_hit_type().to_torch() # Enum (EntityType)
     steps_remaining_tensor = sim.steps_remaining_tensor().to_torch() # Int but dont' need to convert
 
-    if not level_type_obs:
+    if no_level_obs:
         agent_level_type_obs_tensor = torch.zeros_like(agent_level_type_obs_tensor)
 
     # print all shapes for debugging purposes
@@ -76,18 +77,18 @@ def setup_obs(sim, level_type_obs = True):
     obs_tensor = torch.cat([
         agent_txfm_obs_tensor,
         agent_interact_obs_tensor,
-        agent_level_type_obs_tensor_onehot,
+        agent_level_type_obs_tensor_onehot if use_onehot else agent_level_type_obs_tensor.view(agent_level_type_obs_tensor.shape[0], -1),
         agent_exit_obs_tensor,
         lidar_depth_tensor,
-        lidar_hit_type_tensor_onehot,
+        lidar_hit_type_tensor_onehot if use_onehot else lidar_hit_type_tensor.view(lidar_hit_type_tensor.shape[0], -1),
         steps_remaining_tensor,
     ], dim=1)
 
     # Concatenate all entity observations
     entity_tensor = torch.cat([
         entity_physics_state_obs_tensor,
-        entity_type_obs_tensor_onehot,
-        entity_attr_obs_tensor_onehot,
+        entity_type_obs_tensor_onehot if use_onehot else entity_type_obs_tensor.view(entity_type_obs_tensor.shape[0], entity_type_obs_tensor.shape[1], -1),
+        entity_attr_obs_tensor_onehot if use_onehot else entity_attr_obs_tensor.view(entity_attr_obs_tensor.shape[0], entity_attr_obs_tensor.shape[1], -1),
     ], dim=2)
 
     num_obs_features = obs_tensor.shape[1] 
@@ -109,11 +110,18 @@ def setup_obs(sim, level_type_obs = True):
         lidar_depth_tensor,
         lidar_hit_type_tensor,
         steps_remaining_tensor,
+        torch.zeros_like(steps_remaining_tensor) + use_onehot,
+        torch.zeros_like(steps_remaining_tensor) + separate_entity,
     ]
 
-    return obs_list, num_obs_features + num_entity_features*entity_tensor.shape[1]
+    if separate_entity:
+        return obs_list, num_obs_features, num_entity_features
+    else:
+        return obs_list, num_obs_features + num_entity_features*entity_tensor.shape[1]
 
-def process_obs(agent_txfm_obs_tensor, agent_interact_obs_tensor, agent_level_type_obs_tensor, agent_exit_obs_tensor, entity_physics_state_obs_tensor, entity_type_obs_tensor, entity_attr_obs_tensor, lidar_depth_tensor, lidar_hit_type_tensor, steps_remaining_tensor):
+def process_obs(agent_txfm_obs_tensor, agent_interact_obs_tensor, agent_level_type_obs_tensor, agent_exit_obs_tensor, entity_physics_state_obs_tensor, entity_type_obs_tensor, entity_attr_obs_tensor, lidar_depth_tensor, lidar_hit_type_tensor, steps_remaining_tensor, use_onehot, separate_entity):
+    use_onehot = use_onehot.sum() > 0
+    separate_entity = separate_entity.sum() > 0
 
     agent_level_type_obs_tensor_onehot = torch.nn.functional.one_hot(agent_level_type_obs_tensor.to(torch.int64), num_classes=8)
     entity_type_obs_tensor_onehot = torch.nn.functional.one_hot(entity_type_obs_tensor.to(torch.int64), num_classes=11)
@@ -146,18 +154,18 @@ def process_obs(agent_txfm_obs_tensor, agent_interact_obs_tensor, agent_level_ty
     obs_tensor = torch.cat([
         agent_txfm_obs_tensor,
         agent_interact_obs_tensor,
-        agent_level_type_obs_tensor_onehot,
+        agent_level_type_obs_tensor_onehot if use_onehot else agent_level_type_obs_tensor.view(agent_level_type_obs_tensor.shape[0], -1),
         agent_exit_obs_tensor,
         lidar_depth_tensor,
-        lidar_hit_type_tensor_onehot,
+        lidar_hit_type_tensor_onehot if use_onehot else lidar_hit_type_tensor.view(lidar_hit_type_tensor.shape[0], -1),
         steps_remaining_tensor,
     ], dim=1)
 
     # Concatenate all entity observations
     entity_tensor = torch.cat([
         entity_physics_state_obs_tensor,
-        entity_type_obs_tensor_onehot,
-        entity_attr_obs_tensor_onehot,
+        entity_type_obs_tensor_onehot if use_onehot else entity_type_obs_tensor.view(entity_type_obs_tensor.shape[0], entity_type_obs_tensor.shape[1], -1),
+        entity_attr_obs_tensor_onehot if use_onehot else entity_attr_obs_tensor.view(entity_attr_obs_tensor.shape[0], entity_attr_obs_tensor.shape[1], -1),
     ], dim=2)
 
     # Combine obs and entity tensors
@@ -176,9 +184,12 @@ def process_obs(agent_txfm_obs_tensor, agent_interact_obs_tensor, agent_level_ty
     # Filter nans
     #combined_tensor[torch.isnan(combined_tensor)] = 0
 
-    return combined_tensor
+    if separate_entity:
+        return obs_tensor, entity_tensor
+    else:
+        return combined_tensor
 
-def make_policy(num_obs_features, num_channels, separate_value, intrinsic=False):
+def make_policy(num_obs_features, num_entity_features, num_channels, separate_value, intrinsic=False, separate_entity=False):
     #encoder = RecurrentBackboneEncoder(
     #    net = MLP(
     #        input_dim = num_obs_features,
@@ -192,13 +203,18 @@ def make_policy(num_obs_features, num_channels, separate_value, intrinsic=False)
     #    ),
     #)
 
-    encoder = BackboneEncoder(
-        net = MLP(
-            input_dim = num_obs_features,
-            num_channels = num_channels,
-            num_layers = 3,
-        ),
-    )
+    if separate_entity:
+        encoder = BackboneEncoder(
+            net = EntitySelfAttentionNet(num_obs_features, num_entity_features, 128, num_channels, 4)
+        )
+    else:
+        encoder = BackboneEncoder(
+            net = MLP(
+                input_dim = num_obs_features,
+                num_channels = num_channels,
+                num_layers = 3,
+            ),
+        )
 
     if separate_value:
         backbone = BackboneSeparate(

@@ -461,8 +461,8 @@ def _update_iter(cfg : TrainConfig,
         num_stats = 0
 
         for epoch in range(cfg.ppo.num_epochs):
-            for inds in torch.arange(num_train_seqs).chunk(
-            #for inds in torch.randperm(num_train_seqs).chunk( # VISHNU: ASSUME ONE MINIBATCH, randperm messes up tracking
+            #for inds in torch.arange(num_train_seqs).chunk(
+            for inds in torch.randperm(num_train_seqs).chunk( # VISHNU: ASSUME ONE MINIBATCH, randperm messes up tracking
                     cfg.ppo.num_mini_batches):
                 with torch.no_grad(), profile('Gather Minibatch', gpu=True):
                     mb = _gather_minibatch(rollouts, advantages, advantages_intrinsic, inds, amp)
@@ -672,8 +672,7 @@ def train(dev, sim, cfg, actor_critic, update_cb, restore_ckpt=None):
         def gpu_sync_fn():
             pass
 
-    buffer_size = 15
-    replay_buffer = NStepReplay(rollout_mgr, buffer_size, 'cuda')
+    replay_buffer = None #NStepReplay(rollout_mgr, buffer_size, 'cuda')
 
     _update_loop(
         update_iter_fn=_update_iter,

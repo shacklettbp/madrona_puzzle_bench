@@ -50,11 +50,12 @@ arg_parser.add_argument('--value-normalizer-decay', type=float, default=0.999)
 arg_parser.add_argument('--restore', type=int)
 arg_parser.add_argument('--use-complex-level', action='store_true')
 arg_parser.add_argument('--use-intrinsic-loss', action='store_true')
-
+arg_parser.add_argument('--no-onehot', action='store_true')
 
 # Architecture args
 arg_parser.add_argument('--num-channels', type=int, default=256)
 arg_parser.add_argument('--separate-value', action='store_true')
+arg_parser.add_argument('--entity-network', action='store_true')
 args = arg_parser.parse_args()
 
 normalize_values = not args.no_value_norm
@@ -238,9 +239,12 @@ else:
 
 ckpt_dir.mkdir(exist_ok=True, parents=True)
 
-
-obs, num_obs_features = setup_obs(sim, args.no_level_obs)
-policy = make_policy(num_obs_features, args.num_channels, args.separate_value, intrinsic=args.use_intrinsic_loss)
+if args.entity_network:
+    obs, num_obs_features, num_entity_features = setup_obs(sim, args.no_level_obs, use_onehot=False, separate_entity=True)
+    policy = make_policy(num_obs_features, num_entity_features, args.num_channels, args.separate_value, intrinsic=args.use_intrinsic_loss, separate_entity=True)
+else:
+    obs, num_obs_features = setup_obs(sim, args.no_level_obs)
+    policy = make_policy(num_obs_features, None, args.num_channels, args.separate_value, intrinsic=args.use_intrinsic_loss)
 
 actions = sim.action_tensor().to_torch()
 dones = sim.done_tensor().to_torch()

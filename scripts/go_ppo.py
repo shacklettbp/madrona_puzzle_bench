@@ -53,10 +53,12 @@ arg_parser.add_argument('--value-normalizer-decay', type=float, default=0.999)
 arg_parser.add_argument('--restore', type=int)
 arg_parser.add_argument('--use-complex-level', action='store_true')
 arg_parser.add_argument('--use-intrinsic-loss', action='store_true')
+arg_parser.add_argument('--no-onehot', action='store_true')
 
 # Architecture args
 arg_parser.add_argument('--num-channels', type=int, default=256)
 arg_parser.add_argument('--separate-value', action='store_true')
+arg_parser.add_argument('--entity-network', action='store_true')
 
 # Go-Explore args
 arg_parser.add_argument('--binning', type=str, required=True)
@@ -192,8 +194,12 @@ class GoExplore:
         self.max_return = 0
         self.max_progress = -1000
 
-        self.obs, num_obs_features = setup_obs(self.worlds, args.no_level_obs)
-        self.policy = make_policy(num_obs_features, args.num_channels, args.separate_value, intrinsic=args.use_intrinsic_loss)
+        if args.entity_network:
+            self.obs, num_obs_features, num_entity_features = setup_obs(self.worlds, args.no_level_obs, use_onehot=False, separate_entity=True)
+            self.policy = make_policy(num_obs_features, num_entity_features, args.num_channels, args.separate_value, intrinsic=args.use_intrinsic_loss)
+        else:
+            self.obs, num_obs_features = setup_obs(self.worlds, args.no_level_obs)
+            self.policy = make_policy(num_obs_features, None, args.num_channels, args.separate_value, intrinsic=args.use_intrinsic_loss)
         self.actions = self.worlds.action_tensor().to_torch()
         self.dones = self.worlds.done_tensor().to_torch()
         self.rewards = self.worlds.reward_tensor().to_torch()
@@ -460,7 +466,8 @@ class GoExplore:
         # Reshape ppo_stats to be per-world
         ppo_stats.intrinsic_reward_array = ppo_stats.intrinsic_reward_array.view(self.num_worlds, self.num_agents).mean(dim=1) if args.use_intrinsic_loss else None
         #print("Value loss array shape", ppo_stats.value_loss_array.shape)
-        ppo_stats.value_loss_array = ppo_stats.value_loss_array.view(self.num_worlds, self.num_agents).mean(dim=1)
+        if args.uncertainty_metric == "td_error":
+            ppo_stats.value_loss_array = ppo_stats.value_loss_array.view(self.num_worlds, self.num_agents).mean(dim=1) # THIS IS BROKEN WITH MULTIPLE MINIBATCHES
         # At most can increase bin count by 1 in a single step...
         desired_samples = int(self.num_worlds*args.new_frac) # Only store checkpoints from "fresh" worlds
         bins = bins[desired_samples:]
@@ -745,7 +752,7 @@ train(
         gamma = args.gamma,
         gae_lambda = 0.95,
         ppo = PPOConfig(
-            num_mini_batches=1,
+            num_mini_batches=1, # VISHNU: WAS 1
             clip_coef=0.2,
             value_loss_coef=args.value_loss_coef,
             use_intrinsic_loss=args.use_intrinsic_loss, 

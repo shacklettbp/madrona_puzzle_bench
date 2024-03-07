@@ -6,7 +6,7 @@ from madrona_puzzle_bench_learn.actor_critic import (
         ActorCritic, DiscreteActor, Critic,
         BackboneEncoder, RecurrentBackboneEncoder,
         Backbone, BackboneShared, BackboneSeparate,
-        RNDModel,
+        RNDModel, EntitySelfAttentionNet,
     )
 from madrona_puzzle_bench_learn.profile import profile
 import madrona_puzzle_bench_learn.models

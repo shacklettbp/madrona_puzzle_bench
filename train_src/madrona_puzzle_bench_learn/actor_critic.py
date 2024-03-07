@@ -208,7 +208,6 @@ class EntitySelfAttentionNet(nn.Module):
         self.num_embed_channels = num_embed_channels
         self.num_out_channels = num_out_channels
         self.num_heads = num_heads
-        self.embed_concat_self = embed_concat_self
 
         # Initialize the embedding layer for self
         self.self_embed = nn.Sequential(
@@ -225,14 +224,15 @@ class EntitySelfAttentionNet(nn.Module):
         # Attention and feed-forward layers
         self.multihead_attn = nn.MultiheadAttention(embed_dim=num_embed_channels, num_heads=num_heads)
         self.ff = nn.Sequential(
-            nn.Linear(num_out_channels, num_out_channels),
+            nn.Linear(num_embed_channels, num_out_channels),
             nn.LayerNorm(num_out_channels),
             nn.LeakyReLU(),
             nn.Linear(num_out_channels, num_out_channels),
             nn.LayerNorm(num_out_channels)
         )
 
-    def forward(self, x_self, x_entities):
+    def forward(self, x):
+        x_self, x_entities = x
         x_self = x_self.unsqueeze(-2)
 
         embed_self = F.leaky_relu(self.self_embed(x_self))
@@ -243,6 +243,7 @@ class EntitySelfAttentionNet(nn.Module):
         embedded_entities.append(embedding)
 
         embedded_entities = torch.cat(embedded_entities, dim=-2)
+        print(embedded_entities.shape)
         attn_output, _ = self.multihead_attn(embedded_entities, embedded_entities, embedded_entities)
         attn_output = attn_output.mean(dim=-2)
         
