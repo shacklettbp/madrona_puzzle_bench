@@ -1258,8 +1258,10 @@ static TaskGraphNodeID sortEntities(TaskGraphBuilder &builder,
 #endif
 
 // Build the task graph
-void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
+void Sim::setupTasks(TaskGraphManager &taskgraph_mgr, const Config &cfg)
 {
+    auto builder = taskgraph_mgr.init();
+
     // Turn policy actions into movement
     auto move_sys = builder.addToGraph<ParallelForNode<Engine,
         movementSystem,
@@ -1492,6 +1494,8 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
             EntityTypeObsArray,
             EntityAttributesObsArray
         >>({checkpoint_sys});
+
+    taskgraph_mgr.build(TaskGraphID::Step, std::move(builder));
 }
 
 Sim::Sim(Engine &ctx,
