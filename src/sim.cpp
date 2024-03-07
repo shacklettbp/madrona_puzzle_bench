@@ -1514,12 +1514,13 @@ static TaskGraphNodeID setupPostGenTasks(TaskGraphBuilder &builder,
 static void setupInitTasks(TaskGraphBuilder &builder, const Sim::Config &cfg)
 {
 #ifdef MADRONA_GPU_MODE
-    auto sort_agent = queueSortByWorld<Agent>(builder, {});
+    auto sort = queueSortByWorld<Agent>(builder, {});
+    sort = sortEntities(builder, {sort});
 #endif
 
     auto post_gen = setupResetAndGenTasks(builder, cfg, { 
 #ifdef MADRONA_GPU_MODE
-        sort_agent,
+        sort,
 #endif
     });
 
