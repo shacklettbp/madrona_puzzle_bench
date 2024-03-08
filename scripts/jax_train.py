@@ -17,7 +17,7 @@ from madrona_puzzle_bench.madrona import ExecMode
 import madrona_learn
 from madrona_learn import (
     TrainConfig, CustomMetricConfig, PPOConfig, PBTConfig, ParamExplore,
-    SummaryWriter,
+    TensorboardWriter,
 )
 
 from jax_policy import make_policy
@@ -75,7 +75,7 @@ jax_gpu = jax.devices()[0].platform == 'gpu'
 
 sim_init, sim_step = sim.jax(jax_gpu)
 
-tb_writer = SummaryWriter(os.path.join(args.tb_dir, args.run_name))
+tb_writer = TensorboardWriter(os.path.join(args.tb_dir, args.run_name))
 
 def metrics_cb(metrics, epoch, mb, train_state):
     return metrics
