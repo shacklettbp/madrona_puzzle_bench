@@ -189,33 +189,7 @@ int main(int argc, char *argv[])
         .slackReward = -0.005f,
         .numPBTPolicies = 0,
     });
-    mgr.init();
 
-    float camera_move_speed = 10.f;
-
-    math::Vector3 initial_camera_position = { 0, consts::worldWidth / 2.f, 30 };
-
-    math::Quat initial_camera_rotation =
-        (math::Quat::angleAxis(-math::pi / 2.f, math::up) *
-        math::Quat::angleAxis(-math::pi / 2.f, math::right)).normalize();
-
-
-    // Create the viewer viewer
-    viz::Viewer viewer(mgr.getRenderManager(), window.get(), {
-        .numWorlds = num_worlds,
-        .simTickRate = start_frozen ? 0_u32 : 20_u32,
-        .cameraMoveSpeed = camera_move_speed,
-        .cameraPosition = initial_camera_position,
-        .cameraRotation = initial_camera_rotation,
-    });
-
-#ifdef MADRONA_CUDA_SUPPORT
-    cudaStream_t copy_strm;
-    REQ_CUDA(cudaStreamCreate(&copy_strm));
-#endif
-
-    // Printers
-    //
     auto agent_txfm_tensor = mgr.agentTxfmObsTensor();
     auto agent_interact_tensor = mgr.agentInteractObsTensor();
     auto agent_lvl_type_tensor = mgr.agentLevelTypeObsTensor();
@@ -239,23 +213,20 @@ int main(int argc, char *argv[])
 
     auto reward_printer = reward_tensor.makePrinter();
 
+#ifdef MADRONA_CUDA_SUPPORT
+    cudaStream_t copy_strm;
+    REQ_CUDA(cudaStreamCreate(&copy_strm));
+#endif
+
     HeapArray<CheckpointReset> load_all_checkpoints(num_worlds);
     for (CountT i = 0; i < (CountT)num_worlds; i++) {
         load_all_checkpoints[i].reset = 1;
     }
 
-    // Replay step
-    auto replayStep = [&]() {
-        if (cur_replay_step == num_replay_steps) {
-            return true;
-        }
-
-        const Checkpoint *cur_step_ckpts = replay_log->data() +
-            cur_replay_step * (CountT)num_worlds;
-
+    auto loadCheckpoints = [&](const Checkpoint *src) {
         if (exec_mode == ExecMode::CUDA) {
 #ifdef MADRONA_CUDA_SUPPORT
-            cudaMemcpyAsync(ckpt_tensor.devicePtr(), cur_step_ckpts,
+            cudaMemcpyAsync(ckpt_tensor.devicePtr(), src,
                 sizeof(Checkpoint) * num_worlds,
                 cudaMemcpyHostToDevice, copy_strm);
 
@@ -267,20 +238,45 @@ int main(int argc, char *argv[])
             REQ_CUDA(cudaStreamSynchronize(copy_strm));
 #endif
         } else {
-            memcpy(ckpt_tensor.devicePtr(), cur_step_ckpts,
+            memcpy(ckpt_tensor.devicePtr(), src,
                    sizeof(Checkpoint) * num_worlds);
 
             memcpy(ckpt_reset_tensor.devicePtr(), load_all_checkpoints.data(),
                    sizeof(CheckpointReset) * num_worlds);
         }
-
-        cur_replay_step++;
-
-        return false;
     };
 
-    Checkpoint stashed_checkpoint;
+    if (load_ckpt_path != nullptr) {
+        std::ifstream ckpt_file(load_ckpt_path, std::ios::binary);
+        assert(ckpt_file.is_open());
+        HeapArray<Checkpoint> debug_ckpts(num_worlds);
+        ckpt_file.read((char *)debug_ckpts.data(),
+                       sizeof(Checkpoint) * num_worlds);
 
+        loadCheckpoints(debug_ckpts.data());
+    }
+
+    mgr.init();
+
+    float camera_move_speed = 10.f;
+
+    math::Vector3 initial_camera_position = { 0, consts::worldWidth / 2.f, 30 };
+
+    math::Quat initial_camera_rotation =
+        (math::Quat::angleAxis(-math::pi / 2.f, math::up) *
+        math::Quat::angleAxis(-math::pi / 2.f, math::right)).normalize();
+
+
+    // Create the viewer viewer
+    viz::Viewer viewer(mgr.getRenderManager(), window.get(), {
+        .numWorlds = num_worlds,
+        .simTickRate = start_frozen ? 0_u32 : 20_u32,
+        .cameraMoveSpeed = camera_move_speed,
+        .cameraPosition = initial_camera_position,
+        .cameraRotation = initial_camera_rotation,
+    });
+
+    Checkpoint stashed_checkpoint;
     auto stashCheckpoint = [&](CountT world_idx)
     {
         auto dev_ptr = (Checkpoint *)ckpt_tensor.devicePtr();
@@ -307,6 +303,22 @@ int main(int argc, char *argv[])
         } else {
             *dev_ptr = stashed_checkpoint;
         }
+    };
+
+    // Replay step
+    auto replayStep = [&]() {
+        if (cur_replay_step == num_replay_steps) {
+            return true;
+        }
+
+        const Checkpoint *cur_step_ckpts = replay_log->data() +
+            cur_replay_step * (CountT)num_worlds;
+
+        loadCheckpoints(cur_step_ckpts);
+
+        cur_replay_step++;
+
+        return false;
     };
 
     auto printObs = [&]() {
@@ -337,24 +349,6 @@ int main(int argc, char *argv[])
 
         printf("\n");
     };
-
-    if (load_ckpt_path != nullptr) {
-        std::ifstream ckpt_file(load_ckpt_path, std::ios::binary);
-        assert(ckpt_file.is_open());
-        HeapArray<Checkpoint> debug_ckpts(num_worlds);
-        ckpt_file.read((char *)debug_ckpts.data(),
-                       sizeof(Checkpoint) * num_worlds);
-
-        for (CountT i = 0; i < num_worlds; i++) {
-            mgr.triggerLoadCheckpoint(i);
-            stashed_checkpoint = debug_ckpts[i];
-            loadStashedCheckpoint(i);
-        }
-
-        mgr.step();
-
-        printObs();
-    }
 
     stashCheckpoint(0);
 
