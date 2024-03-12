@@ -16,6 +16,7 @@ import warnings
 warnings.filterwarnings("error")
 import numpy as np
 import time
+import os
 
 torch.manual_seed(0)
 
@@ -36,6 +37,7 @@ arg_parser.add_argument('--gpu-sim', action='store_true')
 arg_parser.add_argument('--width-frac', type=float, default=1.0)
 arg_parser.add_argument('--num-levels', type=int, default=1)
 arg_parser.add_argument('--no-level-obs', action='store_true')
+arg_parser.add_argument('--seed', type=int, default=5)
 
 # Learning args
 arg_parser.add_argument('--num-updates', type=int, required=True)
@@ -65,12 +67,13 @@ arg_parser.add_argument('--binning', type=str, required=True)
 arg_parser.add_argument('--num-steps', type=int, required=True)
 arg_parser.add_argument('--num-bins', type=int, required=True)
 arg_parser.add_argument('--num-checkpoints', type=int, default=1)
-arg_parser.add_argument('--new-frac', type=float, default=0.5)
+arg_parser.add_argument('--new-frac', type=float, default=0.0001)
 arg_parser.add_argument('--bin-reward-type', type=str, default="none")
 arg_parser.add_argument('--bin-reward-boost', type=float, default=0.01)
 arg_parser.add_argument('--uncertainty-metric', type=str, default="none")
 arg_parser.add_argument('--buffer-strategy', type=str, default="fifo")
 arg_parser.add_argument('--sampling-strategy', type=str, default="uniform")
+arg_parser.add_argument('--make-graph', action='store_true')
 
 # Binning diagnostic args
 arg_parser.add_argument('--bin-diagnostic', action='store_true')
@@ -150,7 +153,7 @@ class GoExplore:
             exec_mode = madrona_puzzle_bench.madrona.ExecMode.CUDA if args.gpu_sim else madrona_puzzle_bench.madrona.ExecMode.CPU,
             gpu_id = args.gpu_id,
             num_worlds = args.num_worlds,
-            rand_seed = 5,
+            rand_seed = args.seed,
             sim_flags = (int)(sim_flags),
             reward_mode = reward_mode,
             episode_len = 200,
@@ -161,25 +164,6 @@ class GoExplore:
             slack_reward = -0.005,
         )
         self.worlds.init()
-
-        # Do the warm up
-        use_warm_up = True
-        if use_warm_up:
-            steps_so_far = 0
-            warm_up = 32
-            while steps_so_far < 200:
-                for i in range(warm_up - 1):
-                    self.worlds.step()
-                resets = self.worlds.reset_tensor().to_torch().view(-1)
-                total_envs = resets.shape[0]
-                reset_min = (steps_so_far / 200)*(1. - args.new_frac) + args.new_frac # Added the last bit to compensate for resets
-                reset_max = ((steps_so_far + warm_up) / 200)*(1. - args.new_frac) + args.new_frac # Added the last bit to compensate for resets
-                resets[(int)(reset_min * total_envs):(int)(reset_max * total_envs)] = 1
-                print("Steps so far", steps_so_far)
-                print("Max length", 200)
-                print("Resetting", (int)(reset_min * total_envs), (int)(reset_max * total_envs))
-                self.worlds.step()
-                steps_so_far += warm_up
 
         self.num_worlds = num_worlds
         self.num_agents = 1
@@ -223,10 +207,33 @@ class GoExplore:
         self.actions_num_buckets = [4, 8, 5, 2]
         self.action_space = Box(-float('inf'),float('inf'),(sum(self.actions_num_buckets),))
 
+        # If we want to fully discretize the MDP then we also extract a graph of the transitions
+        if args.make_graph:
+            self.transition_graph = torch.zeros((self.num_bins, self.num_bins), device=device).int()
+
         # Callback
         self.mean_fps = 0
         self.ckpt_dir = ckpt_dir
         self.profile_report = False
+
+        # Do the warm up
+        use_warm_up = True
+        if use_warm_up:
+            steps_so_far = 0
+            warm_up = 32
+            while steps_so_far < 200:
+                for i in range(warm_up - 1):
+                    self.worlds.step()
+                resets = self.worlds.reset_tensor().to_torch().view(-1)
+                total_envs = resets.shape[0]
+                reset_min = (steps_so_far / 200)*(1. - args.new_frac) + args.new_frac # Added the last bit to compensate for resets
+                reset_max = ((steps_so_far + warm_up) / 200)*(1. - args.new_frac) + args.new_frac # Added the last bit to compensate for resets
+                resets[(int)(reset_min * total_envs):(int)(reset_max * total_envs)] = 1
+                print("Steps so far", steps_so_far)
+                print("Max length", 200)
+                print("Resetting", (int)(reset_min * total_envs), (int)(reset_max * total_envs))
+                self.worlds.step()
+                steps_so_far += warm_up
 
     # Corrected approach to get the first element of each group without using a for loop
     def get_first_elements_unsorted_groups(self, states, groups):
@@ -341,6 +348,19 @@ class GoExplore:
         elif self.binning == "y_pos_door":
             # Bin according to the y position of each agent
             # Determine granularity from num_bins
+            granularity = (torch.tensor(self.num_bins) / 2).int().item()
+            increment = 1.11/granularity
+            #print("States shape", states[0].shape)
+            self_obs = states[0].view(-1, self.num_worlds, 10)
+            y_0 = torch.clamp((self_obs[..., 1] + 20)/40, 0, 1.1) // increment # Granularity of 0.01 on the y
+            y_out = (y_0).int()
+            # We get door open/button press from attr_1
+            door_obs = states[6][...,0].max(dim=-1)[0].view(-1, self.num_worlds)
+            #print("Shapes", self_obs.shape, y_out.shape)
+            return (y_out + granularity*door_obs).int()
+        elif self.binning == "y_pos_door_level":
+            # Bin according to the y position of each agent
+            # Determine granularity from num_bins
             granularity = torch.sqrt(torch.tensor(self.num_bins)).int().item()
             increment = 1.11/granularity
             #print("States shape", states[0].shape)
@@ -400,6 +420,37 @@ class GoExplore:
             block_val = (entity_obs_norm * 10).int() % 10
             #print("Shapes", self_obs.shape, y_out.shape)
             return (y_out + granularity*door_obs + granularity*2*level_obs + granularity*2*8*block_val).int()
+        elif self.binning == "block_button":
+            # Let's make a task-specific binning function
+            granularity = (torch.tensor(self.num_bins) / 5).int().item()
+            increment = 1.01/granularity
+            # Three stages: 1) go to block, 2) drag block to button, 3) go to open door
+            door_obs = states[6][...,0].max(dim=-1)[0].view(-1, self.num_worlds)
+            grab_obs = states[1][...,0].view(-1, self.num_worlds) #.max(dim=-1)[0].view(-1, self.num_worlds)
+            #print("Door obs", door_obs, grab_obs)
+            # 0 if neither, 1 if grab, 2 if door open (and 3 if door and grab)
+            stage_obs = (grab_obs + 2*door_obs).int()#.clamp(0, 2)
+            #print(stage_obs)
+            # Now we want to have distance to goal in here
+            entity_obs = states[4].view(-1, self.num_worlds, 9, states[4].shape[-1])#[..., 0].min(dim=2)[0]
+            entity_type = states[5].view(-1, self.num_worlds, 9)
+            block_id = 3
+            button_id = 6
+            # Creating a meshgrid for B and C dimensions
+            B, C = entity_obs.shape[:2]
+            b_grid, c_grid = torch.meshgrid(torch.arange(B), torch.arange(C), indexing='ij')
+            block_dist = entity_obs[b_grid,c_grid,(entity_type == block_id).float().argmax(dim=-1)][...,0:2].norm(dim=-1).view(-1, self.num_worlds)
+            button_dist = entity_obs[entity_type == button_id][...,0:2].norm(dim=-1).view(-1, self.num_worlds)
+            exit_dist = states[3][...,0].view(-1, self.num_worlds)
+            # Now generate a binning from stage and stage_dist
+            dist_obs = (stage_obs == 0)*block_dist + (stage_obs == 1)*button_dist + (stage_obs == 2)*exit_dist + (stage_obs == 3)*exit_dist
+            # Need more granularity for stage_obs == 3
+            # Now bin by stage_obs and dist_obs, assume dist_obs < 25
+            dist_quantized = (1.0 - torch.clamp(dist_obs / 25, 0., 1.)) // increment
+            print("Max stage obs", stage_obs.max())
+            bins = (stage_obs*granularity + dist_quantized).int()
+            print(torch.unique(bins))
+            return bins
         elif self.binning == "x_y":
             # Bin according to the y position of each agent
             # Determine granularity from num_bins
@@ -459,6 +510,10 @@ class GoExplore:
             for i in range(1, args.steps_per_update):
                 self.bin_steps[prev_bins[-i]] = torch.minimum(self.bin_steps[prev_bins[-i]], self.bin_steps[bins[-i]] + 1)
                 self.start_bin_steps[bins[i - 1]] = torch.minimum(self.start_bin_steps[bins[i - 1]], self.start_bin_steps[prev_bins[i - 1]] + 1)
+        
+        if args.make_graph:
+            # Update transition graph
+            self.transition_graph[prev_bins, bins] += 1
 
     # Step 5: Update archive
     def update_archive(self, bins, scores, ppo_stats):
@@ -571,7 +626,7 @@ class GoExplore:
                         level_type_success_fracs.append((update_results.rewards[:,desired_samples:][(update_results.obs[2][0][:,desired_samples:] == i)*(update_results.dones[:,desired_samples:] == 1.0)] >= 1.00).float().mean().cpu().item())
                 else:
                     success_frac = 0
-                    level_type_success_fracs = [0, 0, 0, 0, 0, 0]
+                    level_type_success_fracs = [0, 0, 0, 0, 0, 0, 0, 0]
                 # Also compute level type success without filtering by desired_samples
                 success_filter_all = (update_results.dones == 1.0)[...,0]
                 success_frac_all = (update_results.rewards >= 1.00).reshape(-1, success_filter_all.shape[-1])[success_filter_all].float().mean().cpu().item() # Reward of 1 for room, 10 for whole set of rooms
@@ -625,8 +680,12 @@ class GoExplore:
                 "done_count": done_count,
                 "vnorm_mu": vnorm_mu,
                 "steps_to_end": avg_steps,
+                "steps_from_start": self.start_bin_steps[self.bin_count > 0].float().mean(),
                 "max_progress": self.max_progress,
                 "success_frac": success_frac,
+                # Log go-explore stats
+                "discovered_bins": (self.bin_count > 0).sum(),
+                "max_bin": torch.nonzero(self.bin_count > 0).max() if (self.bin_count > 0).sum() > 0 else 0,
                 # Add logging of success frac for each level type
                 "success_frac_0": level_type_success_fracs[0],
                 "success_frac_1": level_type_success_fracs[1],
@@ -668,7 +727,7 @@ class GoExplore:
         #    return
 
         # Now do the go-explore stuff
-        goExplore.max_progress = max(goExplore.max_progress, update_results.obs[0][...,1].max())
+        self.max_progress = max(self.max_progress, update_results.obs[0][...,1].max())
         '''
         if goExplore.max_progress > 30:
             # Print where this occurs
@@ -679,12 +738,27 @@ class GoExplore:
                 goExplore.checkpoints.cpu().numpy().tofile(f)
             raise ValueError("Max progress too high")
         '''
-        if goExplore.max_progress > 1.01: # Do this based off the exit observation
-            exit_bins = goExplore.map_states_to_bins(goExplore.obs)[0,:][(goExplore.obs[0][...,3] > 1.01).view(goExplore.num_worlds, goExplore.num_agents).all(dim=1)]
+        if update_id % 100 == 0:
+            # Save one checkpoint from every bin
+            print("Dumping checkpoints")
+            nonzero_bins = torch.nonzero(self.bin_count > 0).flatten()
+            # Get path from ckpt arg
+            save_dir = "ge_ckpts_" + str(self.ckpt_dir).split("/")[-1]
+            # Make save_dir if it doesn't exist
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir)
+            with open(save_dir + "/checkpoints" + str(update_id) + "_" + str(nonzero_bins.shape[0]), 'wb') as f:
+                #b_grid, c_grid = torch.meshgrid(nonzero_bins, torch.zeros_like(nonzero_bins), indexing='ij')
+                self.bin_checkpoints[nonzero_bins, 0].reshape(nonzero_bins.shape[0], -1).cpu().numpy().tofile(f)
+                #self.checkpoints.cpu().numpy().tofile(f)
+            # Also write the bin graph to file
+            if args.make_graph:
+                np.save(save_dir + "/graph" + str(update_id) + ".npy", self.transition_graph.cpu().numpy())
+        exit_bins = self.map_states_to_bins(update_results.obs)[(update_results.rewards >= 9.00)[...,0]]
+        if exit_bins.shape[0] > 0: # Do this based off the exit observation
             # Set exit path length to 0 for exit bins
-            goExplore.bin_steps[exit_bins] = 0
+            self.bin_steps[exit_bins] = 0
             print("Exit bins", torch.unique(exit_bins).shape)
-            #writer.add_scalar("charts/exit_path_length", goExplore.bin_steps[exit_bins].float().mean(), global_step)
 
         # Update archive from rollout
         #new_bins = self.map_states_to_bins(self.obs)
