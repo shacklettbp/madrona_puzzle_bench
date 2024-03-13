@@ -424,12 +424,6 @@ class GoExplore:
             # Let's make a task-specific binning function
             granularity = (torch.tensor(self.num_bins) / 5).int().item()
             increment = 1.01/granularity
-            # Three stages: 1) go to block, 2) drag block to button, 3) go to open door
-            door_obs = states[6][...,0].max(dim=-1)[0].view(-1, self.num_worlds)
-            grab_obs = states[1][...,0].view(-1, self.num_worlds) #.max(dim=-1)[0].view(-1, self.num_worlds)
-            #print("Door obs", door_obs, grab_obs)
-            # 0 if neither, 1 if grab, 2 if door open (and 3 if door and grab)
-            stage_obs = (grab_obs + 2*door_obs).int()#.clamp(0, 2)
             #print(stage_obs)
             # Now we want to have distance to goal in here
             entity_obs = states[4].view(-1, self.num_worlds, 9, states[4].shape[-1])#[..., 0].min(dim=2)[0]
@@ -441,9 +435,16 @@ class GoExplore:
             b_grid, c_grid = torch.meshgrid(torch.arange(B), torch.arange(C), indexing='ij')
             block_dist = entity_obs[b_grid,c_grid,(entity_type == block_id).float().argmax(dim=-1)][...,0:2].norm(dim=-1).view(-1, self.num_worlds)
             button_dist = entity_obs[entity_type == button_id][...,0:2].norm(dim=-1).view(-1, self.num_worlds)
+            block_button_dist = (entity_obs[entity_type == button_id][...,0:2].view(-1, self.num_worlds, 2) - entity_obs[b_grid,c_grid,(entity_type == block_id).float().argmax(dim=-1)][...,0:2]).norm(dim=-1).view(-1, self.num_worlds)
             exit_dist = states[3][...,0].view(-1, self.num_worlds)
+            # Three stages: 1) go to block, 2) drag block to button, 3) go to open door
+            door_obs = block_button_dist < 1.5 # Seems reasonable ...
+            grab_obs = states[1][...,0].view(-1, self.num_worlds) #.max(dim=-1)[0].view(-1, self.num_worlds)
+            #print("Door obs", door_obs, grab_obs)
+            # 0 if neither, 1 if grab, 2 if door open (and 3 if door and grab)
+            stage_obs = (grab_obs + 2*door_obs).int()#.clamp(0, 2)
             # Now generate a binning from stage and stage_dist
-            dist_obs = (stage_obs == 0)*block_dist + (stage_obs == 1)*button_dist + (stage_obs == 2)*exit_dist + (stage_obs == 3)*exit_dist
+            dist_obs = (stage_obs == 0)*block_dist + (stage_obs == 1)*block_button_dist + (stage_obs == 2)*exit_dist + (stage_obs == 3)*exit_dist
             # Need more granularity for stage_obs == 3
             # Now bin by stage_obs and dist_obs, assume dist_obs < 25
             dist_quantized = (1.0 - torch.clamp(dist_obs / 25, 0., 1.)) // increment
@@ -503,7 +504,7 @@ class GoExplore:
         # Now return the binning of all states
         return bins
 
-    def update_bin_steps(self, bins, prev_bins):
+    def update_bin_steps(self, bins, prev_bins, dones):
         #print(self.bin_steps[bins].shape, self.bin_steps[prev_bins].shape)
         #self.bin_steps[bins] = torch.minimum(self.bin_steps[bins], self.bin_steps[prev_bins] + 1)
         if self.num_bins > 1:
@@ -513,7 +514,7 @@ class GoExplore:
         
         if args.make_graph:
             # Update transition graph
-            self.transition_graph[prev_bins, bins] += 1
+            self.transition_graph[prev_bins[dones[...,0] == 0], bins[dones[...,0] == 0]] += 1
 
     # Step 5: Update archive
     def update_archive(self, bins, scores, ppo_stats):
@@ -753,7 +754,7 @@ class GoExplore:
                 #self.checkpoints.cpu().numpy().tofile(f)
             # Also write the bin graph to file
             if args.make_graph:
-                np.save(save_dir + "/graph" + str(update_id) + ".npy", self.transition_graph.cpu().numpy())
+                np.savez(save_dir + "/graph" + str(update_id) + ".npy", self.transition_graph.cpu().numpy(), self.bin_steps.cpu().numpy())
         exit_bins = self.map_states_to_bins(update_results.obs)[(update_results.rewards >= 9.00)[...,0]]
         if exit_bins.shape[0] > 0: # Do this based off the exit observation
             # Set exit path length to 0 for exit bins
@@ -763,7 +764,7 @@ class GoExplore:
         # Update archive from rollout
         #new_bins = self.map_states_to_bins(self.obs)
         all_bins = self.map_states_to_bins(update_results.obs) # num_timesteps * num_worlds
-        self.update_bin_steps(all_bins[1:], all_bins[:-1])
+        self.update_bin_steps(all_bins[1:], all_bins[:-1], update_results.dones[:-1])
         new_bins = all_bins[-1]
         # Update archive
         #print(self.curr_returns.shape)
