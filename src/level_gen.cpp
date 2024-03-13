@@ -1061,7 +1061,7 @@ static void singleBlockButtonLevel(Engine &ctx)
 
         float button_y = randBetween(ctx,
             room_aabb.pMin.y + half_button_width,
-            room_aabb.pMax.y - half_button_width);
+            room_aabb.pMax.y - 10*half_button_width);
 
         Entity button = makeButton(ctx, button_x, button_y);
 
@@ -1288,6 +1288,7 @@ LevelType generateLevel(Engine &ctx)
 {
     LevelType level_type = (LevelType)ctx.data().rng.sampleI32(
         0, (uint32_t)LevelType::NumTypes);
+    level_type = LevelType::SingleBlockButton;
 
     switch (level_type) {
     case LevelType::Chase: {

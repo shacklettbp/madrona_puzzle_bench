@@ -63,6 +63,7 @@ int main(int argc, char *argv[])
     char *load_ckpt_path = nullptr;
     bool start_frozen = false;
     bool print_obs = false;
+    uint32_t seed = 10; 
 
     for (int i = 1; i < argc; i++) {
         char *arg = argv[i];
@@ -125,6 +126,14 @@ int main(int argc, char *argv[])
                 start_frozen = true;
             } else if (!strcmp("print-obs", arg)) {
                 print_obs = true;
+            } else if (!strcmp("seed", arg)) {
+                i += 1;
+
+                if (i == argc) {
+                    usageErr();
+                }
+
+                seed = (uint32_t)atoi(argv[i]);
             } else {
                 usageErr();
             }
@@ -160,7 +169,7 @@ int main(int argc, char *argv[])
 #endif
 
 
-    SimFlags flags = SimFlags::Default;
+    SimFlags flags = SimFlags::UseFixedWorld;
 
     if (!replay_log.has_value()) {
         flags |= SimFlags::IgnoreEpisodeLength;
@@ -175,7 +184,7 @@ int main(int argc, char *argv[])
         .execMode = exec_mode,
         .gpuID = 0,
         .numWorlds = num_worlds,
-        .randSeed = 10,
+        .randSeed = seed,
         .simFlags = flags,
         .rewardMode = RewardMode::Dense2,
         .enableBatchRenderer = enable_batch_renderer,
