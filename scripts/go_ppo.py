@@ -74,6 +74,10 @@ arg_parser.add_argument('--uncertainty-metric', type=str, default="none")
 arg_parser.add_argument('--buffer-strategy', type=str, default="fifo")
 arg_parser.add_argument('--sampling-strategy', type=str, default="uniform")
 arg_parser.add_argument('--make-graph', action='store_true')
+arg_parser.add_argument('--importance-test', action='store_true')
+arg_parser.add_argument('--importance-weights', action='store_true')
+arg_parser.add_argument('--intelligent-sample', action='store_true')
+arg_parser.add_argument('--intelligent-weights', nargs='+', type=int, default=[1, 2, 1, 2])
 
 # Binning diagnostic args
 arg_parser.add_argument('--bin-diagnostic', action='store_true')
@@ -196,6 +200,11 @@ class GoExplore:
         self.world_steps = torch.zeros(self.num_worlds, device=device).int() + 200
         self.bin_reward_boost = args.bin_reward_boost
         self.reward_type = args.bin_reward_type
+        self.new_frac = args.new_frac
+        self.importance_test = args.importance_test
+        self.importance_weights = args.importance_weights
+        self.intelligent_sample = args.intelligent_sample
+        self.intelligent_weights = args.intelligent_weights
 
         # Add tracking for different types of uncertainties for resets
         self.bin_uncertainty = torch.zeros((self.num_bins, self.num_checkpoints), device=device).float() # Can have RND, TD error, (pseudo-counts? etc.)
@@ -328,7 +337,7 @@ class GoExplore:
         if self.binning == "none":
             return states
         elif self.binning == "random":
-            return torch.randint(0, self.num_bins, size=(1, self.num_worlds,), device=self.device)
+            return torch.randint(0, self.num_bins, size=(states[0].shape[1], self.num_worlds,), device=self.device)
         elif self.binning == "y_pos":
             # Bin according to the y position of each agent
             # Determine granularity from num_bins
@@ -422,7 +431,7 @@ class GoExplore:
             return (y_out + granularity*door_obs + granularity*2*level_obs + granularity*2*8*block_val).int()
         elif self.binning == "block_button":
             # Let's make a task-specific binning function
-            granularity = (torch.tensor(self.num_bins) / 5).int().item()
+            granularity = (torch.tensor(1000) / 5).int().item()#(torch.tensor(self.num_bins) / 5).int().item()
             increment = 1.01/granularity
             #print(stage_obs)
             # Now we want to have distance to goal in here
@@ -438,7 +447,7 @@ class GoExplore:
             block_button_dist = (entity_obs[entity_type == button_id][...,0:2].view(-1, self.num_worlds, 2) - entity_obs[b_grid,c_grid,(entity_type == block_id).float().argmax(dim=-1)][...,0:2]).norm(dim=-1).view(-1, self.num_worlds)
             exit_dist = states[3][...,0].view(-1, self.num_worlds)
             # Three stages: 1) go to block, 2) drag block to button, 3) go to open door
-            door_obs = block_button_dist < 1.5 # Seems reasonable ...
+            door_obs = block_button_dist < 1.0 # Seems reasonable ...
             grab_obs = states[1][...,0].view(-1, self.num_worlds) #.max(dim=-1)[0].view(-1, self.num_worlds)
             #print("Door obs", door_obs, grab_obs)
             # 0 if neither, 1 if grab, 2 if door open (and 3 if door and grab)
@@ -452,6 +461,33 @@ class GoExplore:
             bins = (stage_obs*granularity + dist_quantized).int()
             print(torch.unique(bins))
             return bins
+        elif self.binning == "block_button_keystages":
+            # Let's make a task-specific binning function
+            granularity = (torch.tensor(1000) / 5).int().item()#(torch.tensor(self.num_bins) / 5).int().item()
+            increment = 1.01/granularity
+            #print(stage_obs)
+            # Now we want to have distance to goal in here
+            entity_obs = states[4].view(-1, self.num_worlds, 9, states[4].shape[-1])#[..., 0].min(dim=2)[0]
+            entity_type = states[5].view(-1, self.num_worlds, 9)
+            block_id = 3
+            button_id = 6
+            # Creating a meshgrid for B and C dimensions
+            B, C = entity_obs.shape[:2]
+            b_grid, c_grid = torch.meshgrid(torch.arange(B), torch.arange(C), indexing='ij')
+            block_dist = entity_obs[b_grid,c_grid,(entity_type == block_id).float().argmax(dim=-1)][...,0:2].norm(dim=-1).view(-1, self.num_worlds)
+            button_dist = entity_obs[entity_type == button_id][...,0:2].norm(dim=-1).view(-1, self.num_worlds)
+            block_button_dist = (entity_obs[entity_type == button_id][...,0:2].view(-1, self.num_worlds, 2) - entity_obs[b_grid,c_grid,(entity_type == block_id).float().argmax(dim=-1)][...,0:2]).norm(dim=-1).view(-1, self.num_worlds)
+            exit_dist = states[3][...,0].view(-1, self.num_worlds)
+            # Three stages: 1) go to block, 2) drag block to button, 3) go to open door
+            door_obs = states[6][...,0].max(dim=-1)[0].view(-1, self.num_worlds)
+            grab_obs = states[1][...,0].view(-1, self.num_worlds) #.max(dim=-1)[0].view(-1, self.num_worlds)
+            # Key stage 1: Near block, not grabbing
+            stage_1 = (block_dist < 3.0)*(grab_obs == 0)
+            # Key stage 2: Grabbing block, near button, door not open
+            stage_2 = (block_button_dist < 3.0)*(grab_obs == 1)*(door_obs == 0)
+            # Key stage 3: Grabbing block, door open
+            stage_3 = (door_obs == 1)*(grab_obs == 1)
+            return (stage_1*granularity + stage_2*granularity*2 + stage_3*granularity*3).int()
         elif self.binning == "x_y":
             # Bin according to the y position of each agent
             # Determine granularity from num_bins
@@ -495,12 +531,15 @@ class GoExplore:
             raise NotImplementedError
 
     # Step 4: Map encountered states to bins
-    def map_states_to_bins(self, states):
+    def map_states_to_bins(self, states, max_bin = True):
         # Apply binning function to define bin for new states
         bins = self.apply_binning_function(states)
-        if torch.any(bins > self.num_bins):
-            # throw error
-            raise ValueError("Bin value too large")
+        # Apply mod to bring below num_bins
+        if max_bin:
+            bins = bins % self.num_bins
+            if torch.any(bins > self.num_bins):
+                # throw error
+                raise ValueError("Bin value too large")
         # Now return the binning of all states
         return bins
 
@@ -655,6 +694,25 @@ class GoExplore:
                     vnorm_mu = learning_state.value_normalizer.mu.cpu().item()
                     vnorm_sigma = learning_state.value_normalizer.sigma.cpu().item()
 
+                # Now let's compute a bunch of metrics per stage-level bin
+                all_bins = self.map_states_to_bins(update_results.obs, max_bin=False)
+                all_bins = all_bins // 200
+                # Assume this is in range 0-3, let's track TD error and intrinsic loss for each of these
+                all_td_error = [0, 0, 0, 0]
+                all_td_var = [0, 0, 0, 0]
+                all_value_mean = [0, 0, 0, 0]
+                all_value_var = [0, 0, 0, 0]
+                all_intrinsic_loss = [0, 0, 0, 0]
+                for i in range(4):
+                    bin_filter = (all_bins == i)
+                    all_td_error[i] = ppo.value_loss_array[bin_filter].mean().cpu().item()
+                    all_value_mean[i] = update_results.values[bin_filter].mean().cpu().item()
+                    if bin_filter.sum() > 1:
+                        all_td_var[i] = ppo.value_loss_array[bin_filter].var().cpu().item()
+                        all_value_var[i] = update_results.values[bin_filter].var().cpu().item()
+                    if args.use_intrinsic_loss:
+                        all_intrinsic_loss[i] = ppo.intrinsic_reward_array[bin_filter].mean().cpu().item()
+
             print(f"\nUpdate: {update_id}")
             print(f"    Loss: {ppo.loss: .3e}, A: {ppo.action_loss: .3e}, V: {ppo.value_loss: .3e}, E: {ppo.entropy_loss: .3e}")
             print()
@@ -706,6 +764,26 @@ class GoExplore:
                 "success_frac_5_all": level_type_success_fracs_all[5],
                 "success_frac_6_all": level_type_success_fracs_all[6],
                 "success_frac_7_all": level_type_success_fracs_all[7],
+                # Now log the TD error for each stage-level bin
+                "td_error_0": all_td_error[0],
+                "td_error_1": all_td_error[1],
+                "td_error_2": all_td_error[2],
+                "td_error_3": all_td_error[3],
+                # Now log the TD variance for each stage-level bin
+                "td_var_0": all_td_var[0],
+                "td_var_1": all_td_var[1],
+                "td_var_2": all_td_var[2],
+                "td_var_3": all_td_var[3],
+                # Now log the value mean for each stage-level bin
+                "value_mean_0": all_value_mean[0],
+                "value_mean_1": all_value_mean[1],
+                "value_mean_2": all_value_mean[2],
+                "value_mean_3": all_value_mean[3],
+                # Now log the value variance for each stage-level bin
+                "value_var_0": all_value_var[0],
+                "value_var_1": all_value_var[1],
+                "value_var_2": all_value_var[2],
+                "value_var_3": all_value_var[3]
                 }
             )
             if args.use_intrinsic_loss:
@@ -713,6 +791,11 @@ class GoExplore:
                     "update_id": update_id,
                     "intrinsic_loss": ppo.intrinsic_loss,
                     "value_loss_intrinsic": ppo.value_loss_intrinsic,
+                    # Now log the intrinsic loss for each stage-level bin
+                    "intrinsic_loss_0": all_intrinsic_loss[0],
+                    "intrinsic_loss_1": all_intrinsic_loss[1],
+                    "intrinsic_loss_2": all_intrinsic_loss[2],
+                    "intrinsic_loss_3": all_intrinsic_loss[3],
                 })
 
             if self.profile_report:
@@ -739,7 +822,7 @@ class GoExplore:
                 goExplore.checkpoints.cpu().numpy().tofile(f)
             raise ValueError("Max progress too high")
         '''
-        if update_id % 100 == 0:
+        if False:
             # Save one checkpoint from every bin
             print("Dumping checkpoints")
             nonzero_bins = torch.nonzero(self.bin_count > 0).flatten()
@@ -755,6 +838,8 @@ class GoExplore:
             # Also write the bin graph to file
             if args.make_graph:
                 np.savez(save_dir + "/graph" + str(update_id) + ".npy", self.transition_graph.cpu().numpy(), self.bin_steps.cpu().numpy())
+        # VISHNU: TEMPORARY CHANGE FOR DEBUGGING
+        '''
         exit_bins = self.map_states_to_bins(update_results.obs)[(update_results.rewards >= 9.00)[...,0]]
         if exit_bins.shape[0] > 0: # Do this based off the exit observation
             # Set exit path length to 0 for exit bins
@@ -780,6 +865,14 @@ class GoExplore:
         if args.new_frac > 0.002:
             states = self.select_state(update_id)
             self.go_to_state(states, leave_rest = (update_id % 5 != 0), update_id = update_id)
+        '''
+        ''' // Moved to train.py
+        if args.new_frac > 0.002:
+            desired_samples = int(self.num_worlds*args.new_frac)
+            self.checkpoint_resets[:, 0] = 1
+            self.checkpoints[:desired_samples] = self.checkpoints[desired_samples:].repeat((self.num_worlds // (self.num_worlds - desired_samples)) - 1, 1)
+            self.worlds.step()
+        '''
 
 # Maybe we can just write Go-Explore as a callback
 
@@ -801,7 +894,7 @@ else:
 
 run = wandb.init(
     # Set the project where this run will be logged
-    project="escape-room-ppo-go",
+    project="escape-room-dist-experiments-4",
     # Track hyperparameters and run metadata
     config=args
 )

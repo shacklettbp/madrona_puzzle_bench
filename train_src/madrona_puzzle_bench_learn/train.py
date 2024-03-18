@@ -226,6 +226,7 @@ def _ppo_update(cfg : TrainConfig,
                 optimizer : torch.optim.Optimizer,
                 value_normalizer : EMANormalizer,
                 value_normalizer_intrinsic : EMANormalizer,
+                world_weights: torch.Tensor,
             ):
     with amp.enable():
         with profile('AC Forward', gpu=True):
@@ -279,13 +280,26 @@ def _ppo_update(cfg : TrainConfig,
             value_loss_intrinsic = 0.5 * F.mse_loss(
                 new_values_intrinsic, normalized_returns_intrinsic, reduction='none')
 
+        '''
         action_obj = torch.mean(action_obj)
         value_loss = torch.mean(value_loss_array)
         entropies = torch.mean(entropies)
+        '''
+        # Weighted means by world_weights
+        #print("Weight shapes")
+        #print(action_obj.shape, world_weights.shape, value_loss_array.shape, entropies.shape)
+        world_weights = world_weights[None, :, None]
+        action_obj = (torch.sum(action_obj * world_weights) / world_weights.sum()).mean()
+        value_loss = (torch.sum(value_loss_array * world_weights) / world_weights.sum()).mean()
+        entropies = (torch.sum(entropies * world_weights) / world_weights.sum()).mean()
 
         if cfg.ppo.use_intrinsic_loss:
+            '''
             value_loss_intrinsic = torch.mean(value_loss_intrinsic)
             intrinsic_loss = torch.mean(reward_intrinsic)
+            '''
+            value_loss_intrinsic = torch.sum(value_loss_intrinsic * world_weights) / world_weights.sum()
+            intrinsic_loss = torch.sum(reward_intrinsic * world_weights) / world_weights.sum()
             loss = (
                 - action_obj # Maximize the action objective function
                 + cfg.ppo.value_loss_coef * value_loss
@@ -353,11 +367,64 @@ def _ppo_update(cfg : TrainConfig,
             entropy_loss = -(cfg.ppo.entropy_coef * entropies.cpu().float().item()),
             returns_mean = returns_mean.cpu().float().item(),
             returns_stddev = returns_stddev.cpu().float().item(),
-            value_loss_array = value_loss_array[-1,:,0], # Collapse to one per checkpoint
-            intrinsic_reward_array = None #reward_intrinsic[-1,:,0] if reward_intrinsic is not None else None, # Collapse to one per checkpoint
+            value_loss_array = value_loss_array,#[-1,:,0], # Collapse to one per checkpoint
+            intrinsic_reward_array = reward_intrinsic if reward_intrinsic is not None else None, # Collapse to one per checkpoint
         )
 
     return stats
+
+def weighted_stratified_sample_corrected(data, labels, total_samples, class_weights):
+    # Calculate class distribution and adjust by class weights
+    counts = torch.bincount(labels, minlength=class_weights.shape[0])
+    adjusted_counts = counts.float() * class_weights
+    
+    # Calculate the proportion of each class after adjustment
+    adjusted_proportions = adjusted_counts / adjusted_counts.sum()
+    
+    # Compute initial samples per class without rounding
+    float_samples_per_class = adjusted_proportions * total_samples
+    
+    # Determine rounded and residual values
+    samples_per_class = float_samples_per_class.floor().long()
+    residuals = float_samples_per_class - samples_per_class.float()
+    
+    # Correct the total number of samples to match exactly
+    while samples_per_class.sum() < total_samples:
+        idx = residuals.argmax()
+        samples_per_class[idx] += 1
+        residuals[idx] = 0  # Prevent this class from being selected again
+
+    print("Samples per class", samples_per_class)
+    print("Adjusted counts", adjusted_counts)
+
+    sampled_data = []
+    sampled_labels = []
+
+    for class_id in range(class_weights.shape[0]):
+        class_data = data[labels == class_id]
+        num_samples_class = samples_per_class[class_id]
+
+        # If the class is empty or no samples needed, skip
+        if len(class_data) == 0 or num_samples_class == 0:
+            continue
+
+        # Select indices randomly for the current class
+        #print("Class data", class_data.shape, num_samples_class)
+        if num_samples_class > len(class_data):
+            indices = torch.randperm(len(class_data)).repeat(num_samples_class // len(class_data) + 1)[:num_samples_class]
+        else:
+            indices = torch.randperm(len(class_data))[:num_samples_class]
+
+        sampled_data.append(class_data[indices])
+        sampled_labels.append(labels[labels == class_id][indices])
+
+    # Concatenate sampled data and labels from all classes
+    sampled_data = torch.cat(sampled_data, dim=0)
+    sampled_labels = torch.cat(sampled_labels, dim=0)
+
+    #print("Sampled data shape", sampled_data.shape)
+
+    return sampled_data, sampled_labels
 
 def _update_iter(cfg : TrainConfig,
                  amp : AMPState,
@@ -379,6 +446,39 @@ def _update_iter(cfg : TrainConfig,
         value_normalizer.eval()
         # This is where the simulator loop happens that executes the TaskGraph.
         with profile('Collect Rollouts'):
+            world_weights = torch.ones(user_cb.num_worlds, device=advantages.device)
+            if type(user_cb).__name__ == "GoExplore":
+                # Let's also do some checkpoint restores here
+                # This should actually happen before collecting rollouts! But doesn't matter beyond first step i think
+                if user_cb.new_frac > 0.002:
+                    desired_samples = int(user_cb.num_worlds*user_cb.new_frac)
+                    user_cb.checkpoint_resets[:, 0] = 1
+                    if user_cb.importance_test:
+                        # Only copy from first half of fixed worlds
+                        source_worlds = user_cb.checkpoints[(desired_samples + user_cb.num_worlds) // 2:]
+                        #print("Source worlds", source_worlds.shape, desired_samples, user_cb.num_worlds)
+                        num_copies = ((user_cb.num_worlds // (user_cb.num_worlds - desired_samples)) - 1)*2
+                        user_cb.checkpoints[:desired_samples] = source_worlds.repeat(num_copies, 1)
+                        if user_cb.importance_weights:
+                            # Higher weight on the worlds not copied
+                            world_weights[desired_samples:(desired_samples + user_cb.num_worlds) // 2] = num_copies + 1
+                            #print(torch.unique(world_weights, return_counts=True))
+                            # Renormalize to average weight 1
+                            world_weights /= world_weights.mean()
+                            #print(torch.unique(world_weights, return_counts=True))
+                    elif user_cb.intelligent_sample:
+                        # First bin the source worlds
+                        source_bins = user_cb.map_states_to_bins(user_cb.obs, max_bin=False)[0,desired_samples:]
+                        # Now we divide by 200 to get the higher-level state in the progression
+                        source_bins = source_bins // 200
+                        # Now we need to weight the sampling to sample less from source_bins == 0
+                        sampled_checkpoints, _ = weighted_stratified_sample_corrected(user_cb.checkpoints[desired_samples:], source_bins.to(user_cb.checkpoints.device), desired_samples, torch.tensor(user_cb.intelligent_weights, device = user_cb.checkpoints.device))
+                        user_cb.checkpoints[:desired_samples] = sampled_checkpoints
+                        # Let's not re-weight this for now
+                    else:
+                        user_cb.checkpoints[:desired_samples] = user_cb.checkpoints[desired_samples:].repeat((user_cb.num_worlds // (user_cb.num_worlds - desired_samples)) - 1, 1)
+                    user_cb.worlds.step()
+
             rollouts = rollout_mgr.collect(amp, sim, actor_critic, value_normalizer, value_normalizer_intrinsic)
             #print("Testing: adding to buffer")
             #replay_buffer.add_to_buffer(rollouts)
@@ -461,8 +561,8 @@ def _update_iter(cfg : TrainConfig,
         num_stats = 0
 
         for epoch in range(cfg.ppo.num_epochs):
-            #for inds in torch.arange(num_train_seqs).chunk(
-            for inds in torch.randperm(num_train_seqs).chunk( # VISHNU: ASSUME ONE MINIBATCH, randperm messes up tracking
+            for inds in torch.arange(num_train_seqs).chunk(
+            #for inds in torch.randperm(num_train_seqs).chunk( # VISHNU: ASSUME ONE MINIBATCH, randperm messes up tracking
                     cfg.ppo.num_mini_batches):
                 with torch.no_grad(), profile('Gather Minibatch', gpu=True):
                     mb = _gather_minibatch(rollouts, advantages, advantages_intrinsic, inds, amp)
@@ -472,7 +572,8 @@ def _update_iter(cfg : TrainConfig,
                                         actor_critic,
                                         optimizer,
                                         value_normalizer,
-                                        value_normalizer_intrinsic)
+                                        value_normalizer_intrinsic,
+                                        world_weights)
 
                 with torch.no_grad():
                     num_stats += 1
@@ -494,7 +595,8 @@ def _update_iter(cfg : TrainConfig,
                         cur_stats.returns_stddev - aggregate_stats.returns_stddev) / num_stats
                     aggregate_stats.value_loss_array = cur_stats.value_loss_array
                     #aggregate_stats.intrinsic_reward_array = cur_stats.intrinsic_reward_array
-    aggregate_stats.intrinsic_reward_array = rollouts.rewards_intrinsic.view(-1, *rollouts.rewards_intrinsic.shape[2:])[-1,:,0].detach().float() if rollouts.rewards_intrinsic is not None else None # Get the intrinsic reward of the last step to weight the checkpoint
+    #aggregate_stats.intrinsic_reward_array = rollouts.rewards_intrinsic.view(-1, *rollouts.rewards_intrinsic.shape[2:])[-1,:,0].detach().float() if rollouts.rewards_intrinsic is not None else None # Get the intrinsic reward of the last step to weight the checkpoint
+    aggregate_stats.intrinsic_reward_array = rollouts.rewards_intrinsic.view(-1, *rollouts.rewards_intrinsic.shape[2:]).detach().float() if rollouts.rewards_intrinsic is not None else None
 
     return UpdateResult(
         obs = rollouts.obs,
