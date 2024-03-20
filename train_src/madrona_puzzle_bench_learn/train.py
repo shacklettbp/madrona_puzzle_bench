@@ -50,6 +50,7 @@ class PPOStats:
     returns_stddev : float = 0
     value_loss_array : torch.Tensor = None
     intrinsic_reward_array : torch.Tensor = None
+    entropy_loss_array : torch.Tensor = None
 
 @dataclass(frozen = True)
 class UpdateResult:
@@ -291,6 +292,7 @@ def _ppo_update(cfg : TrainConfig,
         world_weights = world_weights[None, :, None]
         action_obj = (torch.sum(action_obj * world_weights) / world_weights.sum()).mean()
         value_loss = (torch.sum(value_loss_array * world_weights) / world_weights.sum()).mean()
+        entropy_loss_array = torch.clone(entropies).detach()
         entropies = (torch.sum(entropies * world_weights) / world_weights.sum()).mean()
 
         if cfg.ppo.use_intrinsic_loss:
@@ -369,6 +371,7 @@ def _ppo_update(cfg : TrainConfig,
             returns_stddev = returns_stddev.cpu().float().item(),
             value_loss_array = value_loss_array,#[-1,:,0], # Collapse to one per checkpoint
             intrinsic_reward_array = reward_intrinsic if reward_intrinsic is not None else None, # Collapse to one per checkpoint
+            entropy_loss_array = entropy_loss_array,
         )
 
     return stats
@@ -450,7 +453,7 @@ def _update_iter(cfg : TrainConfig,
             if type(user_cb).__name__ == "GoExplore":
                 # Let's also do some checkpoint restores here
                 # This should actually happen before collecting rollouts! But doesn't matter beyond first step i think
-                if user_cb.new_frac > 0.002:
+                if user_cb.new_frac > 0.002 and not user_cb.choose_worlds:
                     desired_samples = int(user_cb.num_worlds*user_cb.new_frac)
                     user_cb.checkpoint_resets[:, 0] = 1
                     if user_cb.importance_test:
@@ -471,8 +474,13 @@ def _update_iter(cfg : TrainConfig,
                         source_bins = user_cb.map_states_to_bins(user_cb.obs, max_bin=False)[0,desired_samples:]
                         # Now we divide by 200 to get the higher-level state in the progression
                         source_bins = source_bins // 200
+                        # Update intelligent_weights if we are using td_weights
+                        sampling_weights = torch.tensor(user_cb.intelligent_weights, device = user_cb.checkpoints.device)
+                        if user_cb.td_weights:
+                            sampling_weights = user_cb.running_td_error / user_cb.running_td_error.sum()
+                        print("Sampling weights", sampling_weights)
                         # Now we need to weight the sampling to sample less from source_bins == 0
-                        sampled_checkpoints, _ = weighted_stratified_sample_corrected(user_cb.checkpoints[desired_samples:], source_bins.to(user_cb.checkpoints.device), desired_samples, torch.tensor(user_cb.intelligent_weights, device = user_cb.checkpoints.device))
+                        sampled_checkpoints, _ = weighted_stratified_sample_corrected(user_cb.checkpoints[desired_samples:], source_bins.to(user_cb.checkpoints.device), desired_samples, sampling_weights)
                         user_cb.checkpoints[:desired_samples] = sampled_checkpoints
                         # Let's not re-weight this for now
                     else:
@@ -595,6 +603,7 @@ def _update_iter(cfg : TrainConfig,
                         cur_stats.returns_stddev - aggregate_stats.returns_stddev) / num_stats
                     aggregate_stats.value_loss_array = cur_stats.value_loss_array
                     #aggregate_stats.intrinsic_reward_array = cur_stats.intrinsic_reward_array
+                    aggregate_stats.entropy_loss_array = cur_stats.entropy_loss_array
     #aggregate_stats.intrinsic_reward_array = rollouts.rewards_intrinsic.view(-1, *rollouts.rewards_intrinsic.shape[2:])[-1,:,0].detach().float() if rollouts.rewards_intrinsic is not None else None # Get the intrinsic reward of the last step to weight the checkpoint
     aggregate_stats.intrinsic_reward_array = rollouts.rewards_intrinsic.view(-1, *rollouts.rewards_intrinsic.shape[2:]).detach().float() if rollouts.rewards_intrinsic is not None else None
 

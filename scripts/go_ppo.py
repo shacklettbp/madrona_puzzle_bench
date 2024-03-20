@@ -78,12 +78,17 @@ arg_parser.add_argument('--importance-test', action='store_true')
 arg_parser.add_argument('--importance-weights', action='store_true')
 arg_parser.add_argument('--intelligent-sample', action='store_true')
 arg_parser.add_argument('--intelligent-weights', nargs='+', type=int, default=[1, 2, 1, 2])
+arg_parser.add_argument('--td-weights', action='store_true')
+arg_parser.add_argument('--choose-worlds', action='store_true')
+arg_parser.add_argument('--world-success-frac', type=float, default=0.5)
 
 # Binning diagnostic args
 arg_parser.add_argument('--bin-diagnostic', action='store_true')
 arg_parser.add_argument('--seeds-per-checkpoint', type=int, default=16)
 
 args = arg_parser.parse_args()
+
+#args.num_updates = args.num_updates*2 # Temporary change for script, will need to roll back
 
 normalize_values = not args.no_value_norm
 normalize_advantages = not args.no_advantage_norm
@@ -205,6 +210,15 @@ class GoExplore:
         self.importance_weights = args.importance_weights
         self.intelligent_sample = args.intelligent_sample
         self.intelligent_weights = args.intelligent_weights
+        self.td_weights = args.td_weights
+        self.running_td_error = torch.tensor(args.intelligent_weights, device = self.checkpoints.device).float() # Just for initialization, we'll do EMA on this
+
+        # Temporarily store checkpoints for 1) current worlds, 2) failed worlds, 3) successful worlds
+        self.choose_worlds = args.choose_worlds
+        self.world_success_frac = args.world_success_frac
+        self.current_worlds = self.checkpoints.clone().detach()
+        self.failure_worlds = None
+        self.success_worlds = None
 
         # Add tracking for different types of uncertainties for resets
         self.bin_uncertainty = torch.zeros((self.num_bins, self.num_checkpoints), device=device).float() # Can have RND, TD error, (pseudo-counts? etc.)
@@ -657,7 +671,58 @@ class GoExplore:
                     #success_frac = update_results.obs[0][update_results.dones == 1.0, ..., 3].mean().cpu().item()
                     #print((update_results.obs[0][...,3] > 1.00).shape)
                     #print((update_results.obs[0][...,3] > 1.00)[:,:,desired_samples:].shape)
+                    success_filter = (update_results.dones[:,desired_samples:] == 1.0)[...,0].sum(dim=0) > 0
+
+                    # Use success_filter to move these checkpoints into success and failure worlds
+                    solved_filter = (update_results.rewards[:,desired_samples:] >= 1.00).reshape(-1, success_filter.shape[-1]).sum(dim=0) > 0
+
+                    # Now copy worlds from current_worlds to success_worlds and failure_worlds
+                    max_size = 100000
+                    if success_filter.sum() > 0 and self.choose_worlds:
+                        if self.success_worlds is None:
+                            self.success_worlds = self.current_worlds[desired_samples:][success_filter*solved_filter]
+                        else:
+                            self.success_worlds = torch.cat((self.success_worlds, self.current_worlds[desired_samples:][success_filter*solved_filter]), dim=0)[:max_size]
+                        if self.failure_worlds is None:
+                            self.failure_worlds = self.current_worlds[desired_samples:][success_filter*(~solved_filter)]
+                        else:
+                            self.failure_worlds = torch.cat((self.failure_worlds, self.current_worlds[desired_samples:][success_filter*(~solved_filter)]), dim=0)[:max_size]
+
+                        # Now copy over the checkpoints for the completed worlds to current_worlds
+                        self.current_worlds[desired_samples:][success_filter] = self.checkpoints[desired_samples:][success_filter].clone().detach()
+
+                    # Now set all other worlds from just success worlds or just failure worlds
+                    if self.choose_worlds:
+                        self.checkpoint_resets[:, 0] = 1
+                        success_samples = (int)(self.world_success_frac*desired_samples)
+                        # Adjust success_samples to reflect the sizes of the buffers--lower if no successes available, and increase if no failures availble
+                        if self.success_worlds is not None and self.success_worlds.shape[0] < success_samples:
+                            success_samples = self.success_worlds.shape[0]
+                        elif self.failure_worlds is not None and self.failure_worlds.shape[0] < (desired_samples - success_samples):
+                            success_samples = desired_samples - self.failure_worlds.shape[0]
+
+                        if self.world_success_frac > 0.0 and self.success_worlds is not None and self.success_worlds.shape[0] > 0:
+                            # Take the first desired_samples from success worlds, or repeat if fewer to get desired_samples
+                            if self.success_worlds.shape[0] < success_samples:
+                                self.checkpoints[:success_samples] = self.success_worlds.repeat((success_samples // self.success_worlds.shape[0]) + 1, 1)[:success_samples]
+                            else:
+                                # Use randperm to select worlds
+                                self.checkpoints[:success_samples] = self.success_worlds[torch.randperm(self.success_worlds.shape[0])[:success_samples]]
+                        if self.world_success_frac < 1.0 and self.failure_worlds is not None and self.failure_worlds.shape[0] > 0:
+                            # Take the first desired_samples from failure worlds, or repeat if fewer to get desired_samples
+                            failure_samples = desired_samples - success_samples
+                            # Remove selected worlds from failure worlds
+                            if self.failure_worlds.shape[0] < failure_samples:
+                                self.checkpoints[success_samples:desired_samples] = self.failure_worlds.repeat((failure_samples // self.failure_worlds.shape[0]) + 1, 1)[:failure_samples]
+                                #self.failure_worlds = None
+                            else:
+                                self.checkpoints[success_samples:desired_samples] = self.failure_worlds[torch.randperm(self.failure_worlds.shape[0])[:failure_samples]]
+                                # Shift failure_worlds to delete selected worlds
+                                #self.failure_worlds = self.failure_worlds[failure_samples:]
+                        self.worlds.step()
+
                     success_filter = (update_results.dones[:,desired_samples:] == 1.0)[...,0]
+
                     #print(success_filter.shape)
                     success_frac = (update_results.rewards[:,desired_samples:] >= 1.00).reshape(-1, success_filter.shape[-1])[success_filter].float().mean().cpu().item() # Reward of 1 for room, 10 for whole set of rooms
                     # Break this down for each level type, which is obs[2]
@@ -696,6 +761,12 @@ class GoExplore:
 
                 # Now let's compute a bunch of metrics per stage-level bin
                 all_bins = self.map_states_to_bins(update_results.obs, max_bin=False)
+                # Let's do bin-counts here for now, TODO have to reverse this
+                new_bin_counts = torch.bincount(all_bins.flatten(), minlength=self.num_bins)# > 0).int()
+                #self.bin_count += torch.clone(new_bin_counts)
+                new_bin_counts = new_bin_counts.float()
+
+                # Map to super-bins
                 all_bins = all_bins // 200
                 # Assume this is in range 0-3, let's track TD error and intrinsic loss for each of these
                 all_td_error = [0, 0, 0, 0]
@@ -703,6 +774,8 @@ class GoExplore:
                 all_value_mean = [0, 0, 0, 0]
                 all_value_var = [0, 0, 0, 0]
                 all_intrinsic_loss = [0, 0, 0, 0]
+                all_entropy_loss = [0, 0, 0, 0]
+                all_bin_variance = [0, 0, 0, 0]
                 for i in range(4):
                     bin_filter = (all_bins == i)
                     all_td_error[i] = ppo.value_loss_array[bin_filter].mean().cpu().item()
@@ -712,6 +785,15 @@ class GoExplore:
                         all_value_var[i] = update_results.values[bin_filter].var().cpu().item()
                     if args.use_intrinsic_loss:
                         all_intrinsic_loss[i] = ppo.intrinsic_reward_array[bin_filter].mean().cpu().item()
+                    # Update running estimates of TD error if not nan
+                    if not math.isnan(all_td_error[i]):
+                        self.running_td_error[i] = 0.9*self.running_td_error[i] + 0.1*all_td_error[i]
+
+                    # Also set up estimates of entropy loss per bin, and bin count variance per bin
+                    all_entropy_loss[i] = ppo.entropy_loss_array[bin_filter].mean().cpu().item()
+                    if bin_filter.sum() > 1:
+                        all_bin_variance[i] = torch.std(new_bin_counts[200*i:200*(i+1)]).cpu().item() / torch.mean(new_bin_counts[200*i:200*(i+1)]).cpu().item()
+                print("All td error, running", all_td_error, self.running_td_error)
 
             print(f"\nUpdate: {update_id}")
             print(f"    Loss: {ppo.loss: .3e}, A: {ppo.action_loss: .3e}, V: {ppo.value_loss: .3e}, E: {ppo.entropy_loss: .3e}")
@@ -783,7 +865,17 @@ class GoExplore:
                 "value_var_0": all_value_var[0],
                 "value_var_1": all_value_var[1],
                 "value_var_2": all_value_var[2],
-                "value_var_3": all_value_var[3]
+                "value_var_3": all_value_var[3],
+                # Now log the entropy loss for each stage-level bin
+                "entropy_loss_0": all_entropy_loss[0],
+                "entropy_loss_1": all_entropy_loss[1],
+                "entropy_loss_2": all_entropy_loss[2],
+                "entropy_loss_3": all_entropy_loss[3],
+                # Report the bin variance
+                "bin_variance_0": all_bin_variance[0],
+                "bin_variance_1": all_bin_variance[1],
+                "bin_variance_2": all_bin_variance[2],
+                "bin_variance_3": all_bin_variance[3],
                 }
             )
             if args.use_intrinsic_loss:
@@ -894,7 +986,7 @@ else:
 
 run = wandb.init(
     # Set the project where this run will be logged
-    project="escape-room-dist-experiments-4",
+    project="escape-room-dist-experiments-8",
     # Track hyperparameters and run metadata
     config=args
 )
