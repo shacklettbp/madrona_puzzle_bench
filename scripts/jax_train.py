@@ -112,9 +112,10 @@ class PuzzleBenchHooks(TrainHooks):
         old_printopts = np.get_printoptions()
         np.set_printoptions(formatter={'float_kind':'{:.1e}'.format}, linewidth=150)
 
-        print(lrs)
-        print(entropy_coefs)
-        print(reward_hyper_params[..., 0])
+        if args.pbt_ensemble_size > 0:
+            print(lrs)
+            print(entropy_coefs)
+            print(reward_hyper_params[..., 0])
 
         episode_scores = train_state_mgr.policy_states.episode_score.mean
         print(episode_scores)
@@ -126,8 +127,11 @@ class PuzzleBenchHooks(TrainHooks):
 
         for i in range(episode_scores.shape[0]):
             tb_writer.scalar(f"p{i}/episode_score", episode_scores[i], update_id)
-            tb_writer.scalar(f"p{i}/dist_to_exit_scale",
-                             reward_hyper_params[i][0], update_id)
+
+        if args.pbt_ensemble_size > 0:
+            for i in range(episode_scores.shape[0]):
+                tb_writer.scalar(f"p{i}/dist_to_exit_scale",
+                                 reward_hyper_params[i][0], update_id)
 
         num_train_policies = lrs.shape[0]
         for i in range(lrs.shape[0]):
