@@ -28,4 +28,5 @@ CUDA_VISIBLE_DEVICES=0 MADRONA_MWGPU_KERNEL_CACHE=${ROOT_DIR}/build/cache python
     --num-channels 512 \
     --pbt-ensemble-size 0 \
     --bf16 \
-    --wandb
+    --wandb \
+    --num-env-copies 128

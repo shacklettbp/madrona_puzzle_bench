@@ -56,6 +56,9 @@ arg_parser.add_argument('--gpu-sim', action='store_true')
 arg_parser.add_argument('--profile-port', type=int, default=None)
 arg_parser.add_argument('--wandb', action='store_true')
 
+# Variance args
+arg_parser.add_argument('--num-env-copies', type=int, default=1)
+
 args = arg_parser.parse_args()
 
 sim = madrona_puzzle_bench.SimManager(
@@ -160,9 +163,9 @@ class PuzzleBenchHooks(TrainHooks):
 
     def start_rollouts(self, rollout_state, user_state):
         ckpts = rollout_state.get_current_checkpoints()
-        main_ckpts = ckpts.reshape(-1, 4, ckpts.shape[-1])
+        main_ckpts = ckpts.reshape(-1, args.num_env_copies, ckpts.shape[-1])
         main_ckpts = main_ckpts[:, 0]
-        ckpts = jnp.repeat(main_ckpts, 4, axis=0)
+        ckpts = jnp.repeat(main_ckpts, args.num_env_copies, axis=0)
 
         return rollout_state.load_checkpoints_into_sim(ckpts), user_state
 
