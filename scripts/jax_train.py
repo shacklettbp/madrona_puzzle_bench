@@ -18,8 +18,9 @@ from madrona_puzzle_bench.madrona import ExecMode
 import madrona_learn
 from madrona_learn import (
     TrainConfig, TrainHooks, PPOConfig, PBTConfig, ParamExplore,
-    TensorboardWriter,
+    TensorboardWriter, WandbWriter
 )
+import wandb
 
 from jax_policy import make_policy
 
@@ -53,6 +54,7 @@ arg_parser.add_argument('--pbt-ensemble-size', type=int, default=0)
 
 arg_parser.add_argument('--gpu-sim', action='store_true')
 arg_parser.add_argument('--profile-port', type=int, default=None)
+arg_parser.add_argument('--wandb', action='store_true')
 
 args = arg_parser.parse_args()
 
@@ -75,8 +77,10 @@ sim = madrona_puzzle_bench.SimManager(
 jax_gpu = jax.devices()[0].platform == 'gpu'
 
 sim_fns = sim.jax(jax_gpu)
-
-tb_writer = TensorboardWriter(os.path.join(args.tb_dir, args.run_name))
+if args.wandb:
+    tb_writer = WandbWriter(os.path.join(args.tb_dir, args.run_name), args=args)
+else:
+    tb_writer = TensorboardWriter(os.path.join(args.tb_dir, args.run_name))
 
 last_time = 0
 last_update = 0
