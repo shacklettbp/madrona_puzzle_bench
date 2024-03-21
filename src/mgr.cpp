@@ -145,6 +145,11 @@ struct Manager::Impl {
 #ifdef MADRONA_CUDA_SUPPORT
     virtual void gpuStreamInit(cudaStream_t strm, void **buffers, Manager &) = 0;
     virtual void gpuStreamStep(cudaStream_t strm, void **buffers, Manager &) = 0;
+
+    virtual void gpuStreamLoadCheckpoints(
+        cudaStream_t strm, void **buffers, Manager &) = 0;
+    virtual void gpuStreamGetCheckpoints(
+        cudaStream_t strm, void **buffers, Manager &) = 0;
 #endif
 
     virtual Tensor exportTensor(ExportID slot,
@@ -204,6 +209,18 @@ struct Manager::CPUImpl final : Manager::Impl {
     }
 
     virtual void gpuStreamStep(cudaStream_t, void **, Manager &)
+    {
+        assert(false);
+    }
+
+    virtual void gpuStreamLoadCheckpoints(
+        cudaStream_t, void **, Manager &)
+    {
+        assert(false);
+    }
+
+    virtual void gpuStreamGetCheckpoints(
+        cudaStream_t, void **, Manager &)
     {
         assert(false);
     }
@@ -269,29 +286,38 @@ struct Manager::CUDAImpl final : Manager::Impl {
         renderStep();
     }
 
+    inline void copyFromSim(cudaStream_t strm, void *dst, const Tensor &src)
+    {
+        uint64_t num_bytes = numTensorBytes(src);
+
+        REQ_CUDA(cudaMemcpyAsync(dst, src.devicePtr(), num_bytes,
+            cudaMemcpyDeviceToDevice, strm));
+    }
+
+    inline void copyToSim(cudaStream_t strm, const Tensor &dst, void *src)
+    {
+        uint64_t num_bytes = numTensorBytes(dst);
+
+        REQ_CUDA(cudaMemcpyAsync(dst.devicePtr(), src, num_bytes,
+            cudaMemcpyDeviceToDevice, strm));
+    }
+
 #ifdef MADRONA_CUDA_SUPPORT
     inline void ** copyOutObservations(cudaStream_t strm,
                                        void **buffers,
                                        Manager &mgr)
     {
-        auto copyFromSim = [&strm](void *dst, const Tensor &src) {
-            uint64_t num_bytes = numTensorBytes(src);
-
-            REQ_CUDA(cudaMemcpyAsync(dst, src.devicePtr(), num_bytes,
-                cudaMemcpyDeviceToDevice, strm));
-        };
-
         // Observations
-        copyFromSim(*buffers++, mgr.agentTxfmObsTensor());
-        copyFromSim(*buffers++, mgr.agentInteractObsTensor());
-        copyFromSim(*buffers++, mgr.agentLevelTypeObsTensor());
-        copyFromSim(*buffers++, mgr.agentExitObsTensor());
-        copyFromSim(*buffers++, mgr.lidarDepthTensor());
-        copyFromSim(*buffers++, mgr.lidarHitTypeTensor());
-        copyFromSim(*buffers++, mgr.stepsRemainingTensor());
-        copyFromSim(*buffers++, mgr.entityPhysicsStateObsTensor());
-        copyFromSim(*buffers++, mgr.entityTypeObsTensor());
-        copyFromSim(*buffers++, mgr.entityAttributesObsTensor());
+        copyFromSim(strm, *buffers++, mgr.agentTxfmObsTensor());
+        copyFromSim(strm, *buffers++, mgr.agentInteractObsTensor());
+        copyFromSim(strm, *buffers++, mgr.agentLevelTypeObsTensor());
+        copyFromSim(strm, *buffers++, mgr.agentExitObsTensor());
+        copyFromSim(strm, *buffers++, mgr.lidarDepthTensor());
+        copyFromSim(strm, *buffers++, mgr.lidarHitTypeTensor());
+        copyFromSim(strm, *buffers++, mgr.stepsRemainingTensor());
+        copyFromSim(strm, *buffers++, mgr.entityPhysicsStateObsTensor());
+        copyFromSim(strm, *buffers++, mgr.entityTypeObsTensor());
+        copyFromSim(strm, *buffers++, mgr.entityAttributesObsTensor());
 
         return buffers;
     }
@@ -314,35 +340,38 @@ struct Manager::CUDAImpl final : Manager::Impl {
 
     virtual void gpuStreamStep(cudaStream_t strm, void **buffers, Manager &mgr)
     {
-        auto copyToSim = [&strm](const Tensor &dst, void *src) {
-            uint64_t num_bytes = numTensorBytes(dst);
-
-            REQ_CUDA(cudaMemcpyAsync(dst.devicePtr(), src, num_bytes,
-                cudaMemcpyDeviceToDevice, strm));
-        };
-
-        copyToSim(mgr.actionTensor(), *buffers++);
-        copyToSim(mgr.resetTensor(), *buffers++);
+        copyToSim(strm, mgr.actionTensor(), *buffers++);
+        copyToSim(strm, mgr.resetTensor(), *buffers++);
 
         if (cfg.numPBTPolicies > 0) {
-            copyToSim(mgr.policyAssignmentsTensor(), *buffers++);
-            copyToSim(mgr.rewardHyperParamsTensor(), *buffers++);
+            copyToSim(strm, mgr.policyAssignmentsTensor(), *buffers++);
+            copyToSim(strm, mgr.rewardHyperParamsTensor(), *buffers++);
         }
 
         gpuExec.runAsync(stepGraph, strm);
 
         buffers = copyOutObservations(strm, buffers, mgr);
 
-        auto copyFromSim = [&strm](void *dst, const Tensor &src) {
-            uint64_t num_bytes = numTensorBytes(src);
+        copyFromSim(strm, *buffers++, mgr.rewardTensor());
+        copyFromSim(strm, *buffers++, mgr.doneTensor());
+        copyFromSim(strm, *buffers++, mgr.episodeResultTensor());
+    }
 
-            REQ_CUDA(cudaMemcpyAsync(dst, src.devicePtr(), num_bytes,
-                cudaMemcpyDeviceToDevice, strm));
-        };
+    virtual void gpuStreamLoadCheckpoints(
+        cudaStream_t strm, void **buffers, Manager &mgr)
+    {
+        copyToSim(strm, mgr.checkpointResetTensor(), *buffers++);
+        copyToSim(strm, mgr.checkpointTensor(), *buffers++);
 
-        copyFromSim(*buffers++, mgr.rewardTensor());
-        copyFromSim(*buffers++, mgr.doneTensor());
-        copyFromSim(*buffers++, mgr.episodeResultTensor());
+        gpuExec.runAsync(stepGraph, strm);
+
+        copyOutObservations(strm, buffers, mgr);
+    }
+
+    virtual void gpuStreamGetCheckpoints(
+        cudaStream_t strm, void **buffers, Manager &mgr)
+    {
+        copyFromSim(strm, *buffers, mgr.checkpointTensor());
     }
 #endif
 
@@ -887,6 +916,25 @@ void Manager::gpuStreamStep(cudaStream_t strm, void **buffers)
         assert(false);
     }
 }
+
+
+void Manager::gpuStreamLoadCheckpoints(cudaStream_t strm, void **buffers)
+{
+    impl_->gpuStreamLoadCheckpoints(strm, buffers, *this);
+
+    if (impl_->renderMgr.has_value()) {
+        assert(false);
+    }
+}
+
+void Manager::gpuStreamGetCheckpoints(cudaStream_t strm, void **buffers)
+{
+    impl_->gpuStreamGetCheckpoints(strm, buffers, *this);
+
+    if (impl_->renderMgr.has_value()) {
+        assert(false);
+    }
+}
 #endif
 
 Tensor Manager::checkpointResetTensor() const {
@@ -1219,6 +1267,10 @@ TrainInterface Manager::trainInterface() const
             .pbt = {
                 { "episode_results", episodeResultTensor().interface() },
             },
+        },
+        TrainCheckpointingInterface {
+            .triggerLoad = checkpointResetTensor().interface(),
+            .checkpointData =  checkpointTensor().interface(),
         },
     };
 }

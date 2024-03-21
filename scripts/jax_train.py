@@ -73,7 +73,7 @@ sim = madrona_puzzle_bench.SimManager(
 
 jax_gpu = jax.devices()[0].platform == 'gpu'
 
-sim_init, sim_step = sim.jax(jax_gpu)
+sim_fns = sim.jax(jax_gpu)
 
 tb_writer = TensorboardWriter(os.path.join(args.tb_dir, args.run_name))
 
@@ -236,7 +236,7 @@ else:
     restore_ckpt = None
 
 try:
-    madrona_learn.train(dev, cfg, sim_init, sim_step, policy, iter_cb,
+    madrona_learn.train(dev, cfg, sim_fns, policy, iter_cb,
         CustomMetricConfig(add_metrics = lambda metrics: metrics),
         restore_ckpt = restore_ckpt, profile_port = args.profile_port)
 except:

@@ -47,6 +47,9 @@ public:
 #ifdef MADRONA_CUDA_SUPPORT
     void gpuStreamInit(cudaStream_t strm, void **buffers);
     void gpuStreamStep(cudaStream_t strm, void **buffers);
+
+    void gpuStreamLoadCheckpoints(cudaStream_t strm, void **buffers);
+    void gpuStreamGetCheckpoints(cudaStream_t strm, void **buffers);
 #endif
 
     // These functions export Tensor objects that link the ECS
