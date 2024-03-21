@@ -7,6 +7,7 @@ from flax import linen as nn
 import argparse
 from functools import partial
 from time import time
+from dataclasses import dataclass
 import os
 import numpy as np
 
@@ -16,7 +17,7 @@ from madrona_puzzle_bench.madrona import ExecMode
 
 import madrona_learn
 from madrona_learn import (
-    TrainConfig, CustomMetricConfig, PPOConfig, PBTConfig, ParamExplore,
+    TrainConfig, TrainHooks, PPOConfig, PBTConfig, ParamExplore,
     TensorboardWriter,
 )
 
@@ -77,77 +78,85 @@ sim_fns = sim.jax(jax_gpu)
 
 tb_writer = TensorboardWriter(os.path.join(args.tb_dir, args.run_name))
 
-def metrics_cb(metrics, epoch, mb, train_state):
-    return metrics
-
 last_time = 0
 last_update = 0
 
-def host_cb(update_id, metrics, train_state_mgr):
-    global last_time, last_update
+@dataclass(frozen=True)
+class PuzzleBenchHooks(TrainHooks):
+    def _post_update_host_cb(self, update_id, metrics, train_state_mgr):
+        global last_time, last_update
 
-    cur_time = time()
-    update_diff = update_id - last_update
+        cur_time = time()
+        update_diff = update_id - last_update
 
-    print(f"Update: {update_id}")
-    if last_time != 0:
-        print("  FPS:", args.num_worlds * args.steps_per_update * update_diff / (cur_time - last_time))
+        print(f"Update: {update_id}")
+        if last_time != 0:
+            print("  FPS:", args.num_worlds * args.steps_per_update * update_diff / (cur_time - last_time))
 
-    last_time = cur_time
-    last_update = update_id
+        last_time = cur_time
+        last_update = update_id
 
-    metrics.pretty_print()
-    vnorm_mu = train_state_mgr.train_states.value_normalizer_state['mu'][0][0]
-    vnorm_sigma = train_state_mgr.train_states.value_normalizer_state['sigma'][0][0]
-    print(f"    Value Normalizer => Mean: {vnorm_mu: .3e}, σ: {vnorm_sigma: .3e}")
+        metrics.pretty_print()
+        vnorm_mu = train_state_mgr.train_states.value_normalizer_state['mu'][0][0]
+        vnorm_sigma = train_state_mgr.train_states.value_normalizer_state['sigma'][0][0]
+        print(f"    Value Normalizer => Mean: {vnorm_mu: .3e}, σ: {vnorm_sigma: .3e}")
 
-    lrs = train_state_mgr.train_states.hyper_params.lr
-    entropy_coefs = train_state_mgr.train_states.hyper_params.entropy_coef
-    reward_hyper_params = train_state_mgr.policy_states.reward_hyper_params
+        lrs = train_state_mgr.train_states.hyper_params.lr
+        entropy_coefs = train_state_mgr.train_states.hyper_params.entropy_coef
+        reward_hyper_params = train_state_mgr.policy_states.reward_hyper_params
 
-    old_printopts = np.get_printoptions()
-    np.set_printoptions(formatter={'float_kind':'{:.1e}'.format}, linewidth=150)
+        old_printopts = np.get_printoptions()
+        np.set_printoptions(formatter={'float_kind':'{:.1e}'.format}, linewidth=150)
 
-    print(lrs)
-    print(entropy_coefs)
-    print(reward_hyper_params[..., 0])
+        print(lrs)
+        print(entropy_coefs)
+        print(reward_hyper_params[..., 0])
 
-    episode_scores = train_state_mgr.policy_states.episode_score.mean
-    print(episode_scores)
-    np.set_printoptions(**old_printopts)
+        episode_scores = train_state_mgr.policy_states.episode_score.mean
+        print(episode_scores)
+        np.set_printoptions(**old_printopts)
 
-    print()
+        print()
 
-    metrics.tensorboard_log(tb_writer, update_id)
+        metrics.tensorboard_log(tb_writer, update_id)
 
-    for i in range(episode_scores.shape[0]):
-        tb_writer.scalar(f"p{i}/episode_score", episode_scores[i], update_id)
-        tb_writer.scalar(f"p{i}/dist_to_exit_scale",
-                         reward_hyper_params[i][0], update_id)
+        for i in range(episode_scores.shape[0]):
+            tb_writer.scalar(f"p{i}/episode_score", episode_scores[i], update_id)
+            tb_writer.scalar(f"p{i}/dist_to_exit_scale",
+                             reward_hyper_params[i][0], update_id)
 
-    num_train_policies = lrs.shape[0]
-    for i in range(lrs.shape[0]):
-        tb_writer.scalar(f"p{i}/lr", lrs[i], update_id)
-        tb_writer.scalar(f"p{i}/entropy_coef", entropy_coefs[i], update_id)
+        num_train_policies = lrs.shape[0]
+        for i in range(lrs.shape[0]):
+            tb_writer.scalar(f"p{i}/lr", lrs[i], update_id)
+            tb_writer.scalar(f"p{i}/entropy_coef", entropy_coefs[i], update_id)
 
-    if update_id % 500 == 0:
-        train_state_mgr.save(update_id,
-            f"{args.ckpt_dir}/{args.run_name}/{update_id}")
+        if update_id % 500 == 0:
+            train_state_mgr.save(update_id,
+                f"{args.ckpt_dir}/{args.run_name}/{update_id}")
 
-    return ()
+        return ()
 
-def iter_cb(update_idx, metrics, train_state_mgr):
-    cb = partial(jax.experimental.io_callback, host_cb, (), ordered=True)
-    noop = lambda *args: ()
+    def post_update(self, update_idx, metrics, train_state_mgr):
+        cb = partial(jax.experimental.io_callback, self._post_update_host_cb,
+            (), ordered=True)
+        noop = lambda *args: ()
 
-    update_id = update_idx + 1
+        update_id = update_idx + 1
 
-    should_callback = jnp.logical_or(update_id == 1, update_id % 10 == 0)
+        should_callback = jnp.logical_or(update_id == 1, update_id % 10 == 0)
 
-    lax.cond(should_callback, cb, noop,
-             update_id, metrics, train_state_mgr)
+        lax.cond(should_callback, cb, noop,
+                 update_id, metrics, train_state_mgr)
 
-    return should_callback
+        return should_callback
+
+    def start_rollouts(self, rollout_state, user_state):
+        ckpts = rollout_state.get_current_checkpoints()
+        main_ckpts = ckpts.reshape(-1, 4, ckpts.shape[-1])
+        main_ckpts = main_ckpts[:, 0]
+        ckpts = jnp.repeat(main_ckpts, 4, axis=0)
+
+        return rollout_state.load_checkpoints_into_sim(ckpts), user_state
 
 dev = jax.devices()[0]
 
@@ -236,8 +245,7 @@ else:
     restore_ckpt = None
 
 try:
-    madrona_learn.train(dev, cfg, sim_fns, policy, iter_cb,
-        CustomMetricConfig(add_metrics = lambda metrics: metrics),
+    madrona_learn.train(dev, cfg, sim_fns, policy, PuzzleBenchHooks(),
         restore_ckpt = restore_ckpt, profile_port = args.profile_port)
 except:
     tb_writer.flush()
