@@ -8,8 +8,6 @@ using namespace madrona;
 using namespace madrona::math;
 using namespace madrona::phys;
 
-namespace RenderingSystem = madrona::render::RenderingSystem;
-
 namespace madPuzzle {
 
 static inline float computeZAngle(Quat q)
@@ -172,7 +170,8 @@ inline void loadCheckpointSystem(Engine &ctx, CheckpointReset &reset)
         if (state_in.grabIdx != -1) {
             assert(agent_grab_entity != Entity::none());
 
-            Entity joint_entity = ctx.makeEntity<Joint>();
+            Entity joint_entity = PhysicsSystem::makeFixedJoint(
+                ctx, agent, agent_grab_entity, {}, {}, {}, {}, 0.f);
 
             JointConstraint joint_constraint = state_in.grabJoint;
             joint_constraint.e1 = agent;
@@ -316,7 +315,7 @@ inline void generateLevelSystem(Engine &ctx, EpisodeState &episode_state)
     }
     episode_state.reachedExit = false;
 
-    phys::RigidBodyPhysicsSystem::reset(ctx);
+    PhysicsSystem::reset(ctx);
     LevelType level_type = generateLevel(ctx);
     ctx.get<AgentLevelTypeObs>(ctx.data().agent) = AgentLevelTypeObs {
         .type = level_type,
@@ -466,7 +465,7 @@ inline void grabSystem(Engine &ctx,
 
     float separation = hit_t - 1.25f;
 
-    grab.constraintEntity = JointConstraint::setupFixed(ctx,
+    grab.constraintEntity = PhysicsSystem::makeFixedJoint(ctx,
         e, grab_entity, attach1, attach2, r1, r2, separation);
 }
 
@@ -579,7 +578,7 @@ inline void buttonSystem(Engine &ctx,
     };
 
     bool button_pressed = false;
-    RigidBodyPhysicsSystem::findEntitiesWithinAABB(
+    PhysicsSystem::findEntitiesWithinAABB(
             ctx, button_aabb, [&](Entity e) {
         auto response_type_ref = ctx.getSafe<ResponseType>(e);
 
@@ -617,7 +616,7 @@ inline void patternSystem(Engine &ctx,
     };
 
     bool pattern_matched = false;
-    RigidBodyPhysicsSystem::findEntitiesWithinAABB(
+    PhysicsSystem::findEntitiesWithinAABB(
             ctx, pattern_aabb, [&](Entity e) {
         auto response_type_ref = ctx.getSafe<ResponseType>(e);
 
@@ -652,7 +651,7 @@ inline void coopSystem(Engine &ctx,
     };
 
     CountT cur_obs_idx = 0;
-    RigidBodyPhysicsSystem::findEntitiesWithinAABB(
+    PhysicsSystem::findEntitiesWithinAABB(
             ctx, coop_aabb, [&](Entity e) {
         auto entity_type_ref = ctx.getSafe<EntityType>(e);
         if (!entity_type_ref.valid() ||
@@ -825,7 +824,7 @@ inline void collectObservationsSystem(
         ctx.data().episodeLen - ctx.singleton<EpisodeState>().curStep;
 
     CountT cur_obs_idx = 0;
-    RigidBodyPhysicsSystem::findEntitiesWithinAABB(ctx, room_aabb, [&]
+    PhysicsSystem::findEntitiesWithinAABB(ctx, room_aabb, [&]
     (Entity e)
     {
         if (cur_obs_idx == consts::maxObservationsPerAgent) {
@@ -1278,9 +1277,8 @@ static TaskGraphNodeID setupSimTasks(TaskGraphBuilder &builder,
         >>({move_sys});
     
     // Build BVH for broadphase / raycasting
-    auto broadphase_setup_sys =
-        phys::RigidBodyPhysicsSystem::setupBroadphaseTasks(builder, 
-                                                           {set_door_pos_sys});
+    auto broadphase_setup_sys = PhysicsSystem::setupBroadphaseTasks(
+        builder, {set_door_pos_sys});
 
     // Grab action, post BVH build to allow raycasting
     auto grab_sys = builder.addToGraph<ParallelForNode<Engine,
@@ -1312,7 +1310,7 @@ static TaskGraphNodeID setupSimTasks(TaskGraphBuilder &builder,
         >>({jump_sys});
 
     // Physics collision detection and solver
-    auto substep_sys = phys::RigidBodyPhysicsSystem::setupSubstepTasks(builder,
+    auto substep_sys = PhysicsSystem::setupPhysicsStepTasks(builder,
         {enemy_act_sys}, consts::numPhysicsSubsteps);
 
     // Improve controllability of agents by setting their velocity to 0
@@ -1322,7 +1320,7 @@ static TaskGraphNodeID setupSimTasks(TaskGraphBuilder &builder,
             {substep_sys});
 
     // Finalize physics subsystem work
-    auto phys_done = phys::RigidBodyPhysicsSystem::setupCleanupTasks(
+    auto phys_done = PhysicsSystem::setupCleanupTasks(
         builder, {agent_zero_vel});
 
     auto enemy_post_phys_sys = builder.addToGraph<ParallelForNode<Engine,
@@ -1458,7 +1456,7 @@ static TaskGraphNodeID setupResetAndGenTasks(TaskGraphBuilder &builder,
     // This second BVH build is a limitation of the current taskgraph API.
     // It's only necessary if the world was reset, but we don't have a way
     // to conditionally queue taskgraph nodes yet.
-    auto post_reset_broadphase = phys::RigidBodyPhysicsSystem::setupBroadphaseTasks(
+    auto post_reset_broadphase = PhysicsSystem::setupBroadphaseTasks(
         builder, {checkpoint_sys});
 
     return post_reset_broadphase;
@@ -1556,7 +1554,7 @@ Sim::Sim(Engine &ctx,
     constexpr CountT max_total_entities = 
         consts::maxObjectsPerLevel + 10;
 
-    phys::RigidBodyPhysicsSystem::init(ctx, cfg.rigidBodyObjMgr,
+    PhysicsSystem::init(ctx, cfg.rigidBodyObjMgr,
         consts::deltaT, consts::numPhysicsSubsteps, -9.8f * math::up,
         max_total_entities);
 

@@ -10,9 +10,9 @@ using namespace madrona;
 void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
 {
     base::registerTypes(registry);
-    phys::RigidBodyPhysicsSystem::registerTypes(registry);
+    PhysicsSystem::registerTypes(registry);
 
-    render::RenderingSystem::registerTypes(registry, cfg.renderBridge);
+    RenderingSystem::registerTypes(registry, cfg.renderBridge);
 
     registry.registerComponent<Action>();
 

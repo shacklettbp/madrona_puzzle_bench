@@ -94,8 +94,7 @@ static void registerRigidBodyEntity(
     SimObject sim_obj)
 {
     ObjectID obj_id { (int32_t)sim_obj };
-    ctx.get<broadphase::LeafID>(e) =
-        RigidBodyPhysicsSystem::registerEntity(ctx, e, obj_id);
+    ctx.get<broadphase::LeafID>(e) = PhysicsSystem::registerEntity(ctx, e, obj_id);
 }
 
 // Agent entity persists across all episodes.

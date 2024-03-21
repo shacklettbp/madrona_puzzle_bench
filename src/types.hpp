@@ -19,13 +19,18 @@ using madrona::base::Position;
 using madrona::base::Rotation;
 using madrona::base::Scale;
 using madrona::base::ObjectID;
+using madrona::base::ObjectInstance;
 using madrona::phys::Velocity;
 using madrona::phys::ResponseType;
 using madrona::phys::ExternalForce;
 using madrona::phys::ExternalTorque;
+using madrona::phys::RigidBody;
 using madrona::math::Vector3;
 using madrona::math::Quat;
 using madrona::math::AABB;
+
+namespace PhysicsSystem = madrona::phys::PhysicsSystem;
+namespace RenderingSystem = madrona::render::RenderingSystem;
 
 
 // WorldReset is a per-world singleton component that causes the current
@@ -332,18 +337,7 @@ struct Agent : public madrona::Archetype<
     // Basic components required for physics. Note that the current physics
     // implementation requires archetypes to have these components first
     // in this exact order.
-    Position,
-    Rotation,
-    Scale,
-    Velocity,
-    ObjectID,
-    ResponseType,
-    madrona::phys::solver::SubstepPrevState,
-    madrona::phys::solver::PreSolvePositional,
-    madrona::phys::solver::PreSolveVelocity,
-    ExternalForce,
-    ExternalTorque,
-    madrona::phys::broadphase::LeafID,
+    RigidBody,
 
     // Internal logic state.
     GrabState,
@@ -380,18 +374,7 @@ struct Agent : public madrona::Archetype<
 
 // Archetype for the doors blocking the end of each challenge room
 struct DoorEntity : public madrona::Archetype<
-    Position, 
-    Rotation,
-    Scale,
-    Velocity,
-    ObjectID,
-    ResponseType,
-    madrona::phys::solver::SubstepPrevState,
-    madrona::phys::solver::PreSolvePositional,
-    madrona::phys::solver::PreSolveVelocity,
-    ExternalForce,
-    ExternalTorque,
-    madrona::phys::broadphase::LeafID,
+    RigidBody,
 
     OpenState,
     DoorProperties,
@@ -407,18 +390,7 @@ struct DoorEntity : public madrona::Archetype<
 // Archetype for the button objects that open the doors
 // Buttons don't have collision but are rendered
 struct ButtonEntity : public madrona::Archetype<
-    Position,
-    Rotation,
-    Scale,
-    Velocity,
-    ObjectID,
-    ResponseType,
-    madrona::phys::solver::SubstepPrevState,
-    madrona::phys::solver::PreSolvePositional,
-    madrona::phys::solver::PreSolveVelocity,
-    ExternalForce,
-    ExternalTorque,
-    madrona::phys::broadphase::LeafID,
+    RigidBody,
 
     ButtonState,
     EntityType,
@@ -430,18 +402,7 @@ struct ButtonEntity : public madrona::Archetype<
 // Generic archetype for entities that need physics but don't have custom
 // logic associated with them.
 struct PhysicsEntity : public madrona::Archetype<
-    Position, 
-    Rotation,
-    Scale,
-    Velocity,
-    ObjectID,
-    ResponseType,
-    madrona::phys::solver::SubstepPrevState,
-    madrona::phys::solver::PreSolvePositional,
-    madrona::phys::solver::PreSolveVelocity,
-    ExternalForce,
-    ExternalTorque,
-    madrona::phys::broadphase::LeafID,
+    RigidBody,
 
     EntityType,
     EntityExtents,
@@ -451,10 +412,8 @@ struct PhysicsEntity : public madrona::Archetype<
 // Archetype for the button objects that open the doors
 // Buttons don't have collision but are rendered
 struct ExitEntity : public madrona::Archetype<
-    Position,
-    Rotation,
-    Scale,
-    ObjectID,
+    ObjectInstance,
+
     madrona::render::Renderable,
     IsExit
 > {};
@@ -462,18 +421,7 @@ struct ExitEntity : public madrona::Archetype<
 // Generic archetype for entities that need physics but don't have custom
 // logic associated with them.
 struct EnemyEntity : public madrona::Archetype<
-    Position, 
-    Rotation,
-    Scale,
-    Velocity,
-    ObjectID,
-    ResponseType,
-    madrona::phys::solver::SubstepPrevState,
-    madrona::phys::solver::PreSolvePositional,
-    madrona::phys::solver::PreSolveVelocity,
-    ExternalForce,
-    ExternalTorque,
-    madrona::phys::broadphase::LeafID,
+    RigidBody,
 
     EntityType,
     ChickenListElem,
@@ -483,18 +431,7 @@ struct EnemyEntity : public madrona::Archetype<
 > {};
 
 struct LavaEntity : public madrona::Archetype<
-    Position, 
-    Rotation,
-    Scale,
-    Velocity,
-    ObjectID,
-    ResponseType,
-    madrona::phys::solver::SubstepPrevState,
-    madrona::phys::solver::PreSolvePositional,
-    madrona::phys::solver::PreSolveVelocity,
-    ExternalForce,
-    ExternalTorque,
-    madrona::phys::broadphase::LeafID,
+    RigidBody,
 
     EntityType,
     EntityExtents,
@@ -503,11 +440,8 @@ struct LavaEntity : public madrona::Archetype<
 > {};
 
 // Add something to track of pattern locations
-struct PatternEntity: public madrona::Archetype<
-    Position,
-    Rotation,
-    Scale,
-    ObjectID, 
+struct PatternEntity : public madrona::Archetype<
+    ObjectInstance,
     
     PatternMatchState,
     //EntityType,
@@ -516,11 +450,9 @@ struct PatternEntity: public madrona::Archetype<
     madrona::render::Renderable
 > {}; 
 
-struct CoopEntity: public madrona::Archetype<
-    Position,
-    Rotation,
-    Scale,
-    ObjectID, 
+struct CoopEntity : public madrona::Archetype<
+    ObjectInstance,
+
     CoopState,
     ChickenListElem,
     EntityType,
