@@ -108,7 +108,9 @@ NB_MODULE(madrona_puzzle_bench, m) {
 #ifdef MADRONA_CUDA_SUPPORT
                 ,
                 &Manager::gpuStreamInit,
-                &Manager::gpuStreamStep
+                &Manager::gpuStreamStep,
+                &Manager::gpuStreamLoadCheckpoints,
+                &Manager::gpuStreamGetCheckpoints
 #endif
              >())
     ;

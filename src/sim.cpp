@@ -341,6 +341,7 @@ inline bool onGround(Engine &ctx, const Position &pos, const Rotation &rot, cons
     if (grab_entity == Entity::none()) {
         return false;
     }
+
     return true;
 }
 
