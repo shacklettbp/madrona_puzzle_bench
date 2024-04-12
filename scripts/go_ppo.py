@@ -88,7 +88,7 @@ arg_parser.add_argument('--seeds-per-checkpoint', type=int, default=16)
 
 args = arg_parser.parse_args()
 
-#args.num_updates = args.num_updates*2 # Temporary change for script, will need to roll back
+args.num_updates = args.num_updates * 2 # Temporary change for script, will need to roll back
 
 normalize_values = not args.no_value_norm
 normalize_advantages = not args.no_advantage_norm
@@ -791,8 +791,8 @@ class GoExplore:
 
                     # Also set up estimates of entropy loss per bin, and bin count variance per bin
                     all_entropy_loss[i] = ppo.entropy_loss_array[bin_filter].mean().cpu().item()
-                    if bin_filter.sum() > 1:
-                        all_bin_variance[i] = torch.std(new_bin_counts[200*i:200*(i+1)]).cpu().item() / torch.mean(new_bin_counts[200*i:200*(i+1)]).cpu().item()
+                    #if bin_filter.sum() > 1 and args.binning != "random":
+                    #    all_bin_variance[i] = torch.std(new_bin_counts[200*i:200*(i+1)]).cpu().item() / torch.mean(new_bin_counts[200*i:200*(i+1)]).cpu().item()
                 print("All td error, running", all_td_error, self.running_td_error)
 
             print(f"\nUpdate: {update_id}")
@@ -986,7 +986,7 @@ else:
 
 run = wandb.init(
     # Set the project where this run will be logged
-    project="escape-room-dist-experiments-8",
+    project="puzzle-bench-diversity",
     # Track hyperparameters and run metadata
     config=args
 )

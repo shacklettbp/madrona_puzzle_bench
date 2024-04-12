@@ -476,8 +476,14 @@ def _update_iter(cfg : TrainConfig,
                         source_bins = source_bins // 200
                         # Update intelligent_weights if we are using td_weights
                         sampling_weights = torch.tensor(user_cb.intelligent_weights, device = user_cb.checkpoints.device)
-                        if user_cb.td_weights:
-                            sampling_weights = user_cb.running_td_error / user_cb.running_td_error.sum()
+                        print("pre mod sampling weights", sampling_weights)
+                        if user_cb.success_weights:
+                            print("Running success rate", user_cb.running_success_rate)
+                            # Exponentiate negative running success rate
+                            sampling_weights = torch.exp(-user_cb.running_success_rate * user_cb.success_rate_temp)
+                            # Normalize
+                            sampling_weights /= sampling_weights.sum()
+                            #sampling_weights = user_cb.running_td_error / user_cb.running_td_error.sum()
                         print("Sampling weights", sampling_weights)
                         # Now we need to weight the sampling to sample less from source_bins == 0
                         sampled_checkpoints, _ = weighted_stratified_sample_corrected(user_cb.checkpoints[desired_samples:], source_bins.to(user_cb.checkpoints.device), desired_samples, sampling_weights)
