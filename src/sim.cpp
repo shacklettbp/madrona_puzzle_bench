@@ -741,8 +741,8 @@ inline void lavaSystem(Engine &ctx, Position lava_pos, EntityExtents lava_extent
     agent_pos.z = 0.0f;
 
     AABB lava_aabb = {
-        .pMin = lava_pos - lava_extents,
-        .pMax = lava_pos + lava_extents,
+        .pMin = lava_pos - lava_extents - 1.1f,
+        .pMax = lava_pos + lava_extents + 1.1f,
     };
 
     if (!lava_aabb.contains(agent_pos)) {

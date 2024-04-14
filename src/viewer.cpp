@@ -169,7 +169,7 @@ int main(int argc, char *argv[])
 #endif
 
 
-    SimFlags flags = SimFlags::UseFixedWorld;
+    SimFlags flags = SimFlags::Default;
 
     if (!replay_log.has_value()) {
         flags |= SimFlags::IgnoreEpisodeLength;
@@ -211,6 +211,9 @@ int main(int argc, char *argv[])
 
     auto ckpt_reset_tensor = mgr.checkpointResetTensor();
     auto ckpt_tensor = mgr.checkpointTensor();
+
+    auto lidar_depth_tensor = mgr.lidarDepthTensor();
+    auto lidar_hit_type_tensor = mgr.lidarHitTypeTensor();
     
     auto agent_txfm_printer = agent_txfm_tensor.makePrinter();
     auto agent_interact_printer = agent_interact_tensor.makePrinter();
@@ -221,6 +224,9 @@ int main(int argc, char *argv[])
     auto entity_type_printer = entity_type_tensor.makePrinter();
 
     auto reward_printer = reward_tensor.makePrinter();
+
+    auto lidar_depth_printer = lidar_depth_tensor.makePrinter();
+    auto lidar_hit_type_printer = lidar_hit_type_tensor.makePrinter();
 
 #ifdef MADRONA_CUDA_SUPPORT
     cudaStream_t copy_strm;
@@ -355,6 +361,12 @@ int main(int argc, char *argv[])
 
         printf("Reward\n");
         reward_printer.print();
+
+        printf("Lidar Depth\n");
+        lidar_depth_printer.print();
+        
+        printf("Lidar Hit Type\n");
+        lidar_hit_type_printer.print();
 
         printf("\n");
     };

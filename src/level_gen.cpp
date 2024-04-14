@@ -805,7 +805,7 @@ static void chaseLevel(Engine &ctx)
 
 static void lavaPathLevel(Engine &ctx)
 {
-    const float level_size = 20.f;
+    const float level_size = 30.f;
 
     Entity exit_door;
     AABB room_aabb;
@@ -819,7 +819,7 @@ static void lavaPathLevel(Engine &ctx)
     Vector3 exit_pos = entrance_positions[0];
     Vector3 spawn_pos = entrance_positions[2];
 
-    const int gridsize = 10;
+    const int gridsize = 8;
     int grid[gridsize][gridsize];
 
     const int EMPTY = -1;
@@ -1005,7 +1005,7 @@ static void lavaPathLevel(Engine &ctx)
         Diag3x3 lavaScale = Diag3x3 { 
             (lavaMax.x - lavaMin.x) * 0.5f, 
             (lavaMax.y - lavaMin.y) * 0.5f, 
-            0.001f
+            1.0f//0.001f
         };
 
         makeLava(ctx, lavaCenter, lavaScale);
