@@ -68,6 +68,7 @@ enum class EntityType : uint32_t {
     Wall,
     Pattern,
     Coop,
+    FixedBlock,
     NumTypes,
 };
 

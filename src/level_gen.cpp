@@ -276,6 +276,7 @@ static Entity makeBlock(Engine &ctx,
 {
     Entity block = ctx.makeRenderableEntity<PhysicsEntity>();
     ResponseType response_type = is_fixed ? ResponseType::Static : ResponseType::Dynamic;
+    EntityType entity_type = is_fixed ? EntityType::FixedBlock : EntityType::Block;
     setupRigidBodyEntity(
         ctx,
         block,
@@ -286,7 +287,7 @@ static Entity makeBlock(Engine &ctx,
         },
         Quat { 1, 0, 0, 0 },
         SimObject::Block,
-        EntityType::Block,
+        entity_type,
         response_type,
         Diag3x3 {
             block_size,
