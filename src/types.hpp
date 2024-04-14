@@ -451,7 +451,7 @@ struct PatternEntity : public madrona::Archetype<
 > {}; 
 
 struct CoopEntity : public madrona::Archetype<
-    ObjectInstance,
+    RigidBody,
 
     CoopState,
     ChickenListElem,

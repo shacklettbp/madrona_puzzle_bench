@@ -366,14 +366,29 @@ static Entity makeCoop(Engine &ctx, Vector3 center, Diag3x3 scale)
 {
     Entity coop = ctx.makeRenderableEntity<CoopEntity>();
 
-    ctx.get<Position>(coop) = center;
-    ctx.get<Scale>(coop) = scale;
-    //ctx.get<ObjectID>(coop) = ObjectID { (int32_t)SimObject::Coop };
-    ctx.get<EntityType>(coop) = EntityType::Coop;
+    setupRigidBodyEntity(
+        ctx,
+        coop,
+        Vector3 {
+            center.x,
+            center.y,
+            0.f,
+        },
+        Quat { 1, 0, 0, 0 },
+        SimObject::Button,
+        EntityType::Button,
+        ResponseType::Static,
+        Diag3x3 {
+            scale.d0,
+            scale.d1,
+            1.f,
+        });
+    registerRigidBodyEntity(ctx, coop, SimObject::Button);
+
     ctx.get<EntityExtents>(coop) = Vector3 {
-        scale.d0,
-        scale.d1,
-        scale.d2
+        .x = scale.d0,
+        .y = scale.d1,
+        .z = 0.05f,
     };
 
     return coop;
