@@ -30,7 +30,12 @@ sim = madrona_puzzle_bench.SimManager(
     num_pbt_policies = 0,
 )
 
-sim_init, sim_step = sim.jax(True)
+sim_fns = sim.jax(True)
+
+print(sim_fns.keys())
+
+sim_init = sim_fns['init']
+sim_step = sim_fns['step']
 
 sim_init()
 

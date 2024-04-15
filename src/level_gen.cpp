@@ -377,7 +377,7 @@ static Entity makeCoop(Engine &ctx, Vector3 center, Diag3x3 scale)
         },
         Quat { 1, 0, 0, 0 },
         SimObject::Button,
-        EntityType::Button,
+        EntityType::Coop,
         ResponseType::Static,
         Diag3x3 {
             scale.d0,
@@ -1302,9 +1302,9 @@ static void chickenCoopLevel(Engine &ctx)
 LevelType generateLevel(Engine &ctx)
 {
     LevelType level_type = (LevelType)ctx.data().rng.sampleI32(
-    //    0, (uint32_t)LevelType::NumTypes);
-          3, 5);
-    level_type = LevelType::SingleBlockButton;
+        0, (uint32_t)LevelType::NumTypes);
+    //      3, 5);
+    level_type = LevelType::ChickenCoop;
 
     switch (level_type) {
     case LevelType::Chase: {

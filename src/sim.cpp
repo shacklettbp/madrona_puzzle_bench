@@ -125,8 +125,7 @@ inline void loadCheckpointSystem(Engine &ctx, CheckpointReset &reset)
         ctx.iterateQuery(ctx.data().simEntityQuery,
         [&](Entity e, EntityType type) {
             if (type == EntityType::None || type == EntityType::Agent ||
-                    type == EntityType::Wall ||
-                    type == EntityType::Coop) {
+                    type == EntityType::Wall) {
                 return;
             }
 
@@ -147,6 +146,9 @@ inline void loadCheckpointSystem(Engine &ctx, CheckpointReset &reset)
             } break;
             case EntityType::Button: {
                 ctx.get<ButtonState>(e) = state_in.button;
+            } break;
+            case EntityType::Coop: {
+                ctx.get<CoopState>(e) = state_in.coop;
             } break;
             //case EntityType::Pattern: {
             //    ctx.get<PatternMatchState>(e) = state_in.pattern;
@@ -218,8 +220,7 @@ inline void checkpointSystem(Engine &ctx, CheckpointSave &save)
         ctx.iterateQuery(ctx.data().simEntityQuery,
         [&](Entity e, EntityType type) {
             if (type == EntityType::None || type == EntityType::Agent ||
-                    type == EntityType::Wall ||
-                    type == EntityType::Coop) {
+                    type == EntityType::Wall) {
                 return;
             }
 
@@ -240,6 +241,9 @@ inline void checkpointSystem(Engine &ctx, CheckpointSave &save)
             } break;
             case EntityType::Button: {
                 state_out.button = ctx.get<ButtonState>(e);
+            } break;
+            case EntityType::Coop: {
+                state_out.coop = ctx.get<CoopState>(e);
             } break;
             //case EntityType::Pattern: {
             //    state_out.pattern = ctx.get<PatternMatchState>(e);

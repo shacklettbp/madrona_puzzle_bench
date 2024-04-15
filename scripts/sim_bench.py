@@ -14,7 +14,7 @@ args = arg_parser.parse_args()
 reward_mode = getattr(RewardMode, "Dense1")
 
 sim = madrona_puzzle_bench.SimManager(
-    exec_mode = madrona_puzzle_bench.madrona.ExecMode.CUDA,
+    exec_mode = madrona_puzzle_bench.madrona.ExecMode.CPU,
     gpu_id = args.gpu_id,
     num_worlds = args.num_worlds,
     rand_seed = 5,

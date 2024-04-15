@@ -278,6 +278,7 @@ struct Checkpoint {
         union {
             OpenState doorOpen;
             ButtonState button;
+            CoopState coop;
             //PatternMatchState pattern;
         };
     };

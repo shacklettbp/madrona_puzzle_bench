@@ -12,7 +12,8 @@ mkdir -p ${ROOT_DIR}/tb
 rm -rf ${ROOT_DIR}/ckpts/$1
 rm -rf ${ROOT_DIR}/tb/$1
 
-CUDA_VISIBLE_DEVICES=0 MADRONA_MWGPU_KERNEL_CACHE=${ROOT_DIR}/build/cache python ${ROOT_DIR}/scripts/jax_train.py \
+#CUDA_VISIBLE_DEVICES=0 MADRONA_MWGPU_KERNEL_CACHE=${ROOT_DIR}/build/cache python ${ROOT_DIR}/scripts/jax_train.py \
+CUDA_VISIBLE_DEVICES=0 python ${ROOT_DIR}/scripts/jax_train.py \
     --gpu-sim \
     --ckpt-dir ${ROOT_DIR}/ckpts \
     --tb-dir ${ROOT_DIR}/tb \
@@ -29,4 +30,4 @@ CUDA_VISIBLE_DEVICES=0 MADRONA_MWGPU_KERNEL_CACHE=${ROOT_DIR}/build/cache python
     --pbt-ensemble-size 0 \
     --bf16 \
     --wandb \
-    --num-env-copies 128
+    --num-env-copies 1
