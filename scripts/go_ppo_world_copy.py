@@ -90,7 +90,7 @@ arg_parser.add_argument('--seeds-per-checkpoint', type=int, default=16)
 
 args = arg_parser.parse_args()
 
-args.num_updates = args.num_updates // 2 # Temporary change for script, will need to roll back
+#args.num_updates = args.num_updates // 2 # Temporary change for script, will need to roll back
 
 normalize_values = not args.no_value_norm
 normalize_advantages = not args.no_advantage_norm
@@ -802,21 +802,21 @@ class GoExplore:
                     success_filter = (update_results.dones[:,desired_samples:] == 1.0)[...,0]
 
                     #print(success_filter.shape)
-                    success_frac = (update_results.rewards[:,desired_samples:] >= 1.00).reshape(-1, success_filter.shape[-1])[success_filter].float().mean().cpu().item() # Reward of 1 for room, 10 for whole set of rooms
+                    success_frac = (update_results.rewards[:,desired_samples:] >= 8.00).reshape(-1, success_filter.shape[-1])[success_filter].float().mean().cpu().item() # Reward of 1 for room, 10 for whole set of rooms
                     # Break this down for each level type, which is obs[2]
                     level_type_success_fracs = []
                     for i in range(8):
-                        level_type_success_fracs.append((update_results.rewards[:,desired_samples:][(update_results.obs[2][0][:,desired_samples:] == i)*(update_results.dones[:,desired_samples:] == 1.0)] >= 1.00).float().mean().cpu().item())
+                        level_type_success_fracs.append((update_results.rewards[:,desired_samples:][(update_results.obs[2][0][:,desired_samples:] == i)*(update_results.dones[:,desired_samples:] == 1.0)] >= 8.00).float().mean().cpu().item())
                 else:
                     success_frac = 0
                     level_type_success_fracs = [0, 0, 0, 0, 0, 0, 0, 0]
                 # Also compute level type success without filtering by desired_samples
                 success_filter_all = (update_results.dones == 1.0)[...,0]
-                success_frac_all = (update_results.rewards >= 1.00).reshape(-1, success_filter_all.shape[-1])[success_filter_all].float().mean().cpu().item() # Reward of 1 for room, 10 for whole set of rooms
+                success_frac_all = (update_results.rewards >= 8.00).reshape(-1, success_filter_all.shape[-1])[success_filter_all].float().mean().cpu().item() # Reward of 1 for room, 10 for whole set of rooms
                 level_type_success_fracs_all = []
                 if success_filter_all.sum() > 0:
                     for i in range(8):
-                        level_type_success_fracs_all.append((update_results.rewards[(update_results.obs[2][0] == i)*(update_results.dones == 1.0)] >= 1.00).float().mean().cpu().item())
+                        level_type_success_fracs_all.append((update_results.rewards[(update_results.obs[2][0] == i)*(update_results.dones == 1.0)] >= 8.00).float().mean().cpu().item())
                 else:
                     level_type_success_fracs_all = [0, 0, 0, 0, 0, 0, 0, 0]
 
@@ -896,7 +896,7 @@ class GoExplore:
                         print("Success rate", all_success_rate[i])
                     else:
                         # Check if there is a reward == 10 somewhere in there
-                        success_bin_filter = (update_results.rewards[:, starting_bin_filter] >= 5.00).max(dim = 0)
+                        success_bin_filter = (update_results.rewards[:, starting_bin_filter] >= 8.00).max(dim = 0)
                         all_success_rate[i] = success_bin_filter[0].float().mean().cpu().item()
                     '''
                     
@@ -1130,7 +1130,7 @@ else:
 
 run = wandb.init(
     # Set the project where this run will be logged
-    project="puzzle-bench-lava",
+    project="puzzle-bench-stages",
     # Track hyperparameters and run metadata
     config=args
 )
