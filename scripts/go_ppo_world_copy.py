@@ -77,7 +77,7 @@ arg_parser.add_argument('--make-graph', action='store_true')
 arg_parser.add_argument('--importance-test', action='store_true')
 arg_parser.add_argument('--importance-weights', action='store_true')
 arg_parser.add_argument('--intelligent-sample', action='store_true')
-arg_parser.add_argument('--intelligent-weights', nargs='+', type=int, default=[1, 2, 1, 2])
+arg_parser.add_argument('--intelligent-weights', nargs='+', type=int, default=[1, 1, 1, 1, 1, 1])
 arg_parser.add_argument('--td-weights', action='store_true')
 arg_parser.add_argument('--choose-worlds', action='store_true')
 arg_parser.add_argument('--world-success-frac', type=float, default=0.5)
@@ -537,6 +537,49 @@ class GoExplore:
             # Key stage 3: Grabbing block, door open
             stage_3 = (door_obs == 1)*(grab_obs == 1)
             return (stage_1*granularity + stage_2*granularity*2 + stage_3*granularity*3).int()
+        elif self.binning == "lava":
+            granularity = 200
+            # Let's make a task-specific binning function
+            self_obs = states[0].view(-1, self.num_worlds, 10)
+            y_pos = self_obs[..., 1]
+            before_lava = (y_pos < -15).int()
+            after_lava = (y_pos >= 13).int()
+            # Now if in-lava, let's see whether there's room behind, forward, or to the side...
+            # Forward is 0, backwards is -pi/pi. 
+            agent_theta = (self_obs[..., -1] * -1) + (np.pi / 30)
+            agent_bin = agent_theta / (np.pi / 15)
+            agent_bin[agent_bin < 0] += 30
+            agent_bin = agent_bin.int()
+            # Now access lidar depth forward
+            lidar_depth = states[7].view(-1, self.num_worlds, 30)
+            lidar_hit_type = states[8].view(-1, self.num_worlds, 30)
+            print("Lidar depth", lidar_depth.shape)
+            print("Agent bin", agent_bin.shape)
+            agent_bin = agent_bin.view(-1, self.num_worlds, 1).type(torch.cuda.LongTensor).to(lidar_depth.device)
+            forward_depth = torch.gather(lidar_depth, 2, agent_bin)[...,0]
+            #sideways_depth = torch.maximum(lidar_depth[(agent_bin + 7) % 30], lidar_depth[(agent_bin + 23) % 30])
+            sideways_depth = torch.maximum(torch.gather(lidar_depth, 2, (agent_bin + 7) % 30), torch.gather(lidar_depth, 2, (agent_bin + 23) % 30))[...,0]
+            # Check if forward is wall or lava
+            #forward_wall = (lidar_hit_type[agent_bin] == 9).int()
+            forward_wall = (torch.gather(lidar_hit_type, 2, agent_bin)[...,0] == 9).int()
+            # stage_obs
+            # 1: Before lava
+            # 2: After lava
+            # 3: In lava, forward room, no forward wall
+            # 4: In lava, sideways room, no forward wall
+            # 5: In lava, forward room, forward wall
+            print("Before lava", before_lava.shape)
+            print("After lava", after_lava.shape)
+            print("Forward depth", forward_depth.shape)
+            print("Forward wall", forward_wall.shape)
+            print("Sideways depth", sideways_depth.shape)
+            stage_obs = 1*before_lava + 2*after_lava + 3*(before_lava == 0)*(after_lava == 0)*(forward_depth > 3.0)*(forward_wall == 0) + 4*(before_lava == 0)*(after_lava == 0)*(forward_depth > 3.0)*(forward_wall == 1) + 5*(before_lava == 0)*(after_lava == 0)*(sideways_depth > 3.0)*(forward_depth <= 3.0)
+            # How do we define success? 
+            # If there's forward room, we want to make forward progress without death
+            # If there's sideways room, we again want to make forward progress without death
+            # If before lava, want to enter lava region ... again can be measured by forward progress without death 
+            bins = (stage_obs*granularity + 5).int()
+            return bins
         elif self.binning == "x_y":
             # Bin according to the y position of each agent
             # Determine granularity from num_bins
@@ -804,16 +847,16 @@ class GoExplore:
                 # Map to super-bins
                 all_bins = all_bins // 200
                 # Assume this is in range 0-3, let's track TD error and intrinsic loss for each of these
-                all_td_error = [0, 0, 0, 0]
-                all_td_var = [0, 0, 0, 0]
-                all_value_mean = [0, 0, 0, 0]
-                all_value_var = [0, 0, 0, 0]
-                all_intrinsic_loss = [0, 0, 0, 0]
-                all_entropy_loss = [0, 0, 0, 0]
-                all_bin_variance = [0, 0, 0, 0]
-                all_success_rate = [0, 0, 0, 0]
-                all_bin_counts = [0, 0, 0, 0]
-                for i in range(4):
+                all_td_error = [0, 0, 0, 0, 0, 0]
+                all_td_var = [0, 0, 0, 0, 0, 0]
+                all_value_mean = [0, 0, 0, 0, 0, 0]
+                all_value_var = [0, 0, 0, 0, 0, 0]
+                all_intrinsic_loss = [0, 0, 0, 0, 0, 0]
+                all_entropy_loss = [0, 0, 0, 0, 0, 0]
+                all_bin_variance = [0, 0, 0, 0, 0, 0]
+                all_success_rate = [0, 0, 0, 0, 0, 0]
+                all_bin_counts = [0, 0, 0, 0, 0, 0]
+                for i in range(6):
                     bin_filter = (all_bins == i)
                     all_td_error[i] = ppo.value_loss_array[bin_filter].mean().cpu().item()
                     all_value_mean[i] = update_results.values[bin_filter].mean().cpu().item()
@@ -834,6 +877,18 @@ class GoExplore:
                     print("Starting bin filter", starting_bin_filter.shape)
                     print("All bins", all_bins.shape)
                     print("starting bin sum", starting_bin_filter.sum())
+
+                    all_bin_counts[i] = starting_bin_filter.sum()
+                    forward_progress_sum = update_results.rewards[:, starting_bin_filter].sum(axis = 0)
+                    print("Forward progress sum", torch.mean(forward_progress_sum), forward_progress_sum)
+                    # Reward per dist = 0.05, entire lava area is 30 units, let's make it 0.05*10 = 1.0. We won't get it if we die lol
+                    death_filter = (update_results.rewards[:, starting_bin_filter] < -0.5).max(dim = 0)[0]
+                    # Reset filter
+                    reset_filter = ((update_results.dones[:,starting_bin_filter] == 1.0)[...,0]).sum(dim=0) > 0
+                    forward_progress_sum[reset_filter] = forward_progress_sum[reset_filter] * (forward_progress_sum[reset_filter] > 8.0) # Keep only the successes
+                    all_success_rate[i] = ((forward_progress_sum >= 0.5) * (1 - death_filter.int())).float().mean().cpu().item()
+
+                    ''' # For simple block-button and obstructed block-button
                     all_bin_counts[i] = starting_bin_filter.sum().cpu().item()
                     if i < 2:
                         success_bin_filter = (all_bins[:, starting_bin_filter] == i + 1).max(dim = 0)
@@ -843,6 +898,7 @@ class GoExplore:
                         # Check if there is a reward == 10 somewhere in there
                         success_bin_filter = (update_results.rewards[:, starting_bin_filter] >= 5.00).max(dim = 0)
                         all_success_rate[i] = success_bin_filter[0].float().mean().cpu().item()
+                    '''
                     
                     # Running success rate
                     if not math.isnan(all_success_rate[i]):
@@ -913,41 +969,57 @@ class GoExplore:
                 "td_error_1": all_td_error[1],
                 "td_error_2": all_td_error[2],
                 "td_error_3": all_td_error[3],
+                "td_error_4": all_td_error[4],
+                "td_error_5": all_td_error[5],
                 # Now log the TD variance for each stage-level bin
                 "td_var_0": all_td_var[0],
                 "td_var_1": all_td_var[1],
                 "td_var_2": all_td_var[2],
                 "td_var_3": all_td_var[3],
+                "td_var_4": all_td_var[4],
+                "td_var_5": all_td_var[5],
                 # Now log the value mean for each stage-level bin
                 "value_mean_0": all_value_mean[0],
                 "value_mean_1": all_value_mean[1],
                 "value_mean_2": all_value_mean[2],
                 "value_mean_3": all_value_mean[3],
+                "value_mean_4": all_value_mean[4],
+                "value_mean_5": all_value_mean[5],
                 # Now log the value variance for each stage-level bin
                 "value_var_0": all_value_var[0],
                 "value_var_1": all_value_var[1],
                 "value_var_2": all_value_var[2],
                 "value_var_3": all_value_var[3],
+                "value_var_4": all_value_var[4],
+                "value_var_5": all_value_var[5],
                 # Now log the entropy loss for each stage-level bin
                 "entropy_loss_0": all_entropy_loss[0],
                 "entropy_loss_1": all_entropy_loss[1],
                 "entropy_loss_2": all_entropy_loss[2],
                 "entropy_loss_3": all_entropy_loss[3],
+                "entropy_loss_4": all_entropy_loss[4],
+                "entropy_loss_5": all_entropy_loss[5],
                 # Report the bin variance
                 "bin_variance_0": all_bin_variance[0],
                 "bin_variance_1": all_bin_variance[1],
                 "bin_variance_2": all_bin_variance[2],
                 "bin_variance_3": all_bin_variance[3],
+                "bin_variance_4": all_bin_variance[4],
+                "bin_variance_5": all_bin_variance[5],
                 # Report success rate for each stage-level bin
                 "success_rate_0": all_success_rate[0],
                 "success_rate_1": all_success_rate[1],
                 "success_rate_2": all_success_rate[2],
                 "success_rate_3": all_success_rate[3],
+                "success_rate_4": all_success_rate[4],
+                "success_rate_5": all_success_rate[5],
                 # Also bin counts
                 "bin_count_0": all_bin_counts[0],
                 "bin_count_1": all_bin_counts[1],
                 "bin_count_2": all_bin_counts[2],
                 "bin_count_3": all_bin_counts[3],
+                "bin_count_4": all_bin_counts[4],
+                "bin_count_5": all_bin_counts[5],
                 }
             )
             if args.use_intrinsic_loss:
@@ -1058,7 +1130,7 @@ else:
 
 run = wandb.init(
     # Set the project where this run will be logged
-    project="puzzle-bench-diversity-new",
+    project="puzzle-bench-lava",
     # Track hyperparameters and run metadata
     config=args
 )

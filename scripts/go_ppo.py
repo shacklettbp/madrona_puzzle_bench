@@ -88,7 +88,7 @@ arg_parser.add_argument('--seeds-per-checkpoint', type=int, default=16)
 
 args = arg_parser.parse_args()
 
-args.num_updates = args.num_updates * 2 # Temporary change for script, will need to roll back
+#args.num_updates = args.num_updates * 2 # Temporary change for script, will need to roll back
 
 normalize_values = not args.no_value_norm
 normalize_advantages = not args.no_advantage_norm
@@ -986,7 +986,7 @@ else:
 
 run = wandb.init(
     # Set the project where this run will be logged
-    project="puzzle-bench-diversity",
+    project="puzzle-bench-hyperparams",
     # Track hyperparameters and run metadata
     config=args
 )

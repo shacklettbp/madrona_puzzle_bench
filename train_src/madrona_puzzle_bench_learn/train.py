@@ -378,6 +378,7 @@ def _ppo_update(cfg : TrainConfig,
 
 def weighted_stratified_sample_corrected(data, labels, total_samples, class_weights):
     # Calculate class distribution and adjust by class weights
+    print("Labels", torch.unique(labels), class_weights.shape[0], labels.shape)
     counts = torch.bincount(labels, minlength=class_weights.shape[0])
     adjusted_counts = counts.float() * class_weights
     
@@ -472,6 +473,7 @@ def _update_iter(cfg : TrainConfig,
                     elif user_cb.intelligent_sample:
                         # First bin the source worlds
                         source_bins = user_cb.map_states_to_bins(user_cb.obs, max_bin=False)[0,desired_samples:]
+                        print("Bins shape", source_bins.shape)
                         # Now we divide by 200 to get the higher-level state in the progression
                         source_bins = source_bins // 200
                         # Update intelligent_weights if we are using td_weights
@@ -485,6 +487,7 @@ def _update_iter(cfg : TrainConfig,
                             sampling_weights /= sampling_weights.sum()
                             #sampling_weights = user_cb.running_td_error / user_cb.running_td_error.sum()
                         print("Sampling weights", sampling_weights)
+                        print("Bin counts", torch.unique(source_bins, return_counts=True))
                         # Now we need to weight the sampling to sample less from source_bins == 0
                         sampled_checkpoints, _ = weighted_stratified_sample_corrected(user_cb.checkpoints[desired_samples:], source_bins.to(user_cb.checkpoints.device), desired_samples, sampling_weights)
                         user_cb.checkpoints[:desired_samples] = sampled_checkpoints
