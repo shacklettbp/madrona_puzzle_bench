@@ -556,6 +556,7 @@ class GoExplore:
             print("Lidar depth", lidar_depth.shape)
             print("Agent bin", agent_bin.shape)
             agent_bin = agent_bin.view(-1, self.num_worlds, 1).type(torch.cuda.LongTensor).to(lidar_depth.device)
+            agent_bin = torch.clamp(agent_bin, 0, 29)
             forward_depth = torch.gather(lidar_depth, 2, agent_bin)[...,0]
             #sideways_depth = torch.maximum(lidar_depth[(agent_bin + 7) % 30], lidar_depth[(agent_bin + 23) % 30])
             sideways_depth = torch.maximum(torch.gather(lidar_depth, 2, (agent_bin + 7) % 30), torch.gather(lidar_depth, 2, (agent_bin + 23) % 30))[...,0]
@@ -840,9 +841,9 @@ class GoExplore:
                 # Now let's compute a bunch of metrics per stage-level bin
                 all_bins = self.map_states_to_bins(update_results.obs, max_bin=False)
                 # Let's do bin-counts here for now, TODO have to reverse this
-                new_bin_counts = torch.bincount(all_bins.flatten(), minlength=self.num_bins)# > 0).int()
+                #new_bin_counts = torch.bincount(all_bins.flatten(), minlength=self.num_bins)# > 0).int()
                 #self.bin_count += torch.clone(new_bin_counts)
-                new_bin_counts = new_bin_counts.float()
+                #new_bin_counts = new_bin_counts.float()
 
                 # Map to super-bins
                 all_bins = all_bins // 200
@@ -878,15 +879,19 @@ class GoExplore:
                     print("All bins", all_bins.shape)
                     print("starting bin sum", starting_bin_filter.sum())
 
+                    # For lava
                     all_bin_counts[i] = starting_bin_filter.sum()
-                    forward_progress_sum = update_results.rewards[:, starting_bin_filter].sum(axis = 0)
-                    print("Forward progress sum", torch.mean(forward_progress_sum), forward_progress_sum)
-                    # Reward per dist = 0.05, entire lava area is 30 units, let's make it 0.05*10 = 1.0. We won't get it if we die lol
-                    death_filter = (update_results.rewards[:, starting_bin_filter] < -0.5).max(dim = 0)[0]
-                    # Reset filter
-                    reset_filter = ((update_results.dones[:,starting_bin_filter] == 1.0)[...,0]).sum(dim=0) > 0
-                    forward_progress_sum[reset_filter] = forward_progress_sum[reset_filter] * (forward_progress_sum[reset_filter] > 8.0) # Keep only the successes
-                    all_success_rate[i] = ((forward_progress_sum >= 0.5) * (1 - death_filter.int())).float().mean().cpu().item()
+                    if i < 2:
+                        success_bin_filter = (all_bins[:, starting_bin_filter] == i + 1).max(dim = 0)
+                        all_success_rate[i] = success_bin_filter[0].float().mean().cpu().item()
+                    else:
+                        forward_progress_sum = update_results.rewards[:, starting_bin_filter].sum(axis = 0)
+                        # Reward per dist = 0.05, entire lava area is 30 units, let's make it 0.05*10 = 1.0. We won't get it if we die lol
+                        death_filter = (update_results.rewards[:, starting_bin_filter] < -0.5).max(dim = 0)[0]
+                        # Reset filter
+                        reset_filter = ((update_results.dones[:,starting_bin_filter] == 1.0)[...,0]).sum(dim=0) > 0
+                        forward_progress_sum[reset_filter] = forward_progress_sum[reset_filter] * (forward_progress_sum[reset_filter] > 8.0) # Keep only the successes
+                        all_success_rate[i] = ((forward_progress_sum >= 0.5) * (1 - death_filter.int())).float().mean().cpu().item()
 
                     ''' # For simple block-button and obstructed block-button
                     all_bin_counts[i] = starting_bin_filter.sum().cpu().item()
