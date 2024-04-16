@@ -61,7 +61,7 @@ sim = madrona_puzzle_bench.SimManager(
     exec_mode = ExecMode.CUDA if args.gpu_sim else ExecMode.CPU,
     gpu_id = args.gpu_id,
     num_worlds = args.num_worlds,
-    num_pbt_policies = num_policies,
+    num_pbt_policies = 0,
     rand_seed = 10,
     sim_flags = SimFlags.Default,
     reward_mode = RewardMode.Dense1,
@@ -82,7 +82,9 @@ num_agents_per_world = team_size * num_teams
 
 jax_gpu = jax.devices()[0].platform == 'gpu'
 
-sim_init, sim_step = sim.jax(jax_gpu)
+sim_dict = sim.jax(jax_gpu)
+sim_init = sim_dict['init']
+sim_step = sim_dict['step']
 
 if args.record_log:
     record_log_file = open(args.record_log, 'wb')
@@ -143,7 +145,7 @@ episode_scores = policy_states.episode_score
 print(episode_scores.mean)
 
 episode_scores = madrona_learn.eval_policies(
-    dev, cfg, sim_init, sim_step, policy, policy_states, iter_cb)
+    dev, cfg, sim_dict, policy, policy_states, iter_cb)
 
 print(episode_scores.mean)
 

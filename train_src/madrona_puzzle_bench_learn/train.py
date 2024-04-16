@@ -430,6 +430,18 @@ def weighted_stratified_sample_corrected(data, labels, total_samples, class_weig
 
     return sampled_data, sampled_labels
 
+def make_non_decreasing_custom(tensor, axis=0):
+    # Clone the tensor to avoid modifying the original one
+    result_tensor = tensor.clone()
+    # Apply cumulative maximum along the specified axis
+    for idx in range(1, tensor.shape[axis]):
+        # Take slices and compare with previous ones
+        previous_slice = result_tensor.select(axis, idx-1)
+        current_slice = result_tensor.select(axis, idx)
+        # Update the current slice based on the condition
+        result_tensor.select(axis, idx).copy_(torch.max(previous_slice, current_slice))
+    return result_tensor
+
 def _update_iter(cfg : TrainConfig,
                  amp : AMPState,
                  num_train_seqs : int,
@@ -470,7 +482,7 @@ def _update_iter(cfg : TrainConfig,
                             # Renormalize to average weight 1
                             world_weights /= world_weights.mean()
                             #print(torch.unique(world_weights, return_counts=True))
-                    elif user_cb.intelligent_sample:
+                    elif user_cb.intelligent_sample == "bin":
                         # First bin the source worlds
                         source_bins = user_cb.map_states_to_bins(user_cb.obs, max_bin=False)[0,desired_samples:]
                         print("Bins shape", source_bins.shape)
@@ -492,9 +504,21 @@ def _update_iter(cfg : TrainConfig,
                         sampled_checkpoints, _ = weighted_stratified_sample_corrected(user_cb.checkpoints[desired_samples:], source_bins.to(user_cb.checkpoints.device), desired_samples, sampling_weights)
                         user_cb.checkpoints[:desired_samples] = sampled_checkpoints
                         # Let's not re-weight this for now
+                    elif user_cb.intelligent_sample == "value":
+                        world_values = rollout_mgr.bootstrap_values[desired_samples:][:,0]
+                        print("World values", torch.mean(world_values), torch.var(world_values))
+                        # Now we convert these into "success fracs" by clipping to 13, then dividing by 13
+                        world_values = torch.clamp(world_values, 0, 13) / 13
+                        sampling_weights = torch.exp(-world_values * user_cb.success_rate_temp)
+                        # Now sample from this
+                        print("Sampling weights", sampling_weights.shape)
+                        sample_rows = torch.multinomial(sampling_weights, desired_samples, replacement=True)
+                        user_cb.checkpoints[:desired_samples] = torch.clone(user_cb.checkpoints[desired_samples:][sample_rows])
                     else:
                         user_cb.checkpoints[:desired_samples] = user_cb.checkpoints[desired_samples:].repeat((user_cb.num_worlds // (user_cb.num_worlds - desired_samples)) - 1, 1)
                     user_cb.worlds.step()
+
+            prev_bins = torch.clone(rollout_mgr.obs[2][0][-1])
 
             rollouts = rollout_mgr.collect(amp, sim, actor_critic, value_normalizer, value_normalizer_intrinsic)
             #print("Testing: adding to buffer")
@@ -503,7 +527,7 @@ def _update_iter(cfg : TrainConfig,
             #rollouts = replay_buffer.get_last(rollouts)
             #print("Testing: load multiple from buffer")
             #rollouts = replay_buffer.get_multiple(rollouts)
-            
+
             # Now modify the rewards in the rollouts by adding reward when closer to "exit"
             if type(user_cb).__name__ == "GoExplore":
                 if user_cb.reward_type == "count":
@@ -540,6 +564,48 @@ def _update_iter(cfg : TrainConfig,
                     #reward_bonus = (user_cb.bin_steps[all_bins[1:]] < user_cb.bin_steps[all_bins[:-1]]).float() - (user_cb.bin_steps[all_bins[1:]] > user_cb.bin_steps[all_bins[:-1]]).float()
                     #rollouts.rewards.view(-1, *rollouts.rewards.shape[2:])[:-1] += reward_bonus[...,None].repeat(1,1,2).view(reward_bonus.shape[0],-1,1) * user_cb.bin_reward_boost
                     #rollouts.rewards.view(-1, *rollouts.rewards.shape[2:])[:] += reward_bonus_2[...,None].repeat(1,1,2).view(reward_bonus_2.shape[0],-1,1) * user_cb.bin_reward_boost
+                elif user_cb.reward_type == "subtask":
+                    # Let's extract subtask transitions from the rollouts
+                    # We want progress from subtask i to i+1 to be associated with positive reward
+                    # but handle the case where we fall back to the previous subtask when we mess up
+                    # We can do this by checking if the subtask stays at i+1 for a few steps? Or by providing negative reward for backward progress
+                    # Let's do negative reward for backward progress for now
+                    all_bins = user_cb.map_states_to_bins(rollouts.obs, max_bin=False) # num_timesteps * num_worlds
+                    all_bins = all_bins // 200
+                    # Copy from previous rollout if not steps_remaining = 200
+                    print("All bins shape", all_bins[0].shape)
+                    print("Prev bins shape", prev_bins.shape)
+                    print("Filter shape", prev_bins[rollouts.obs[9][0,0,:,0] < 195][:,0].shape) # Should be 200 not 195
+                    #all_bins[0][rollouts.obs[9][0,0,:,0] < 195] = torch.maximum(all_bins[0][rollouts.obs[9][0,0,:,0] < 195], prev_bins[rollouts.obs[9][0,0,:,0] < 195][:,0])
+
+                    # If there are any "dones", add 4 to bin_id so that monotonicity doesn't mess with this
+                    print("Dones shape", rollouts.dones.shape)
+                    non_decreasing_dones = torch.clone(rollouts.dones.view(-1, *rollouts.dones.shape[2:3])).int()
+                    non_decreasing_dones[1:] += torch.cummax(non_decreasing_dones[:-1], dim=0)[0]
+                    print("dones unique", torch.unique(non_decreasing_dones, return_counts=True))
+                    print("All bins shape", all_bins.shape)
+                    #all_bins += 4*non_decreasing_dones
+                    # Print unique bins
+                    print("Unique bins", torch.unique(all_bins, return_counts=True))
+                    # Also stick this into level type
+                    rollouts.obs[2][0][:,:,0] = all_bins % 4 # torch.randint(4, rollouts.obs[2][0][:,:,0].shape) # all_bins % 4
+                    # Make the bins monotonically increasing
+                    all_bins = make_non_decreasing_custom(all_bins, axis=0)
+                    print("Unique bins", torch.unique(all_bins, return_counts=True))
+                    # Also stick this into level type
+                    #rollouts.obs[2][0][:,:,0] = all_bins % 4 # torch.randint(4, rollouts.obs[2][0][:,:,0].shape) # all_bins % 4
+                    # Now compute where the subtask transitions are
+                    positive_transitions = (all_bins[1:] == all_bins[:-1] + 1)
+                    # Print transition count
+                    print("Positive transitions", torch.unique(positive_transitions, return_counts=True))
+                    # Reward bonus from positive transitions
+                    reward_bonus = positive_transitions.float()*10.0
+                    # Also set dones to 1 if we have a positive transition
+                    #rollouts.dones.view(-1, *rollouts.dones.shape[2:])[:-1] += positive_transitions[...,None] # I think this is [:-1] for dones, not [1:]. Since the reward and done are both corresponding to the state-action
+                    print("Rollout shape", rollouts.rewards.shape)
+                    print("reward bonus shape", reward_bonus.shape)
+                    rollouts.rewards.view(-1, *rollouts.rewards.shape[2:])[:-1] += reward_bonus[...,None]
+                    # Need to also alter "done" signal and timestep...
                 elif user_cb.reward_type == "none":
                     pass
                 else:
