@@ -470,7 +470,7 @@ def _update_iter(cfg : TrainConfig,
                             # Renormalize to average weight 1
                             world_weights /= world_weights.mean()
                             #print(torch.unique(world_weights, return_counts=True))
-                    elif user_cb.intelligent_sample:
+                    elif user_cb.intelligent_sample == "bin":
                         # First bin the source worlds
                         source_bins = user_cb.map_states_to_bins(user_cb.obs, max_bin=False)[0,desired_samples:]
                         print("Bins shape", source_bins.shape)
@@ -492,6 +492,16 @@ def _update_iter(cfg : TrainConfig,
                         sampled_checkpoints, _ = weighted_stratified_sample_corrected(user_cb.checkpoints[desired_samples:], source_bins.to(user_cb.checkpoints.device), desired_samples, sampling_weights)
                         user_cb.checkpoints[:desired_samples] = sampled_checkpoints
                         # Let's not re-weight this for now
+                    elif user_cb.intelligent_sample == "value":
+                        world_values = rollout_mgr.bootstrap_values[desired_samples:][:,0]
+                        print("World values", torch.mean(world_values), torch.var(world_values))
+                        # Now we convert these into "success fracs" by clipping to 13, then dividing by 13
+                        world_values = torch.clamp(world_values, 0, 13) / 13
+                        sampling_weights = torch.exp(-world_values * user_cb.success_rate_temp)
+                        # Now sample from this
+                        print("Sampling weights", sampling_weights.shape)
+                        sample_rows = torch.multinomial(sampling_weights, desired_samples, replacement=True)
+                        user_cb.checkpoints[:desired_samples] = torch.clone(user_cb.checkpoints[desired_samples:][sample_rows])
                     else:
                         user_cb.checkpoints[:desired_samples] = user_cb.checkpoints[desired_samples:].repeat((user_cb.num_worlds // (user_cb.num_worlds - desired_samples)) - 1, 1)
                     user_cb.worlds.step()

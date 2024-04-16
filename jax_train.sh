@@ -27,7 +27,7 @@ CUDA_VISIBLE_DEVICES=0 python ${ROOT_DIR}/scripts/jax_train.py \
     --entropy-loss-coef 0.001 \
     --value-loss-coef 0.5 \
     --num-channels 512 \
-    --pbt-ensemble-size 0 \
+    --pbt-ensemble-size 16 \
     --bf16 \
     --wandb \
     --num-env-copies 1

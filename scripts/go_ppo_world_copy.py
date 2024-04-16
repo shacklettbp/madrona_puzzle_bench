@@ -76,7 +76,7 @@ arg_parser.add_argument('--sampling-strategy', type=str, default="uniform")
 arg_parser.add_argument('--make-graph', action='store_true')
 arg_parser.add_argument('--importance-test', action='store_true')
 arg_parser.add_argument('--importance-weights', action='store_true')
-arg_parser.add_argument('--intelligent-sample', action='store_true')
+arg_parser.add_argument('--intelligent-sample', type=str, default = "")
 arg_parser.add_argument('--intelligent-weights', nargs='+', type=int, default=[1, 1, 1, 1, 1, 1])
 arg_parser.add_argument('--td-weights', action='store_true')
 arg_parser.add_argument('--choose-worlds', action='store_true')
@@ -556,6 +556,8 @@ class GoExplore:
             print("Lidar depth", lidar_depth.shape)
             print("Agent bin", agent_bin.shape)
             agent_bin = agent_bin.view(-1, self.num_worlds, 1).type(torch.cuda.LongTensor).to(lidar_depth.device)
+            # Make sure agent_bin is in range
+            agent_bin = torch.clamp(agent_bin, 0, 29)
             forward_depth = torch.gather(lidar_depth, 2, agent_bin)[...,0]
             #sideways_depth = torch.maximum(lidar_depth[(agent_bin + 7) % 30], lidar_depth[(agent_bin + 23) % 30])
             sideways_depth = torch.maximum(torch.gather(lidar_depth, 2, (agent_bin + 7) % 30), torch.gather(lidar_depth, 2, (agent_bin + 23) % 30))[...,0]
@@ -840,9 +842,9 @@ class GoExplore:
                 # Now let's compute a bunch of metrics per stage-level bin
                 all_bins = self.map_states_to_bins(update_results.obs, max_bin=False)
                 # Let's do bin-counts here for now, TODO have to reverse this
-                new_bin_counts = torch.bincount(all_bins.flatten(), minlength=self.num_bins)# > 0).int()
+                #new_bin_counts = torch.bincount(all_bins.flatten(), minlength=self.num_bins)# > 0).int()
                 #self.bin_count += torch.clone(new_bin_counts)
-                new_bin_counts = new_bin_counts.float()
+                #new_bin_counts = new_bin_counts.float()
 
                 # Map to super-bins
                 all_bins = all_bins // 200
