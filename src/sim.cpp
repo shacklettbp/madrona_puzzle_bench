@@ -335,7 +335,7 @@ inline bool onGround(Engine &ctx, const Position &pos, const Rotation &rot, cons
     // Scale the relative to the agent's height.
     // Assume math.up is normalized and positive.
     float halfHeight = 0.5f * Vector3{s.d0, s.d1, s.d2}.dot(math::up);
-    Vector3 ray_o =   + halfHeight * rot.rotateVec(math::up);
+    Vector3 ray_o = pos + halfHeight * rot.rotateVec(math::up);
     Vector3 ray_d = rot.rotateVec(-math::up);
 
     const float max_t = halfHeight;
@@ -742,7 +742,6 @@ inline void checkExitSystem(Engine &ctx, Position exit_pos, IsExit)
 inline void lavaSystem(Engine &ctx, Position lava_pos, EntityExtents lava_extents, IsLava)
 {
     Vector3 agent_pos = ctx.get<Position>(ctx.data().agent);
-    agent_pos.z = 0.0f;
 
     AABB lava_aabb = {
         .pMin = lava_pos - lava_extents - 1.1f,
