@@ -1095,6 +1095,10 @@ inline void perLevelRewardSystem(Engine &ctx,
 
     float reward = 0.f;
 
+    if (episode_state.isDead) {
+        reward -= 1.f;
+    }
+
     if (episode_state.reachedExit) {
         reward += 1.f;
 
@@ -1112,6 +1116,10 @@ inline void endOnlyRewardSystem(Engine &ctx,
     const auto &episode_state = ctx.singleton<EpisodeState>();
 
     float reward = 0.f;
+
+    if (episode_state.isDead) {
+        reward -= 1.f;
+    }
 
     if (episode_state.reachedExit && 
             episode_state.curLevel == ctx.data().levelsPerEpisode) {

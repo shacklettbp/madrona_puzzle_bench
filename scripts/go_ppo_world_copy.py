@@ -426,7 +426,7 @@ class GoExplore:
         elif self.binning == "y_pos_door_entities":
             # Bin according to the y position of each agent
             # Determine granularity from num_bins
-            granularity = torch.sqrt(torch.tensor(self.num_bins)).int().item()
+            granularity = (torch.tensor(self.num_bins) / 20).int().item()
             increment = 1.11/granularity
             #print("States shape", states[0].shape)
             self_obs = states[0].view(-1, self.num_worlds, 10)
@@ -436,7 +436,7 @@ class GoExplore:
             #print("Max agent 0 progress", self_obs[:, 0, 3].max())
             #print("Max agent 1 progress", self_obs[:, 1, 3].max())
             # Also incorporate the scene id
-            level_obs = states[2].view(-1, self.num_worlds)
+            # level_obs = states[2].view(-1, self.num_worlds)
             #print(states[2].shape)
             # We get door open/button press from attr_1
             door_obs = states[6][...,0].max(dim=-1)[0].view(-1, self.num_worlds)
@@ -445,9 +445,9 @@ class GoExplore:
             # Normalize this
             entity_sum_dist = torch.abs(entity_obs[..., 0]).min(dim=2)[0] + torch.abs(entity_obs[..., 1]).min(dim=2)[0]
             entity_obs_norm = (entity_sum_dist - entity_sum_dist.min())/(entity_sum_dist.max() - entity_sum_dist.min())
-            block_val = (entity_obs_norm * 10).int() % 10
+            block_val = (entity_obs_norm * 9.99).int() % 10
             #print("Shapes", self_obs.shape, y_out.shape)
-            return (y_out + granularity*door_obs + granularity*2*level_obs + granularity*2*8*block_val).int()
+            return (y_out + granularity*door_obs + granularity*2*block_val).int()
         elif self.binning == "block_button":
             # Let's make a task-specific binning function
             granularity = (torch.tensor(1000) / 5).int().item()#(torch.tensor(self.num_bins) / 5).int().item()
@@ -501,13 +501,20 @@ class GoExplore:
             door_obs = block_button_dist < 1.0 # Seems reasonable ...
             grab_obs = states[1][...,0].view(-1, self.num_worlds) #.max(dim=-1)[0].view(-1, self.num_worlds)
             door_open_obs = states[6][...,0].max(dim=-1)[0].view(-1, self.num_worlds)
-            agent_block_button_obs = (block_button_dist < 2.0) * (button_dist < 5.0)
+            agent_block_button_obs = (block_button_dist < 1.0) * (button_dist < 5.0)
             # 0 if none, 1 if grab_obs, 2 if agent_block_button_obs, 3 if door_open_obs and not agent_block_button_obs
-            stage_obs = ((grab_obs * (~agent_block_button_obs) * (1 - door_open_obs)) + 2*agent_block_button_obs + 2*(door_open_obs * (~agent_block_button_obs))).int()
+            stage_obs = ((grab_obs * (~agent_block_button_obs) * (~door_obs)) + 2*agent_block_button_obs + 2*(door_obs * door_open_obs *(~agent_block_button_obs))).int()
+            # For the dist_obs, let's clamp things we don't care about
+            block_dist = torch.clamp(block_dist, 0, 15)
+            block_button_dist = torch.clamp(block_button_dist, 0, 15)
+            exit_dist = torch.clamp(exit_dist, 0, 20)
+            # Now generate a binning from stage and stage_dist
+            dist_obs = (stage_obs == 0)*block_dist + (stage_obs == 1)*block_button_dist + (stage_obs == 2)*exit_dist + (stage_obs == 3)*exit_dist
+            dist_quantized = (1.0 - torch.clamp(dist_obs / 25, 0., 1.)) // increment
             #print("Door obs", door_obs, grab_obs)
             print("Max stage obs", stage_obs.max(), "Min stage obs", stage_obs.min())
-            print("Without rounding", ((grab_obs * (~agent_block_button_obs) * (1 - door_open_obs)) + 2*agent_block_button_obs + 2*(door_open_obs * (~agent_block_button_obs))).min())
-            bins = (stage_obs*granularity + 5).int()
+            bins = (stage_obs*granularity + dist_quantized).int()
+            print(torch.unique(bins))
             #print(torch.unique(bins))
             return bins
         elif self.binning == "block_button_keystages":
@@ -579,8 +586,25 @@ class GoExplore:
             # How do we define success? 
             # If there's forward room, we want to make forward progress without death
             # If there's sideways room, we again want to make forward progress without death
-            # If before lava, want to enter lava region ... again can be measured by forward progress without death 
-            bins = (stage_obs*granularity + 5).int()
+            # If before lava, want to enter lava
+
+            # Now to use this for count-based intrinsics, we need some notion of distance within each bin
+            # Also probably combine with y progress
+            # Could just do x-y position
+            increment = 1.11/granularity
+            '''
+            y_0 = torch.clamp((self_obs[..., 1] + 30)/60, 0, 1.1) // increment # Granularity of 0.01 on the y
+            y_out = (y_0).int()
+            #x_0 = torch.clamp((self_obs[..., 0] + 10)/20, 0, 1.1) // increment # Granularity of 0.01 on the x
+            # Other way to do this: use the distance measure within the bin
+            '''
+            stage1_dist = torch.clamp((self_obs[..., 1] + 30)/15, 0, 1.1) // increment
+            stage5_dist = torch.clamp((self_obs[..., 1] - 13)/15, 0, 1.1) // increment
+            # Otherwise just use default y bin
+            y_0 = torch.clamp((self_obs[..., 1] + 15)/30, 0, 1.1) // increment # Granularity of 0.01 on the y
+            y_out = (stage_obs == 1)*((stage1_dist).int()) + (stage_obs == 5)*((stage5_dist).int()) + (stage_obs != 1)*(stage_obs != 5)*(y_0).int()
+
+            bins = (stage_obs*granularity + y_0).int()
             return bins
         elif self.binning == "x_y":
             # Bin according to the y position of each agent
@@ -842,9 +866,9 @@ class GoExplore:
                 # Now let's compute a bunch of metrics per stage-level bin
                 all_bins = self.map_states_to_bins(update_results.obs, max_bin=False)
                 # Let's do bin-counts here for now, TODO have to reverse this
-                #new_bin_counts = torch.bincount(all_bins.flatten(), minlength=self.num_bins)# > 0).int()
-                #self.bin_count += torch.clone(new_bin_counts)
-                #new_bin_counts = new_bin_counts.float()
+                new_bin_counts = torch.bincount(all_bins.flatten(), minlength=self.num_bins)# > 0).int()
+                self.bin_count += torch.clone(new_bin_counts)
+                new_bin_counts = new_bin_counts.float()
 
                 # Map to super-bins
                 all_bins = all_bins // 200
@@ -1136,7 +1160,7 @@ else:
 
 run = wandb.init(
     # Set the project where this run will be logged
-    project="puzzle-bench-stages",
+    project="puzzle-bench-counts",
     # Track hyperparameters and run metadata
     config=args
 )
