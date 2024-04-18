@@ -819,8 +819,7 @@ static void chaseLevel(Engine &ctx)
     makeEnemy(ctx, enemy_spawn, 280.f, 280.f);
 }
 
-static void lavaPathLevel(Engine &ctx)
-{
+static void lavaLevel(Engine &ctx, bool shouldMakeButton = false) {
     const float level_size = 30.f;
 
     Entity exit_door;
@@ -852,18 +851,18 @@ static void lavaPathLevel(Engine &ctx)
     }
 
     // Visualize the grid.
-    auto debugPrintGrid = [&](){
-        for (int i = gridsize - 1; i >= 0; --i) {
-            for (int j = gridsize - 1; j >= 0; --j) {
-                printf(" ");
-                if (grid[i][j] >= 0) {
-                    printf("+");
-                }
-                printf("%d", grid[i][j]);
-            }
-            printf("\n");
-        }
-    };
+    //auto debugPrintGrid = [&](){
+    //    for (int i = gridsize - 1; i >= 0; --i) {
+    //        for (int j = gridsize - 1; j >= 0; --j) {
+    //            printf(" ");
+    //            if (grid[i][j] >= 0) {
+    //                printf("+");
+    //            }
+    //            printf("%d", grid[i][j]);
+    //        }
+    //        printf("\n");
+    //    }
+    //};
 
     Vector3 exit_coord = gridsize * 
         (exit_pos - room_aabb.pMin) / level_size;
@@ -904,20 +903,18 @@ static void lavaPathLevel(Engine &ctx)
 
     // Compute the path length to pick a random square 
     // from which to branch off to the button.
-    int pathLength = abs(exitCoord.x - entranceCoord.x) + abs(exitCoord.y - entranceCoord.y);
+    int branchStep = -1;
+    if (shouldMakeButton) {
+        int pathLength = abs(exitCoord.x - entranceCoord.x) + 
+                         abs(exitCoord.y - entranceCoord.y);
+        branchStep = ctx.data().rng.sampleI32(0, pathLength + 1);
+    }
 
-    // TODO: restore
-    int branchStep = ctx.data().rng.sampleI32(0, pathLength + 1);
-
-    // TODO: restore, debugging
-    //for (int i = 0; i < 11; ++i) {
-    //    branchStep = ctx.data().rng.sampleI32(0, pathLength + 1);
-    //}
-
-    //printf("Path Length: %d\n", pathLength);
-    //printf("Branch Step: %d\n", branchStep);
-
-    auto writeShortestPath = [&](Vector2Int32 entrance, Vector2Int32 exit, int markStep, Vector2Int32& markCoord)
+    auto writeShortestPath = 
+    [&](Vector2Int32 entrance, 
+        Vector2Int32 exit, 
+        int markStep, 
+        Vector2Int32 &markCoord)
     {
         bool atExit = false;
         while (!atExit)
@@ -941,8 +938,6 @@ static void lavaPathLevel(Engine &ctx)
             entrance.x += step.x;
             entrance.y += step.y;
 
-            //printf("new Entrance: %d, %d\n", entrance.x, entrance.y);
-
             int const_coord = entrance[(coin + 1) % 2];
 
             for (int i = oldEntranceCoord[coin];
@@ -960,15 +955,16 @@ static void lavaPathLevel(Engine &ctx)
                     grid[i][const_coord] = PATH;
                 }
 
-                //printf("(const_coord, i) = (%d, %d)\n", const_coord, i);
-
                 if (markStep == 0)
                 {
                     markCoord.x = coin == 1 ? const_coord : i;
                     markCoord.y = coin == 1 ? i : const_coord;
                     markStep--;
                 }
-                if (oldEntranceCoord.x != entrance.x || oldEntranceCoord.y != entrance.y) {
+                // Check if the entrance has actually updated.
+                if (oldEntranceCoord.x != entrance.x || 
+                    oldEntranceCoord.y != entrance.y) 
+                {
                     --markStep;
                 }
             }
@@ -981,11 +977,12 @@ static void lavaPathLevel(Engine &ctx)
     Vector2Int32 branchCoord = Vector2Int32{-1, -1};
     writeShortestPath(entranceCoord, exitCoord, branchStep, branchCoord);
 
-    // Add a button with a path from a random point on the path to the button.
-    const float button_width = ctx.data().buttonWidth;
-    const float half_button_width = button_width / 2.f;
+    if (shouldMakeButton) {
+        // Add a button with a path to that button from a random
+        // point on the existing path.
+        const float button_width = ctx.data().buttonWidth;
+        const float half_button_width = button_width / 2.f;
 
-    {
         float button_x = randBetween(ctx,
             room_aabb.pMin.x + half_button_width,
             room_aabb.pMax.x - half_button_width);
@@ -997,29 +994,21 @@ static void lavaPathLevel(Engine &ctx)
         Vector3 button_coord = gridsize * 
         (Vector3(button_x, button_y, 0.0f) - room_aabb.pMin) / level_size;
 
-        Vector2Int32 buttonCoord = Vector2Int32{int(button_coord.x), int(button_coord.y)};
+        Vector2Int32 buttonCoord{int(button_coord.x), int(button_coord.y)};
 
-        Vector3 buttonXY = Vector3(buttonCoord.x, buttonCoord.y, 0.0f) * level_size / gridsize 
-        + room_aabb.pMin + 2.0f * Vector3(half_button_width, half_button_width, 0.0f);
+        Vector3 buttonXY = 
+        Vector3(buttonCoord.x, buttonCoord.y, 0.0f) * level_size / gridsize +
+        room_aabb.pMin  +
+        Vector3(button_width, button_width, 0.0f);
 
         Entity button = makeButton(ctx, buttonXY.x, buttonXY.y);
 
         terminateButtonList(ctx,
             addButtonToList(ctx, exit_door, button));
 
-
-        //grid[buttonCoord.x][buttonCoord.y] = 5;
-
-        //printf("Branch Coord: %d, %d\n", branchCoord.x, branchCoord.y);
-        //grid[branchCoord.x][branchCoord.y] = 3;
         Vector2Int32 ignore;
         writeShortestPath(branchCoord, buttonCoord, -1, ignore);
     }
-
-    // TODO: restore
-    //debugPrintGrid();
-    //assert(false);
-
 
     struct LavaBounds {
         Vector2Int32 min;
@@ -1112,6 +1101,18 @@ static void lavaPathLevel(Engine &ctx)
 
         makeLava(ctx, lavaCenter, lavaScale);
     }
+
+}
+
+static void lavaButtonLevel(Engine &ctx)
+{
+    // Make a lava level including a button.
+    lavaLevel(ctx, true);
+}
+
+static void lavaPathLevel(Engine &ctx)
+{
+    lavaLevel(ctx, false);
 }
 
 static void singleButtonLevel(Engine &ctx)
@@ -1390,7 +1391,7 @@ LevelType generateLevel(Engine &ctx)
     LevelType level_type = (LevelType)ctx.data().rng.sampleI32(
         0, (uint32_t)LevelType::NumTypes);
     //      3, 5);
-    //level_type = LevelType::LavaPath;
+    //level_type = LevelType::LavaButton;
 
     switch (level_type) {
     case LevelType::Chase: {
@@ -1398,6 +1399,9 @@ LevelType generateLevel(Engine &ctx)
     } break;
     case LevelType::LavaPath: {
         lavaPathLevel(ctx);
+    } break;
+    case LevelType::LavaButton: {
+        lavaButtonLevel(ctx);
     } break;
     case LevelType::SingleButton: {
         singleButtonLevel(ctx);
