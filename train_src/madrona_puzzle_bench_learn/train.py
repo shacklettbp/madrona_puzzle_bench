@@ -498,6 +498,11 @@ def _update_iter(cfg : TrainConfig,
                             # Normalize
                             sampling_weights /= sampling_weights.sum()
                             #sampling_weights = user_cb.running_td_error / user_cb.running_td_error.sum()
+                        else:
+                            # Do count-based weights
+                            sampling_weights = torch.bincount(source_bins.to(user_cb.checkpoints.device), minlength=sampling_weights.shape[0])
+                            sampling_weights = 1. / (torch.pow(sampling_weights, 0.5) + 1)
+                            sampling_weights /= sampling_weights.sum()
                         print("Sampling weights", sampling_weights)
                         print("Bin counts", torch.unique(source_bins, return_counts=True))
                         # Now we need to weight the sampling to sample less from source_bins == 0

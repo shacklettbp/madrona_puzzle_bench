@@ -763,7 +763,7 @@ class GoExplore:
                 all_bins = self.map_states_to_bins(update_results.obs, max_bin=False)
                 # Let's do bin-counts here for now, TODO have to reverse this
                 new_bin_counts = torch.bincount(all_bins.flatten(), minlength=self.num_bins)# > 0).int()
-                #self.bin_count += torch.clone(new_bin_counts)
+                self.bin_count += torch.clone(new_bin_counts)
                 new_bin_counts = new_bin_counts.float()
 
                 # Map to super-bins
@@ -986,7 +986,7 @@ else:
 
 run = wandb.init(
     # Set the project where this run will be logged
-    project="puzzle-bench-hyperparams",
+    project="puzzle-bench-counts",
     # Track hyperparameters and run metadata
     config=args
 )

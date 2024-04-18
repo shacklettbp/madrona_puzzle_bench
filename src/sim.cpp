@@ -883,6 +883,10 @@ inline void collectObservationsSystem(
             attr1 = ctx.get<ButtonState>(e).isPressed ? 1 : 0;
             attr2 = 0;
         } break;
+        case EntityType::Enemy: {
+            attr1 = ctx.get<EnemyState>(e).isDead ? 1 : 0;
+            attr2 = 0;
+        } break;
         //case EntityType::Pattern: {
         //    attr1 = ctx.get<PatternMatchState>(e).isMatched ? 1 : 0;
         //    attr2 = 0;
@@ -1094,6 +1098,10 @@ inline void perLevelRewardSystem(Engine &ctx,
 
     float reward = 0.f;
 
+    if (episode_state.isDead) {
+        reward -= 1.f;
+    }
+
     if (episode_state.reachedExit) {
         reward += 1.f;
 
@@ -1111,6 +1119,10 @@ inline void endOnlyRewardSystem(Engine &ctx,
     const auto &episode_state = ctx.singleton<EpisodeState>();
 
     float reward = 0.f;
+
+    if (episode_state.isDead) {
+        reward -= 1.f;
+    }
 
     if (episode_state.reachedExit && 
             episode_state.curLevel == ctx.data().levelsPerEpisode) {
