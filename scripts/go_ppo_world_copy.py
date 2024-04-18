@@ -606,6 +606,21 @@ class GoExplore:
 
             bins = (stage_obs*granularity + y_0).int()
             return bins
+        elif self.binning == "chicken":
+            # Stages: 1) Go to chicken, 2) Pull chicken back to coop, 3) Go to exit. On top of this, we want to bin by 1) number of total chickens, 2) distance to next objective
+            self_obs = states[0].view(-1, self.num_worlds, 10)
+            grab_obs = states[1][...,0].view(-1, self.num_worlds) 
+            door_obs = states[6][...,0].max(dim=-1)[0].view(-1, self.num_worlds) # Is this even correct? Because this has both button press and door open combined... so it might break things... 
+            # Compute distance to nearest chicken, and distance to coop
+            chicken_id = 8
+            coop_id = 11
+            # Creating a meshgrid for B and C dimensions
+            B, C = entity_obs.shape[:2]
+            b_grid, c_grid = torch.meshgrid(torch.arange(B), torch.arange(C), indexing='ij')
+            block_dist = entity_obs[b_grid,c_grid,(entity_type == block_id).float().argmax(dim=-1)][...,0:2].norm(dim=-1).view(-1, self.num_worlds)
+            button_dist = entity_obs[entity_type == button_id][...,0:2].norm(dim=-1).view(-1, self.num_worlds)
+            block_button_dist = (entity_obs[entity_type == button_id][...,0:2].view(-1, self.num_worlds, 2) - entity_obs[b_grid,c_grid,(entity_type == block_id).float().argmax(dim=-1)][...,0:2]).norm(dim=-1).view(-1, self.num_worlds)
+            exit_dist = states[3][...,0].view(-1, self.num_worlds)
         elif self.binning == "x_y":
             # Bin according to the y position of each agent
             # Determine granularity from num_bins

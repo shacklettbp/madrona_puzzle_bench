@@ -884,6 +884,10 @@ inline void collectObservationsSystem(
             attr1 = ctx.get<ButtonState>(e).isPressed ? 1 : 0;
             attr2 = 0;
         } break;
+        case EntityType::Enemy: {
+            attr1 = ctx.get<EnemyState>(e).isDead ? 1 : 0;
+            attr2 = 0;
+        } break;
         //case EntityType::Pattern: {
         //    attr1 = ctx.get<PatternMatchState>(e).isMatched ? 1 : 0;
         //    attr2 = 0;

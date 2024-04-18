@@ -206,6 +206,7 @@ int main(int argc, char *argv[])
 
     auto entity_phys_tensor = mgr.entityPhysicsStateObsTensor();
     auto entity_type_tensor = mgr.entityTypeObsTensor();
+    auto entity_attr_obs_tensor = mgr.entityAttributesObsTensor();
 
     auto reward_tensor = mgr.rewardTensor();
 
@@ -222,6 +223,7 @@ int main(int argc, char *argv[])
 
     auto entity_phys_printer = entity_phys_tensor.makePrinter();
     auto entity_type_printer = entity_type_tensor.makePrinter();
+    auto entity_attr_printer = entity_attr_obs_tensor.makePrinter();
 
     auto reward_printer = reward_tensor.makePrinter();
 
@@ -358,6 +360,9 @@ int main(int argc, char *argv[])
 
         printf("Entity Types\n");
         entity_type_printer.print();
+
+        printf("Entity Attributes\n");
+        entity_attr_printer.print();
 
         printf("Reward\n");
         reward_printer.print();
