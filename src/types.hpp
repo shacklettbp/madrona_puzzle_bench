@@ -44,7 +44,6 @@ struct WorldReset {
 enum class LevelType : uint32_t {
     Chase,
     LavaPath,
-    LavaButton,
     SingleButton,
     SingleBlockButton,
     ObstructedBlockButton,
