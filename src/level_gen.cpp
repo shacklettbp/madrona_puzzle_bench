@@ -1304,7 +1304,7 @@ LevelType generateLevel(Engine &ctx)
     LevelType level_type = (LevelType)ctx.data().rng.sampleI32(
         0, (uint32_t)LevelType::NumTypes);
     //      3, 5);
-    level_type = LevelType::LavaPath;
+    level_type = LevelType::ChickenCoop;
 
     switch (level_type) {
     case LevelType::Chase: {

@@ -229,8 +229,8 @@ class GoExplore:
         self.bin_uncertainty = torch.zeros((self.num_bins, self.num_checkpoints), device=device).float() # Can have RND, TD error, (pseudo-counts? etc.)
 
         # Start bin
-        start_bins = self.map_states_to_bins(self.obs)[0,:]
-        self.start_bin_steps[start_bins] = 0
+        #start_bins = self.map_states_to_bins(self.obs)[0,:]
+        #self.start_bin_steps[start_bins] = 0
 
         self.actions_num_buckets = [4, 8, 5, 2]
         self.action_space = Box(-float('inf'),float('inf'),(sum(self.actions_num_buckets),))
@@ -607,20 +607,70 @@ class GoExplore:
             bins = (stage_obs*granularity + y_0).int()
             return bins
         elif self.binning == "chicken":
+            granularity = 200
             # Stages: 1) Go to chicken, 2) Pull chicken back to coop, 3) Go to exit. On top of this, we want to bin by 1) number of total chickens, 2) distance to next objective
             self_obs = states[0].view(-1, self.num_worlds, 10)
             grab_obs = states[1][...,0].view(-1, self.num_worlds) 
-            door_obs = states[6][...,0].max(dim=-1)[0].view(-1, self.num_worlds) # Is this even correct? Because this has both button press and door open combined... so it might break things... 
-            # Compute distance to nearest chicken, and distance to coop
+            entity_type = states[5].view(-1, self.num_worlds, 9)
+            entity_attr = states[6].view(-1, self.num_worlds, 9, states[6].shape[-1])
+            print("Entity type", entity_type, entity_type.shape)
+            print("Entity attr", entity_attr, entity_attr.shape)
+            door_id = 2
             chicken_id = 8
             coop_id = 11
-            # Creating a meshgrid for B and C dimensions
-            B, C = entity_obs.shape[:2]
-            b_grid, c_grid = torch.meshgrid(torch.arange(B), torch.arange(C), indexing='ij')
-            block_dist = entity_obs[b_grid,c_grid,(entity_type == block_id).float().argmax(dim=-1)][...,0:2].norm(dim=-1).view(-1, self.num_worlds)
-            button_dist = entity_obs[entity_type == button_id][...,0:2].norm(dim=-1).view(-1, self.num_worlds)
-            block_button_dist = (entity_obs[entity_type == button_id][...,0:2].view(-1, self.num_worlds, 2) - entity_obs[b_grid,c_grid,(entity_type == block_id).float().argmax(dim=-1)][...,0:2]).norm(dim=-1).view(-1, self.num_worlds)
+            door_index = (entity_type == door_id).float().argmax(dim=-1)#[0]
+            print("Door index", door_index, door_index.shape)
+            coop_index = (entity_type == coop_id).float().argmax(dim=-1)#[0]
+            print("Coop index", coop_index, coop_index.shape)
+            chicken_indices = (entity_type == chicken_id).float()
+            print("Chicken indices", chicken_indices)
+            # Now let's extract door_obs using door_index
+            door_obs = torch.gather(entity_attr, 1, door_index[:, :, None, None])[...,0]
+            print("Door obs", door_obs, door_obs.shape, torch.unique(door_obs, return_counts=True))
+            coop_obs = torch.gather(entity_attr, 1, coop_index[:, :, None, None])[...,0]
+            print("Coop obs", coop_obs, coop_obs.shape, torch.unique(coop_obs, return_counts=True))
+            print("Attr dist", torch.unique(entity_attr[...,0], return_counts=True), torch.unique(states[6][...,1], return_counts=True))
+            chicken_count = chicken_indices.sum(dim=-1).int()
+            print("Chicken count", chicken_count, chicken_indices.shape)
+            # Filter down to "living" chickens, which is where the value in entity_attr for the chicken is > 0 for the locations specified by chicken_indices
+            chicken_indices = chicken_indices.nonzero(as_tuple = True)
+            chicken_attr_obs = entity_attr[chicken_indices[0], chicken_indices[1], chicken_indices[2]]
+            print("Chicken attr obs", chicken_attr_obs, chicken_attr_obs.shape)
+            living_chicken_indices = (chicken_attr_obs[...,0] < 1)#.int()
+            print("Living chicken meter", torch.unique(living_chicken_indices, return_counts=True))
+            # Now with the living chicken indices, let's get the distance to each chicken
+            entity_obs = states[4].view(-1, self.num_worlds, 9, states[4].shape[-1])
+            entity_dist = entity_obs[chicken_indices[0][living_chicken_indices], chicken_indices[1][living_chicken_indices], chicken_indices[2][living_chicken_indices], 0:2].norm(dim=-1)
+            print("Entity dist", entity_dist, entity_dist.shape)
+            print("Chicken indices", chicken_indices)
+            print("Living chicken indices", living_chicken_indices)
+            print(torch.unique(chicken_indices[0][living_chicken_indices], return_counts=True), chicken_indices[1][living_chicken_indices], chicken_indices[2][living_chicken_indices])
+            print((entity_type == chicken_id) * (entity_attr[...,0] < 1) * entity_obs[...,0:2].norm(dim=-1)) # This works
+            chicken_dist_min = ((entity_type == chicken_id) * (entity_attr[...,0] < 1) * entity_obs[...,0:2].norm(dim=-1))
+            chicken_dist_min[chicken_dist_min == 0] = 1000
+            chicken_dist_min = torch.min(chicken_dist_min, dim=-1)[0]
+            chicken_dist_min[chicken_dist_min == 1000] = 0
+            print("Chicken dist min", chicken_dist_min)
+            # Also compute coop distance
+            coop_dist = ((entity_type == coop_id) * entity_obs[...,0:2].norm(dim=-1)).max(dim=-1)[0]
+            print("Coop dist", coop_dist, coop_dist.shape)
+
+            # First let's identify the stages
+            # Stages: 1) Go to chicken, 2) Pull chicken back to coop, 3) Go to exit
+            stage_obs = grab_obs + 2 * door_obs[...,0] * (1 - grab_obs) # 0, 1, 2
+            print("stage obs", stage_obs.shape, torch.unique(stage_obs, return_counts=True))
+            # Okay within each stage let's compute the distance
             exit_dist = states[3][...,0].view(-1, self.num_worlds)
+            # Discretize dist
+            increment = 1.11/granularity
+            exit_dist = torch.clamp(exit_dist / 30, 0, 1.1) // increment
+            coop_dist = torch.clamp(coop_dist / 20, 0, 1.1) // increment
+            chicken_dist_min = torch.clamp(chicken_dist_min / 20, 0, 1.1) // increment
+            dist_obs = (stage_obs == 0)*chicken_dist_min + (stage_obs == 1)*coop_dist + (stage_obs == 2)*exit_dist
+            # Now combine both, and also add in num_chickens
+            bins = (stage_obs*granularity*4 + dist_obs*4 + chicken_count).int() # Max: 200 * 3 * 4 = 2400
+            print("Bins", torch.unique(bins, return_counts=True))
+            return bins
         elif self.binning == "x_y":
             # Bin according to the y position of each agent
             # Determine granularity from num_bins
