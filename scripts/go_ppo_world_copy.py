@@ -671,6 +671,50 @@ class GoExplore:
             bins = (stage_obs*granularity*4 + dist_obs*4 + chicken_count).int() # Max: 200 * 3 * 4 = 2400
             print("Bins", torch.unique(bins, return_counts=True))
             return bins
+        elif self.binning == "pattern":
+            granularity = 200
+            # Stages: 1) Go to chicken, 2) Pull chicken back to coop, 3) Go to exit. On top of this, we want to bin by 1) number of total chickens, 2) distance to next objective
+            self_obs = states[0].view(-1, self.num_worlds, 10)
+            grab_obs = states[1][...,0].view(-1, self.num_worlds) 
+            entity_type = states[5].view(-1, self.num_worlds, 9)
+            entity_attr = states[6].view(-1, self.num_worlds, 9, states[6].shape[-1])
+            print("Entity type", entity_type, entity_type.shape)
+            print("Entity attr", entity_attr, entity_attr.shape)
+            door_id = 2
+            block_id = 3
+            door_index = (entity_type == door_id).float().argmax(dim=-1)#[0]
+            print("Door index", door_index, door_index.shape)
+            block_indices = (entity_type == block_id).float()
+            print("Block indices", block_indices)
+            # Now let's extract door_obs using door_index
+            door_obs = torch.gather(entity_attr, 1, door_index[:, :, None, None])[...,0]
+            print("Door obs", door_obs, door_obs.shape, torch.unique(door_obs, return_counts=True))
+            block_count = block_indices.sum(dim=-1).int()
+            print("Block count", block_count, block_indices.shape)
+            # Filter down to "living" chickens, which is where the value in entity_attr for the chicken is > 0 for the locations specified by chicken_indices
+            # Now with the living chicken indices, let's get the distance to each chicken
+            entity_obs = states[4].view(-1, self.num_worlds, 9, states[4].shape[-1])
+            block_dist_min = ((entity_type == block_id) * entity_obs[...,0:2].norm(dim=-1))
+            block_dist_min[block_dist_min == 0] = 1000
+            block_dist_min = torch.min(block_dist_min, dim=-1)[0]
+            block_dist_min[block_dist_min == 1000] = 0
+            print("Block dist min", block_dist_min)
+
+            # First let's identify the stages
+            # Stages: 1) Go to block, 2) Pull block to spot, 3) Go to exit
+            stage_obs = grab_obs + 2 * door_obs[...,0] * (1 - grab_obs) # 0, 1, 2
+            print("stage obs", stage_obs.shape, torch.unique(stage_obs, return_counts=True))
+            # Okay within each stage let's compute the distance
+            exit_dist = states[3][...,0].view(-1, self.num_worlds)
+            # Discretize dist
+            increment = 1.11/granularity
+            exit_dist = torch.clamp(exit_dist / 30, 0, 1.1) // increment
+            block_dist_min = torch.clamp(block_dist_min / 20, 0, 1.1) // increment
+            dist_obs = (stage_obs == 0)*block_dist_min + (stage_obs == 1)*exit_dist + (stage_obs == 2)*exit_dist # Missing target location
+            # Now combine both, and also add in num_chickens
+            bins = (stage_obs*granularity*4 + dist_obs*4 + block_count).int() # Max: 200 * 3 * 4 = 2400
+            print("Bins", torch.unique(bins, return_counts=True))
+            return bins
         elif self.binning == "x_y":
             # Bin according to the y position of each agent
             # Determine granularity from num_bins
