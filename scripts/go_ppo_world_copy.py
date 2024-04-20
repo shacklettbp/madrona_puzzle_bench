@@ -357,6 +357,166 @@ class GoExplore:
             return states
         elif self.binning == "random":
             return torch.randint(0, self.num_bins, size=(states[0].shape[1], self.num_worlds,), device=self.device)
+        elif self.binning == "gpt_block_button":
+            obs_list = states
+            max_bins = 1000
+            
+            rollout_len, num_worlds = obs_list[0].shape[:2]
+            entity_types = obs_list[5][...,0]  # (rollout_len, num_worlds, max_entities)
+            entity_dists = obs_list[4][...,0]  # Polar r for all entities (rollout_len, num_worlds, max_entities)
+
+            # Constants for binning
+            max_dist = 20
+            num_dist_bins = 20  # 1 unit per bin for distances
+            door_open_bins = 2  # Door either open or closed
+            exit_bins = 10  # Divide distance to exit into 10 bins
+
+            # Finding indices for blocks and buttons
+            block_id = 3
+            button_id = 6
+
+            block_mask = entity_types == block_id
+            button_mask = entity_types == button_id
+            print(entity_types.shape, (obs_list[6].shape))
+            door_open_mask = (obs_list[6][..., 0] == 1) & (entity_types == 4)  # Assuming 1 means door is open and type 4 is Door
+
+            # Minimal distance to a block
+            print("Block mask", block_mask.shape, entity_dists.shape)
+            block_dist = torch.where(block_mask, entity_dists, max_dist)
+            block_dist, _ = block_dist.min(dim=-1)
+
+            # Minimal distance to a button
+            button_dist = torch.where(button_mask, entity_dists, max_dist)
+            button_dist, _ = button_dist.min(dim=-1)
+
+            # Binary state of door (open/closed)
+            door_open = door_open_mask.any(dim=-1).int()
+
+            # Distance to exit
+            exit_dist = obs_list[3][:,:,:,0]  # already polar r from agent to exit
+
+            # Discretizing features
+            block_dist_bins = torch.floor(block_dist * num_dist_bins / max_dist).int()
+            button_dist_bins = torch.floor(button_dist * num_dist_bins / max_dist).int()
+            exit_dist_bins = torch.floor(exit_dist * exit_bins / max_dist).int()
+
+            # Compute unique bin id
+            bin_multiplier = num_dist_bins * num_dist_bins * door_open_bins
+            bins = block_dist_bins * (num_dist_bins * door_open_bins) + button_dist_bins * door_open_bins + door_open
+
+            # Scale down exit distance into separate set of bins
+            exit_multiplier = max_bins // exit_bins
+            print("Exit dist bins", exit_dist_bins.shape, bins.shape)
+            exit_bins = exit_dist_bins + (bins % exit_multiplier) * exit_bins
+            exit_bins = exit_bins[0]
+            print("Exit bins", exit_bins, exit_bins.shape)
+
+            return exit_bins
+        elif self.binning == "gpt_chicken":
+            obs_list = states
+            max_bins = 1000
+
+            rollout_len, num_worlds = obs_list[0].shape[:2]
+            entity_types = obs_list[5][..., 0]  # Entity types tensor
+            entity_dists = obs_list[4][..., 0]  # Distances from agent to entities
+            entity_attrs = obs_list[6]  # Attributes of entities
+
+            # Constants for binning
+            max_dist = 20
+            num_dist_bins = 20  # 1 unit per bin for distances
+            door_open_bins = 2  # Door either open or closed
+            exit_bins = 10  # Divide distance to exit into 10 bins
+
+            # Finding indices for chickens, coop, and door
+            chicken_id = 8
+            coop_id = 11
+            door_id = 4
+
+            chicken_mask = (entity_types == chicken_id) & (entity_attrs[..., 0] == 0)  # Assuming attr1 == 0 means alive
+            coop_mask = entity_types == coop_id
+            door_mask = entity_types == door_id
+
+            # Count alive chickens
+            alive_chickens = chicken_mask.sum(dim=-1)
+
+            # Minimal distance to a live chicken
+            chicken_dist = torch.where(chicken_mask, entity_dists, max_dist)
+            chicken_dist, _ = chicken_dist.min(dim=-1)
+
+            # Minimal distance to the coop
+            coop_dist = torch.where(coop_mask, entity_dists, max_dist)
+            coop_dist, _ = coop_dist.min(dim=-1)
+
+            # Door state and distance to exit
+            door_open = (entity_attrs[..., 0] == 1) & door_mask  # Assuming attr1 == 1 means door is open
+            door_open = door_open.any(dim=-1).int()
+            exit_dist = obs_list[3][...,0]  # Distance to exit
+
+            # Discretizing features
+            chicken_dist_bins = torch.floor(chicken_dist * num_dist_bins / max_dist).int()
+            coop_dist_bins = torch.floor(coop_dist * num_dist_bins / max_dist).int()
+            exit_dist_bins = torch.floor(exit_dist * exit_bins / max_dist).int()
+
+            # Compute unique bin id
+            bin_multiplier = num_dist_bins * num_dist_bins * door_open_bins
+            bins = alive_chickens * bin_multiplier + chicken_dist_bins * (num_dist_bins * door_open_bins) + coop_dist_bins * door_open_bins + door_open
+
+            # Scale down exit distance into separate set of bins
+            exit_multiplier = max_bins // exit_bins
+            #print("Exit dist bins", exit_dist_bins.shape, bins.shape)
+            exit_bins = exit_dist_bins + (bins % exit_multiplier) * exit_bins
+            exit_bins = exit_bins[0]
+
+            print("Exit bins", torch.unique(exit_bins, return_counts=True))
+
+            return exit_bins
+        elif self.binning == "gpt_lava_button":
+            obs_list = states
+            max_bins = 1000
+
+            rollout_len, num_worlds = obs_list[0].shape[:2]
+            lidar_depths = obs_list[7]  # LIDAR depth tensor
+            lidar_types = obs_list[8]  # LIDAR hit type tensor
+            entity_types = obs_list[5][..., 0]  # Entity types tensor
+            entity_dists = obs_list[4][..., 0]  # Distances from agent to entities
+
+            # Constants for binning
+            max_dist = 20
+            num_dist_bins = 50  # More granularity in distance measurement
+            door_open_bins = 2  # Door either open or closed
+            exit_bins = 10  # Divide distance to exit into 10 bins
+            lava_id = 5
+            button_id = 6
+            door_id = 4
+
+            # Lava minimum distance calculation
+            lava_mask = lidar_types == lava_id
+            lava_dist = torch.where(lava_mask, lidar_depths, max_dist)
+            lava_dist, _ = lava_dist.min(dim=-1)
+
+            # Button information
+            button_mask = entity_types == button_id
+            button_dist = torch.where(button_mask, entity_dists, max_dist)
+            button_dist, _ = button_dist.min(dim=-1)
+
+            # Door state and distance to exit
+            door_open_mask = (entity_types == door_id) & (obs_list[6][..., 0] == 1)  # Assuming attr1 == 1 means door is open
+            door_open = door_open_mask.any(dim=-1).int()
+            exit_dist = obs_list[3][...,0]  # Distance to exit
+
+            # Discretizing features
+            lava_dist_bins = torch.floor(lava_dist * num_dist_bins / max_dist).int()
+            button_dist_bins = torch.floor(button_dist * num_dist_bins / max_dist).int()
+            exit_dist_bins = torch.floor(exit_dist * exit_bins / max_dist).int()
+
+            # Compute unique bin id
+            bins = lava_dist_bins * (num_dist_bins * door_open_bins) + button_dist_bins * door_open_bins + door_open
+
+            # Scale down exit distance into separate set of bins
+            exit_multiplier = max_bins // exit_bins
+            exit_bins = exit_dist_bins + (bins % exit_multiplier) * exit_bins
+
+            return exit_bins
         elif self.binning == "y_pos":
             # Bin according to the y position of each agent
             # Determine granularity from num_bins
