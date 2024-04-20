@@ -606,6 +606,73 @@ class GoExplore:
 
             bins = (stage_obs*granularity + y_0).int()
             return bins
+        elif self.binning == "lava_button":
+            granularity = 200
+            # Let's make a task-specific binning function
+            self_obs = states[0].view(-1, self.num_worlds, 10)
+            y_pos = self_obs[..., 1]
+            before_lava = (y_pos < -15).int()
+            after_lava = (y_pos >= 13).int()
+            # Now if in-lava, let's see whether there's room behind, forward, or to the side...
+            # Forward is 0, backwards is -pi/pi. 
+            agent_theta = (self_obs[..., -1] * -1) + (np.pi / 30)
+            agent_bin = agent_theta / (np.pi / 15)
+            agent_bin[agent_bin < 0] += 30
+            agent_bin = agent_bin.int()
+            # Now access lidar depth forward
+            lidar_depth = states[7].view(-1, self.num_worlds, 30)
+            lidar_hit_type = states[8].view(-1, self.num_worlds, 30)
+            print("Lidar depth", lidar_depth.shape)
+            print("Agent bin", agent_bin.shape)
+            agent_bin = agent_bin.view(-1, self.num_worlds, 1).type(torch.cuda.LongTensor).to(lidar_depth.device)
+            # Make sure agent_bin is in range
+            agent_bin = torch.clamp(agent_bin, 0, 29)
+            forward_depth = torch.gather(lidar_depth, 2, agent_bin)[...,0]
+            #sideways_depth = torch.maximum(lidar_depth[(agent_bin + 7) % 30], lidar_depth[(agent_bin + 23) % 30])
+            sideways_depth = torch.maximum(torch.gather(lidar_depth, 2, (agent_bin + 7) % 30), torch.gather(lidar_depth, 2, (agent_bin + 23) % 30))[...,0]
+            # Check if forward is wall or lava
+            #forward_wall = (lidar_hit_type[agent_bin] == 9).int()
+            forward_wall = (torch.gather(lidar_hit_type, 2, agent_bin)[...,0] == 9).int()
+            # stage_obs
+            # 1: Before lava
+            # 2: After lava
+            # 3: In lava, forward room, no forward wall
+            # 4: In lava, sideways room, no forward wall
+            # 5: In lava, forward room, forward wall
+            print("Before lava", before_lava.shape)
+            print("After lava", after_lava.shape)
+            print("Forward depth", forward_depth.shape)
+            print("Forward wall", forward_wall.shape)
+            print("Sideways depth", sideways_depth.shape)
+            stage_obs = 1*before_lava + 2*after_lava + 3*(before_lava == 0)*(after_lava == 0)*(forward_depth > 3.0)*(forward_wall == 0) + 4*(before_lava == 0)*(after_lava == 0)*(forward_depth > 3.0)*(forward_wall == 1) + 5*(before_lava == 0)*(after_lava == 0)*(sideways_depth > 3.0)*(forward_depth <= 3.0)
+            # How do we define success? 
+            # If there's forward room, we want to make forward progress without death
+            # If there's sideways room, we again want to make forward progress without death
+            # If before lava, want to enter lava
+            door_id = 2
+            entity_type = states[5].view(-1, self.num_worlds, 9)
+            entity_attr = states[6].view(-1, self.num_worlds, 9, states[6].shape[-1])
+            door_index = (entity_type == door_id).float().argmax(dim=-1)#[0]
+            door_obs = torch.gather(entity_attr, 1, door_index[:, :, None, None])[...,0]
+
+            # Now to use this for count-based intrinsics, we need some notion of distance within each bin
+            # Also probably combine with y progress
+            # Could just do x-y position
+            increment = 1.11/granularity
+            '''
+            y_0 = torch.clamp((self_obs[..., 1] + 30)/60, 0, 1.1) // increment # Granularity of 0.01 on the y
+            y_out = (y_0).int()
+            #x_0 = torch.clamp((self_obs[..., 0] + 10)/20, 0, 1.1) // increment # Granularity of 0.01 on the x
+            # Other way to do this: use the distance measure within the bin
+            '''
+            stage1_dist = torch.clamp((self_obs[..., 1] + 30)/15, 0, 1.1) // increment
+            stage5_dist = torch.clamp((self_obs[..., 1] - 13)/15, 0, 1.1) // increment
+            # Otherwise just use default y bin
+            y_0 = torch.clamp((self_obs[..., 1] + 15)/30, 0, 1.1) // increment # Granularity of 0.01 on the y
+            y_out = (stage_obs == 1)*((stage1_dist).int()) + (stage_obs == 5)*((stage5_dist).int()) + (stage_obs != 1)*(stage_obs != 5)*(y_0).int()
+
+            bins = (door_obs[...,0]*6*granularity + stage_obs*granularity + y_0).int() # 2 * 6 * 200 = 2400
+            return bins
         elif self.binning == "chicken":
             granularity = 200
             # Stages: 1) Go to chicken, 2) Pull chicken back to coop, 3) Go to exit. On top of this, we want to bin by 1) number of total chickens, 2) distance to next objective

@@ -57,7 +57,7 @@ sim = madrona_puzzle_bench.SimManager(
 sim.init()
 
 obs, num_obs_features = setup_obs(sim, args.no_level_obs)
-policy = make_policy(num_obs_features, args.num_channels, args.separate_value)
+policy = make_policy(num_obs_features, None, args.num_channels, args.separate_value)
 
 weights = LearningState.load_policy_weights(args.ckpt_path)
 policy.load_state_dict(weights)
