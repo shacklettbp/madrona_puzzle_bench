@@ -58,12 +58,8 @@ sim = madrona_puzzle_bench.SimManager(
 )
 sim.init()
 
-if args.entity_network:
-    obs, num_obs_features, num_entity_features = setup_obs(sim, args.no_level_obs, use_onehot=False, separate_entity=True)
-    policy = make_policy(num_obs_features, num_entity_features, args.num_channels, args.separate_value, intrinsic=False, separate_entity=True)
-else:
-    obs, num_obs_features = setup_obs(sim, args.no_level_obs)
-    policy = make_policy(num_obs_features, None, args.num_channels, args.separate_value, intrinsic=False)
+obs, num_obs_features = setup_obs(sim, args.no_level_obs)
+policy = make_policy(num_obs_features, None, args.num_channels, args.separate_value)
 
 weights = LearningState.load_policy_weights(args.ckpt_path)
 policy.load_state_dict(weights, strict=False)
