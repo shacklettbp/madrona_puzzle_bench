@@ -986,7 +986,8 @@ else:
 
 run = wandb.init(
     # Set the project where this run will be logged
-    project="puzzle-bench-counts",
+    #project="puzzle-bench-counts",
+    project="escape-room-complex",
     # Track hyperparameters and run metadata
     config=args
 )

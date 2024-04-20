@@ -1017,6 +1017,77 @@ inline void dense1RewardSystem(Engine &ctx,
     out_reward.v = reward;
 }
 
+// Dense rewaard for lava button room.
+inline void lavaButtonRewardSystem(Engine &ctx,
+                               Position pos,
+                               Progress &progress,
+                               Reward &out_reward)
+{ 
+    const auto &lvl = ctx.singleton<Level>();
+    const auto &episode_state = ctx.singleton<EpisodeState>();
+
+    // This is super quick and dirty but because there is only one button right
+    // now it will work fine. It will pick the info for the last button in
+    // the world.
+    Vector3 button_pos;
+    bool button_is_pressed;
+    ctx.iterateQuery(ctx.data().buttonQuery, [
+        &button_pos, &button_is_pressed
+    ](Position cur_button_pos, ButtonState cur_button_state) {
+        button_pos = cur_button_pos;
+        button_is_pressed = cur_button_state.isPressed;
+    });
+
+    // Assume there is only one door.
+    bool door_is_open;
+    ctx.iterateQuery(ctx.data().doorQuery, [&door_is_open](OpenState &openState) 
+    {
+        door_is_open = openState.isOpen;
+    });
+
+    float reward = 0.f;
+    // Button only needs to be pressed once on this level.
+    if (door_is_open) {
+        float dist_to_exit = pos.distance(ctx.get<Position>(lvl.exit));
+
+        float min_dist = progress.minDistToExit;
+
+        if (dist_to_exit < min_dist) {
+            float diff = min_dist - dist_to_exit;
+            reward += diff * ctx.data().rewardPerDist;
+
+            progress.minDistToExit = dist_to_exit;
+        }
+        reward += 0.02f;
+    } else {
+        float dist_to_button = pos.distance(button_pos);
+            // Track progress towards button
+            float min_dist = progress.minDistToButton;
+
+            if (dist_to_button < min_dist) {
+                float diff = min_dist - dist_to_button;
+                reward += diff * ctx.data().rewardPerDist;
+
+                progress.minDistToButton = dist_to_button;
+            }
+            reward += 0.01f;
+    }
+
+    if (episode_state.isDead) {
+        reward -= 1.f;
+    }
+
+    if (episode_state.reachedExit) {
+        reward += 1.f;
+
+        if (episode_state.curLevel == ctx.data().levelsPerEpisode) {
+            reward += 10.f;
+        }
+    }
+
+    out_reward.v = reward;
+}
+
 // Dense reward for block-button puzzles
 inline void dense2RewardSystem(Engine &ctx,
                                Position pos,
@@ -1216,6 +1287,14 @@ static TaskGraphNodeID queueRewardSystem(const Sim::Config &cfg,
     case RewardMode::EndOnly: {
         reward_sys = builder.addToGraph<ParallelForNode<Engine,
              endOnlyRewardSystem,
+                Reward
+            >>(deps);
+    } break;
+    case RewardMode::LavaButton: {
+        reward_sys = builder.addToGraph<ParallelForNode<Engine,
+             lavaButtonRewardSystem,
+                Position,
+                Progress,
                 Reward
             >>(deps);
     } break;
@@ -1608,6 +1687,7 @@ Sim::Sim(Engine &ctx,
     buttonQuery = ctx.query<Position, ButtonState>();
     patternQuery = ctx.query<Entity, PatternMatchState>();
     coopQuery = ctx.query<Position, CoopState>();
+    doorQuery = ctx.query<OpenState>();
 
     ctx.singleton<CheckpointReset>().reset = 0;
     ctx.singleton<CheckpointSave>().save = 1;

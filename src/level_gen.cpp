@@ -1391,7 +1391,7 @@ LevelType generateLevel(Engine &ctx)
     LevelType level_type = (LevelType)ctx.data().rng.sampleI32(
         0, (uint32_t)LevelType::NumTypes);
     //      3, 5);
-    level_type = LevelType::PatternMatch;
+    level_type = LevelType::LavaButton;
 
     switch (level_type) {
     case LevelType::Chase: {
@@ -1400,9 +1400,9 @@ LevelType generateLevel(Engine &ctx)
     case LevelType::LavaPath: {
         lavaPathLevel(ctx);
     } break;
-    //case LevelType::LavaButton: {
-    //    lavaButtonLevel(ctx);
-    //} break;
+    case LevelType::LavaButton: {
+        lavaButtonLevel(ctx);
+    } break;
     case LevelType::SingleButton: {
         singleButtonLevel(ctx);
     } break;

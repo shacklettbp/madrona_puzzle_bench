@@ -26,6 +26,7 @@ NB_MODULE(madrona_puzzle_bench, m) {
         .value("Dense2", RewardMode::Dense2)
         .value("PerLevel", RewardMode::PerLevel)
         .value("EndOnly", RewardMode::EndOnly)
+        .value("LavaButton", RewardMode::LavaButton)
     ;
 
     auto mgr_class = nb::class_<Manager> (m, "SimManager")

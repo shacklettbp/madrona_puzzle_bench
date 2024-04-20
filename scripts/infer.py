@@ -33,8 +33,6 @@ arg_parser.add_argument('--gpu-sim', action='store_true')
 arg_parser.add_argument('--use-complex-level', action='store_true')
 
 # Architecture args
-arg_parser.add_argument('--num-channels', type=int, default=256)
-arg_parser.add_argument('--separate-value', action='store_true')
 arg_parser.add_argument('--entity-network', action='store_true')
 
 args = arg_parser.parse_args()
@@ -62,13 +60,13 @@ sim.init()
 
 if args.entity_network:
     obs, num_obs_features, num_entity_features = setup_obs(sim, args.no_level_obs, use_onehot=False, separate_entity=True)
-    policy = make_policy(num_obs_features, num_entity_features, args.num_channels, args.separate_value, intrinsic=args.use_intrinsic_loss, separate_entity=True)
+    policy = make_policy(num_obs_features, num_entity_features, args.num_channels, args.separate_value, intrinsic=False, separate_entity=True)
 else:
     obs, num_obs_features = setup_obs(sim, args.no_level_obs)
-    policy = make_policy(num_obs_features, None, args.num_channels, args.separate_value, intrinsic=args.use_intrinsic_loss)
+    policy = make_policy(num_obs_features, None, args.num_channels, args.separate_value, intrinsic=False)
 
 weights = LearningState.load_policy_weights(args.ckpt_path)
-policy.load_state_dict(weights)
+policy.load_state_dict(weights, strict=False)
 
 policy = policy.to(torch.device(f"cuda:{args.gpu_id}")) if args.gpu_sim else policy.to(torch.device('cpu'))
 

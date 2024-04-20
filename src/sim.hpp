@@ -142,6 +142,7 @@ struct Sim : public madrona::WorldBase {
     // Queries for the collectObservations system.
     Query<Entity, EntityType> simEntityQuery;
     Query<Position, ButtonState> buttonQuery;
+    Query<OpenState> doorQuery;
     Query<Entity, PatternMatchState> patternQuery;
     Query<Position, CoopState> coopQuery;
 };
