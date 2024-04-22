@@ -21,6 +21,32 @@ NB_MODULE(madrona_puzzle_bench, m) {
         .value("UseFixedWorld", SimFlags::UseFixedWorld)
     ;
 
+enum class LevelType : uint32_t {
+    Chase,
+    LavaPath,
+    LavaButton,
+    SingleButton,
+    SingleBlockButton,
+    ObstructedBlockButton,
+    BlockStack,
+    PatternMatch,
+    ChickenCoop,
+    NumTypes,
+};
+
+    nb::enum_<LevelType>(m, "LevelType", nb::is_arithmetic())
+        .value("Random", LevelType::NumTypes)
+        .value("Chase", LevelType::Chase)
+        .value("LavaPath", LevelType::LavaPath)
+        .value("LavaButton", LevelType::LavaButton)
+        .value("SingleButton", LevelType::SingleButton)
+        .value("SingleBlockButton", LevelType::SingleBlockButton)
+        .value("ObstructedBlockButton", LevelType::ObstructedBlockButton)
+        .value("BlockStack", LevelType::BlockStack)
+        .value("PatternMatch", LevelType::PatternMatch)
+        .value("ChickenCoop", LevelType::ChickenCoop)
+     ;
+
     nb::enum_<RewardMode>(m, "RewardMode")
         .value("Dense1", RewardMode::Dense1)
         .value("Dense2", RewardMode::Dense2)
