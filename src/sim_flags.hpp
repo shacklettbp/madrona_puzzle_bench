@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include "types.hpp"
+
 namespace madPuzzle {
 
 enum class SimFlags : uint32_t {
@@ -21,6 +23,9 @@ inline SimFlags & operator|=(SimFlags &a, SimFlags b);
 inline SimFlags operator|(SimFlags a, SimFlags b);
 inline SimFlags & operator&=(SimFlags &a, SimFlags b);
 inline SimFlags operator&(SimFlags a, SimFlags b);
+inline SimFlags operator|(SimFlags lhs, LevelType rhs);
+
+inline LevelType extractLevelType(SimFlags flags);
 
 }
 

@@ -10,7 +10,7 @@ void resetAgent(Engine &ctx,
                 float spawn_size,
                 Vector3 exit_pos);
 
-LevelType generateLevel(Engine &ctx);
+LevelType generateLevel(Engine &ctx, LevelType level_type);
 void destroyLevel(Engine &ctx);
 
 }

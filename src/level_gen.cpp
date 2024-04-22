@@ -1386,12 +1386,12 @@ static void chickenCoopLevel(Engine &ctx)
     terminateChickenList(ctx, chicken_list);
 }
 
-LevelType generateLevel(Engine &ctx)
+LevelType generateLevel(Engine &ctx, LevelType level_type)
 {
-    LevelType level_type = (LevelType)ctx.data().rng.sampleI32(
-        0, (uint32_t)LevelType::NumTypes);
-    //      3, 5);
-    level_type = LevelType::ObstructedBlockButton;
+    if (level_type >= LevelType::NumTypes) { // Default to random
+        level_type = (LevelType)ctx.data().rng.sampleI32(
+            0, (uint32_t)LevelType::NumTypes);
+    }
 
     switch (level_type) {
     case LevelType::Chase: {
@@ -1414,9 +1414,9 @@ LevelType generateLevel(Engine &ctx)
     } break;
     case LevelType::BlockStack: {
         // Also do obstructedBlockButton here for now
-        level_type = LevelType::ObstructedBlockButton;
-        obstructedBlockButtonLevel(ctx);
-        //blockStackLevel(ctx);
+        //level_type = LevelType::ObstructedBlockButton;
+        //obstructedBlockButtonLevel(ctx);
+        blockStackLevel(ctx);
     } break;
     case LevelType::PatternMatch: {
         patternMatchLevel(ctx);
