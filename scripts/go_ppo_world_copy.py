@@ -476,7 +476,7 @@ class GoExplore:
 
             rollout_len, num_worlds = obs_list[0].shape[:2]
             lidar_depths = obs_list[7]  # LIDAR depth tensor
-            lidar_types = obs_list[8]  # LIDAR hit type tensor
+            lidar_types = obs_list[8][..., 0]  # LIDAR hit type tensor
             entity_types = obs_list[5][..., 0]  # Entity types tensor
             entity_dists = obs_list[4][..., 0]  # Distances from agent to entities
 
@@ -491,6 +491,7 @@ class GoExplore:
 
             # Lava minimum distance calculation
             lava_mask = lidar_types == lava_id
+            print("Lava mask", lava_mask.shape, lidar_depths.shape, max_dist)
             lava_dist = torch.where(lava_mask, lidar_depths, max_dist)
             lava_dist, _ = lava_dist.min(dim=-1)
 
@@ -515,8 +516,69 @@ class GoExplore:
             # Scale down exit distance into separate set of bins
             exit_multiplier = max_bins // exit_bins
             exit_bins = exit_dist_bins + (bins % exit_multiplier) * exit_bins
+            exit_bins = exit_bins[0]
+            print("Exit bins", torch.unique(exit_bins, return_counts=True))
 
             return exit_bins
+        elif self.binning == "gpt_pattern":
+            obs_list = states
+            max_bins = 1000
+
+            entity_types = obs_list[5][..., 0]  # Entity types tensor (rollout_len, num_worlds, max_entities)
+            entity_positions = obs_list[4]  # Polar coordinates (r, theta, phi) of all entities (rollout_len, num_worlds, max_entities, 3)
+            entity_attrs = obs_list[6]  # Attributes of entities (rollout_len, num_worlds, max_entities, _)
+
+            # Constants for binning
+            max_dist = 20
+            num_position_bins = 100  # Binning positions into 100 possible bins
+
+            fixed_block_id = 12
+            block_id = 3
+            door_id = 4
+
+            # Masks for fixed and moveable blocks
+            fixed_blocks_mask = entity_types == fixed_block_id
+            moveable_blocks_mask = entity_types == block_id
+
+            # Positions (r, theta) of fixed and moveable blocks
+            # Setting non-relevant entities to a max_dist+1 to exclude them from consideration
+            fixed_blocks_positions = torch.where(fixed_blocks_mask.unsqueeze(-1), entity_positions, max_dist+1)
+            moveable_blocks_positions = torch.where(moveable_blocks_mask.unsqueeze(-1), entity_positions, max_dist+1)
+
+            # Min distance to keep the smallest valid values only
+            fixed_r, _ = torch.min(fixed_blocks_positions[..., 0], dim=-1)
+            fixed_theta, _ = torch.min(fixed_blocks_positions[..., 1], dim=-1)
+            moveable_r, _ = torch.min(moveable_blocks_positions[..., 0], dim=-1)
+            moveable_theta, _ = torch.min(moveable_blocks_positions[..., 1], dim=-1)
+
+            #print(fixed_r.shape, fixed_theta.shape, moveable_r.shape, moveable_theta.shape)
+
+            # Normalize positions and discretize
+            fixed_block_r_bins = torch.floor(fixed_r * num_position_bins / max_dist).int()
+            fixed_block_theta_bins = torch.floor((fixed_theta + np.pi) / (2 * np.pi) * num_position_bins).int()  # Normalize theta to 0-100
+            moveable_block_r_bins = torch.floor(moveable_r * num_position_bins / max_dist).int()
+            moveable_block_theta_bins = torch.floor((moveable_theta + np.pi) / (2 * np.pi) * num_position_bins).int()
+
+            # Matching state by comparing sorted bins (assuming sorting puts them in comparable order)
+            # We concatenate r and theta bins for comprehensive position description
+            fixed_bins = torch.stack([fixed_block_r_bins, fixed_block_theta_bins], dim=-1)
+            moveable_bins = torch.stack([moveable_block_r_bins, moveable_block_theta_bins], dim=-1)
+            matching_state = (torch.sort(fixed_bins, dim=2)[0] == torch.sort(moveable_bins, dim=2)[0]).all(dim=-1).int()
+
+            # Door state and distance to exit
+            door_open_mask = (entity_types == door_id) & (entity_attrs[..., 0] == 1)  # Assuming attr1 == 1 means door is open
+            door_open = door_open_mask.any(dim=-1).int()
+            exit_dist = obs_list[3][...,0]  # Distance to exit
+
+            # Binning exit distance
+            exit_bins = torch.floor(exit_dist * num_position_bins / max_dist).int()
+
+            # Compute unique bin id
+            bins = matching_state * max_bins // 2 + door_open * max_bins // 4 + exit_bins
+            
+            bins = bins[0]
+
+            return bins
         elif self.binning == "y_pos":
             # Bin according to the y position of each agent
             # Determine granularity from num_bins
