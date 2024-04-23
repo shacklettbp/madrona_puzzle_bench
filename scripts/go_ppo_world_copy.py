@@ -1,5 +1,5 @@
 import madrona_puzzle_bench
-from madrona_puzzle_bench import SimFlags, RewardMode
+from madrona_puzzle_bench import SimFlags, RewardMode, LevelType
 
 from madrona_puzzle_bench_learn import (
     train, profile, TrainConfig, PPOConfig, SimInterface,
@@ -17,6 +17,7 @@ warnings.filterwarnings("error")
 import numpy as np
 import time
 import os
+import hashlib
 
 torch.manual_seed(0)
 
@@ -25,6 +26,7 @@ arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument('--gpu-id', type=int, default=0)
 arg_parser.add_argument('--ckpt-dir', type=str, required=True)
 arg_parser.add_argument('--run-name', type=str, required=True)
+arg_parser.add_argument('--level-type', type=str, required=True)
 arg_parser.add_argument('--profile-report', action='store_true')
 arg_parser.add_argument('--fp16', action='store_true')
 
@@ -106,6 +108,11 @@ if args.use_complex_level:
 print(sim_flags)
 
 reward_mode = getattr(RewardMode, args.reward_mode)
+level_type = getattr(LevelType, args.level_type)
+
+# Now incorporate level_type into sim_flags
+
+sim_flags |= (level_type << 2)
 
 if torch.cuda.is_available():
     dev = torch.device(f'cuda:{args.gpu_id}')
@@ -157,6 +164,23 @@ class DiscreteActionDistributions:
 
     def probs(self):
         return [dist.probs for dist in self.dists]
+
+def hash_obs(obs):
+    hashes = []
+    for element in obs:
+        sub_hashes = []
+        for sub_elem in element:
+            # Convert the element to bytes
+            element_bytes = sub_elem.mean().cpu().numpy().tobytes()
+            # Create a hash object
+            hash_obj = hashlib.sha256()
+            # Update the hash object with the element bytes
+            hash_obj.update(element_bytes)
+            # Directly convert the first 8 bytes of the hash to a NumPy int64
+            element_hash_np_int = np.frombuffer(hash_obj.digest()[:8], dtype=np.int64)[0]
+            sub_hashes.append(element_hash_np_int)
+        hashes.append(sub_hashes)
+    return torch.tensor(hashes, device=obs.device)
 
 class GoExplore:
     def __init__(self, num_worlds, device):
@@ -357,6 +381,9 @@ class GoExplore:
             return states
         elif self.binning == "random":
             return torch.randint(0, self.num_bins, size=(states[0].shape[1], self.num_worlds,), device=self.device)
+        elif self.binning == "hash":
+            states_flattened = torch.cat([state.reshape(states[0].shape[1], self.num_worlds,-1) for state in states], dim=-1)
+            return (hash_obs(states_flattened)).int() % self.num_bins
         elif self.binning == "gpt_block_button":
             obs_list = states
             max_bins = 1000
@@ -1263,8 +1290,10 @@ class GoExplore:
 
                 # Now let's compute a bunch of metrics per stage-level bin
                 all_bins = self.map_states_to_bins(update_results.obs, max_bin=False)
+                #print("All bins", all_bins.shape, all_bins)
                 # Let's do bin-counts here for now, TODO have to reverse this
                 new_bin_counts = torch.bincount(all_bins.flatten(), minlength=self.num_bins)# > 0).int()
+                #print("New bin counts", new_bin_counts, new_bin_counts.sum())
                 self.bin_count += torch.clone(new_bin_counts)
                 new_bin_counts = new_bin_counts.float()
 
@@ -1558,7 +1587,7 @@ else:
 
 run = wandb.init(
     # Set the project where this run will be logged
-    project="puzzle-bench-counts",
+    project="puzzle-bench-results-table",
     # Track hyperparameters and run metadata
     config=args
 )
