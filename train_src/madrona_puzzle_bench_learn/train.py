@@ -234,17 +234,20 @@ def _ppo_update(cfg : TrainConfig,
             new_log_probs, entropies, new_values, new_values_intrinsic, reward_intrinsic = actor_critic.fwd_update(
                 mb.rnn_start_states, mb.dones, mb.actions, *mb.obs)
 
-        #print("advantages", mb.advantages.shape, mb.advantages_intrinsic.shape)
+        filtered_advantages = mb.advantages[:, world_weights > 0, :]
+        if cfg.ppo.use_intrinsic_loss:
+            filtered_advantages_intrinsic = mb.advantages_intrinsic[world_weights > 0]
         with torch.no_grad():
             if cfg.ppo.use_intrinsic_loss:
-                action_scores = _compute_action_scores(cfg, amp, mb.advantages + mb.advantages_intrinsic)
+                action_scores = _compute_action_scores(cfg, amp, filtered_advantages + filtered_advantages_intrinsic)
             else:
-                action_scores = _compute_action_scores(cfg, amp, mb.advantages)
+                action_scores = _compute_action_scores(cfg, amp, filtered_advantages)
 
         #if mb.dones.sum() > 0: # VISHNU LOGGING
         #    print("We have a done!")
 
-        ratio = torch.exp(new_log_probs - mb.log_probs)
+        ratio = torch.exp(new_log_probs[:, world_weights > 0] - mb.log_probs[:, world_weights > 0])
+
         surr1 = action_scores * ratio
         surr2 = action_scores * (
             torch.clamp(ratio, 1.0 - cfg.ppo.clip_coef, 1.0 + cfg.ppo.clip_coef))
@@ -291,8 +294,7 @@ def _ppo_update(cfg : TrainConfig,
         #print(action_obj.shape, world_weights.shape, value_loss_array.shape, entropies.shape)
         world_weights = world_weights[None, :, None] # Apply only to policy (and entropy), not to value loss...
         world_weight_ones = torch.ones_like(world_weights)
-        print("World weights", torch.unique(world_weights, return_counts=True))
-        action_obj = (torch.sum(action_obj * world_weights) / world_weights.sum()).mean()
+        action_obj = (torch.sum(action_obj) / world_weights.sum()).mean()
         value_loss = (torch.sum(value_loss_array * world_weight_ones) / world_weight_ones.sum()).mean()
         entropy_loss_array = torch.clone(entropies).detach()
         entropies = (torch.sum(entropies * world_weights) / world_weights.sum()).mean()
