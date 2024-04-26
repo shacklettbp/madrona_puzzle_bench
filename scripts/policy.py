@@ -217,21 +217,17 @@ def make_policy(num_obs_features, num_entity_features, num_channels, separate_va
         )
 
     if separate_value:
+        second_encoder = BackboneEncoder(
+            net = MLP(
+                input_dim = num_obs_features,
+                num_channels = num_channels,
+                num_layers = 3,
+            ),
+        )
         backbone = BackboneSeparate(
             process_obs = process_obs,
             actor_encoder = encoder,
-            critic_encoder = RecurrentBackboneEncoder(
-                net = MLP(
-                    input_dim = num_obs_features,
-                    num_channels = num_channels,
-                    num_layers = 2,
-                ),
-                rnn = LSTM(
-                    in_channels = num_channels,
-                    hidden_channels = num_channels,
-                    num_layers = 1,
-                ),
-            )
+            critic_encoder = second_encoder,
         )
     else:
         backbone = BackboneShared(
