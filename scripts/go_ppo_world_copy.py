@@ -210,6 +210,7 @@ class GoExplore:
         self.device = device
         self.checkpoint_score = torch.zeros(self.num_bins, self.num_checkpoints, device=device)
         self.bin_count = torch.zeros(self.num_bins, device=device).int()
+        self.bin_count_checkpoint = torch.zeros(self.num_bins, device=device).int()
         self.max_return = 0
         self.max_progress = -1000
 
@@ -310,9 +311,9 @@ class GoExplore:
     def select_state(self, update_id):
         #print("About to select state")
         # First select from visited bins with go-explore weighting function
-        valid_bins = torch.nonzero(self.bin_count > 0).flatten()
+        valid_bins = torch.nonzero(self.bin_count_checkpoint > 0).flatten()
         if args.sampling_strategy == "uniform" or self.num_bins == 1:
-            weights = 1./(torch.sqrt(self.bin_count[valid_bins])*0 + 1)
+            weights = 1./(torch.sqrt(self.bin_count_checkpoint[valid_bins])*0 + 1)
         elif args.sampling_strategy == "count":
             weights = 1./(torch.sqrt(self.bin_count[valid_bins]) + 1)
         elif args.sampling_strategy == "uncertainty":
@@ -323,9 +324,9 @@ class GoExplore:
         # Sample states from bins: either sample first occurrence in each bin (what's in the paper), or something better...
         # Need the last checkpoint for each bin
         if self.num_bins == 1:
-            chosen_checkpoint = torch.randint(torch.clamp(self.bin_count[0] - 1, 0, self.num_checkpoints).item(), size=(desired_samples,), device=dev).type(torch.int)
+            chosen_checkpoint = torch.randint(torch.clamp(self.bin_count_checkpoint[0] - 1, 0, self.num_checkpoints).item(), size=(desired_samples,), device=dev).type(torch.int)
         else:
-            chosen_checkpoint = torch.randint(self.num_checkpoints, size=(desired_samples,), device=dev).type(torch.int) % self.bin_count[sampled_bins]
+            chosen_checkpoint = torch.randint(self.num_checkpoints, size=(desired_samples,), device=dev).type(torch.int) % self.bin_count_checkpoint[sampled_bins]
 
         #print("Bin count", self.bin_count[sampled_bins], self.bin_count[sampled_bins].shape)
         self.curr_returns[:desired_samples] = self.checkpoint_score[[sampled_bins, chosen_checkpoint]]
@@ -340,6 +341,7 @@ class GoExplore:
         # Run checkpoint-restoration here
         #print("Before go-to-state")
         #print(self.obs[5][:])
+        #print("States to be restored", states, states.sum(axis=-1))
         desired_samples = int(self.num_worlds*args.new_frac) # *((10001 - update_id) / 10000)) # Only set state for some worlds
         self.checkpoint_resets[:, 0] = 1
         self.checkpoints[:desired_samples] = states
@@ -1050,7 +1052,7 @@ class GoExplore:
             # We get door open/button press from attr_1
             #door_obs = states[6][...,0].max(dim=-1)[0].view(-1, self.num_worlds)
             #print("Shapes", self_obs.shape, y_out.shape)
-            return (y_out + granularity*x_0).int()
+            return (y_out + granularity*x_0).int() % self.num_bins
         elif self.binning == "y_pos_door_block":
             # Bin according to the y position of each agent
             granularity = torch.sqrt(torch.tensor(self.num_bins) / 40).int().item()
@@ -1111,13 +1113,13 @@ class GoExplore:
         bins = bins[desired_samples:]
         if self.num_bins == 1:
             # Assumes num_worlds < num_checkpoints
-            chosen_checkpoints = (self.bin_count[bins] + torch.arange(0, bins.shape[0], device=dev)) % self.num_checkpoints# Spread out the stored checkpoints 
-            self.bin_count += bins.shape[0]
+            chosen_checkpoints = (self.bin_count_checkpoint[bins] + torch.arange(0, bins.shape[0], device=dev)) % self.num_checkpoints# Spread out the stored checkpoints 
+            self.bin_count_checkpoint += bins.shape[0]
         else:
             new_bin_counts = (torch.bincount(bins, minlength=self.num_bins) > 0).int()
             # Set the checkpoint for each bin to the latest
-            chosen_checkpoints = self.bin_count[bins] % self.num_checkpoints
-            self.bin_count += new_bin_counts
+            chosen_checkpoints = self.bin_count_checkpoint[bins] % self.num_checkpoints
+            self.bin_count_checkpoint += new_bin_counts
         #print(chosen_checkpoints)
         #print(bins)
         stacked_indices = torch.stack((bins, chosen_checkpoints), dim=1)
@@ -1292,7 +1294,11 @@ class GoExplore:
                 all_bins = self.map_states_to_bins(update_results.obs, max_bin=False)
                 #print("All bins", all_bins.shape, all_bins)
                 # Let's do bin-counts here for now, TODO have to reverse this
-                new_bin_counts = torch.bincount(all_bins.flatten(), minlength=self.num_bins)# > 0).int()
+                desired_samples = 0
+                if args.new_frac > 0.002:
+                    desired_samples = int(self.num_worlds*args.new_frac)
+                print("Desired samples", desired_samples, all_bins.shape)
+                new_bin_counts = torch.bincount(all_bins[:, desired_samples:].flatten(), minlength=self.num_bins)# > 0).int()
                 #print("New bin counts", new_bin_counts, new_bin_counts.sum())
                 self.bin_count += torch.clone(new_bin_counts)
                 new_bin_counts = new_bin_counts.float()
@@ -1566,6 +1572,13 @@ class GoExplore:
             self.checkpoints[:desired_samples] = self.checkpoints[desired_samples:].repeat((self.num_worlds // (self.num_worlds - desired_samples)) - 1, 1)
             self.worlds.step()
         '''
+        # New code for updating archive, sampling from archive
+        all_bins = self.map_states_to_bins(update_results.obs, max_bin=False)
+        new_bins = all_bins[-1]
+        self.update_archive(new_bins, self.curr_returns, ppo)
+        if args.new_frac > 0.002:
+            states = self.select_state(update_id)
+            self.go_to_state(states, leave_rest = (update_id % 5 != 0), update_id = update_id)
 
 # Maybe we can just write Go-Explore as a callback
 

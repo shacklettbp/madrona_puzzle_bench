@@ -289,9 +289,11 @@ def _ppo_update(cfg : TrainConfig,
         # Weighted means by world_weights
         #print("Weight shapes")
         #print(action_obj.shape, world_weights.shape, value_loss_array.shape, entropies.shape)
-        world_weights = world_weights[None, :, None]
+        world_weights = world_weights[None, :, None] # Apply only to policy (and entropy), not to value loss...
+        world_weight_ones = torch.ones_like(world_weights)
+        print("World weights", torch.unique(world_weights, return_counts=True))
         action_obj = (torch.sum(action_obj * world_weights) / world_weights.sum()).mean()
-        value_loss = (torch.sum(value_loss_array * world_weights) / world_weights.sum()).mean()
+        value_loss = (torch.sum(value_loss_array * world_weight_ones) / world_weight_ones.sum()).mean()
         entropy_loss_array = torch.clone(entropies).detach()
         entropies = (torch.sum(entropies * world_weights) / world_weights.sum()).mean()
 
@@ -300,7 +302,7 @@ def _ppo_update(cfg : TrainConfig,
             value_loss_intrinsic = torch.mean(value_loss_intrinsic)
             intrinsic_loss = torch.mean(reward_intrinsic)
             '''
-            value_loss_intrinsic = torch.sum(value_loss_intrinsic * world_weights) / world_weights.sum()
+            value_loss_intrinsic = value_loss_intrinsic.mean() #torch.sum(value_loss_intrinsic * world_weights) / world_weights.sum()
             intrinsic_loss = torch.sum(reward_intrinsic * world_weights) / world_weights.sum()
             loss = (
                 - action_obj # Maximize the action objective function
@@ -464,9 +466,13 @@ def _update_iter(cfg : TrainConfig,
         with profile('Collect Rollouts'):
             world_weights = torch.ones(user_cb.num_worlds, device=advantages.device)
             if type(user_cb).__name__ == "GoExplore":
+                if user_cb.new_frac > 0.002:
+                    # Let's set world_weights to have 0 on the new worlds
+                    desired_samples = int(user_cb.num_worlds*user_cb.new_frac)
+                    world_weights[:desired_samples] = 0
                 # Let's also do some checkpoint restores here
                 # This should actually happen before collecting rollouts! But doesn't matter beyond first step i think
-                if user_cb.new_frac > 0.002 and not user_cb.choose_worlds:
+                if False and user_cb.new_frac > 0.002 and not user_cb.choose_worlds:
                     desired_samples = int(user_cb.num_worlds*user_cb.new_frac)
                     user_cb.checkpoint_resets[:, 0] = 1
                     if user_cb.importance_test:
