@@ -16,7 +16,7 @@ import madrona_learn
 
 from jax_policy import make_policy
 
-madrona_learn.init(0.6)
+madrona_learn.init(0.4)
 
 arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument('--num-worlds', type=int, required=True)
@@ -82,9 +82,7 @@ num_agents_per_world = team_size * num_teams
 
 jax_gpu = jax.devices()[0].platform == 'gpu'
 
-sim_dict = sim.jax(jax_gpu)
-sim_init = sim_dict['init']
-sim_step = sim_dict['step']
+sim_fns = sim.jax(jax_gpu)
 
 if args.record_log:
     record_log_file = open(args.record_log, 'wb')
@@ -145,7 +143,7 @@ episode_scores = policy_states.episode_score
 print(episode_scores.mean)
 
 episode_scores = madrona_learn.eval_policies(
-    dev, cfg, sim_dict, policy, policy_states, iter_cb)
+    dev, cfg, sim_fns, policy, policy_states, iter_cb)
 
 print(episode_scores.mean)
 

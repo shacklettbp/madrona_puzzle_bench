@@ -162,12 +162,13 @@ class PuzzleBenchHooks(TrainHooks):
         return should_callback
 
     def start_rollouts(self, rollout_state, user_state):
-        ckpts = rollout_state.get_current_checkpoints()
-        main_ckpts = ckpts.reshape(-1, args.num_env_copies, ckpts.shape[-1])
-        main_ckpts = main_ckpts[:, 0]
-        ckpts = jnp.repeat(main_ckpts, args.num_env_copies, axis=0)
+        return rollout_state, user_state
+        #ckpts = rollout_state.get_current_checkpoints()
+        #main_ckpts = ckpts.reshape(-1, args.num_env_copies, ckpts.shape[-1])
+        #main_ckpts = main_ckpts[:, 0]
+        #ckpts = jnp.repeat(main_ckpts, args.num_env_copies, axis=0)
 
-        return rollout_state.load_checkpoints_into_sim(ckpts), user_state
+        #return rollout_state.load_checkpoints_into_sim(ckpts), user_state
 
 dev = jax.devices()[0]
 

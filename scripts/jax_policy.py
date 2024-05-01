@@ -154,9 +154,64 @@ class SimpleNet(nn.Module):
                 dtype = self.dtype,
             )(flattened, train)
 
+
+class HashNet(nn.Module):
+    dtype: jnp.dtype
+
+    @nn.compact
+    def __call__(
+        self,
+        obs,
+        train,
+    ):
+        @partial(jax.vmap, in_axes=(0, None), out_axes=0)
+        def simhash(x, proj):
+            ys = jnp.dot(proj, x)
+
+            @partial(jax.vmap, in_axes=(-1, -1), out_axes=-1)
+            def project(i, y):
+                return jnp.where(y > 0, jnp.array(2**i, jnp.int32),
+                                 jnp.array(0, jnp.int32))
+
+            return project(jnp.arange(ys.shape[-1]), ys).sum(axis=-1)
+
+        self_ob = obs['self']
+        entities_ob = obs['entities']
+
+        obs_concat = jnp.concatenate([
+            self_ob,
+            entities_ob.reshape(*entities_ob.shape[:-2], -1),
+        ], axis=-1)
+
+        hash_power = 16
+        num_hash_bins = 2 ** hash_power
+        feature_dim = 32
+        num_hashes = 16
+
+        proj_mat = self.param('proj_mat', 
+            lambda rng, shape: random.normal(rng, shape, self.dtype),
+            (num_hashes, hash_power, obs_concat.shape[-1]))
+
+        hash_val = simhash(obs_concat, proj_mat)
+        hash_val = lax.stop_gradient(hash_val)
+
+        lookup_tbl = self.param('lookup',
+            jax.nn.initializers.he_normal(dtype=self.dtype),
+            (num_hashes, num_hash_bins, feature_dim))
+
+        @partial(jax.vmap, in_axes=(-1, -3), out_axes=-2)
+        def lookup(k, tbl):
+            return tbl[k]
+
+        features = lookup(hash_val, lookup_tbl)
+        features = features.reshape(*features.shape[:-2], -1)
+        return LayerNorm(dtype=self.dtype)(features)
+
+
 class ActorNet(nn.Module):
     dtype: jnp.dtype
     use_simple: bool
+    use_hash: bool
 
     @nn.compact
     def __call__(
@@ -166,6 +221,8 @@ class ActorNet(nn.Module):
     ):
         if self.use_simple:
             return SimpleNet(dtype=self.dtype)(obs, train)
+        elif self.use_hash:
+            return HashNet(dtype=self.dtype)(obs, train)
         else:
             return EntitySelfAttentionNet(
                     num_embed_channels = 128,
@@ -178,6 +235,7 @@ class ActorNet(nn.Module):
 class CriticNet(nn.Module):
     dtype: jnp.dtype
     use_simple: bool
+    use_hash: bool
 
     @nn.compact
     def __call__(
@@ -187,6 +245,8 @@ class CriticNet(nn.Module):
     ):
         if self.use_simple:
             return SimpleNet(dtype=self.dtype)(obs, train)
+        elif self.use_hash:
+            return HashNet(dtype=self.dtype)(obs, train)
         else:
             return EntitySelfAttentionNet(
                     num_embed_channels = 128,
@@ -196,13 +256,14 @@ class CriticNet(nn.Module):
                 )(obs, train=train)
 
 def make_policy(dtype):
-    encoder = RecurrentBackboneEncoder(
-        net = ActorNet(dtype, use_simple=False),
-        rnn = PolicyRNN.create(
-            num_hidden_channels = 256,
-            num_layers = 1,
-            dtype = dtype,
-        ),
+    #encoder = RecurrentBackboneEncoder(
+    encoder = BackboneEncoder(
+        net = ActorNet(dtype, use_simple=False, use_hash=False),
+        #rnn = PolicyRNN.create(
+        #    num_hidden_channels = 256,
+        #    num_layers = 1,
+        #    dtype = dtype,
+        #),
     )
 
     backbone = BackboneShared(

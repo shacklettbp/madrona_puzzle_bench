@@ -322,7 +322,7 @@ inline void generateLevelSystem(Engine &ctx, EpisodeState &episode_state)
     PhysicsSystem::reset(ctx);
     LevelType level_type = extractLevelType(ctx.data().simFlags);
     // Printf both level_type and simFlags. Use printf, not cout
-    // printf("level_type: %d, simFlags: %d\n", level_type, ctx.data().simFlags);
+    //printf("level_type: %d, simFlags: %d\n", level_type, ctx.data().simFlags);
     level_type = generateLevel(ctx, level_type);
     ctx.get<AgentLevelTypeObs>(ctx.data().agent) = AgentLevelTypeObs {
         .type = level_type,

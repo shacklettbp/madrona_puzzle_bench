@@ -169,7 +169,7 @@ int main(int argc, char *argv[])
 #endif
 
 
-    SimFlags flags = SimFlags::Default | LevelType::ChickenCoop;
+    SimFlags flags = SimFlags::Default;
 
     if (!replay_log.has_value()) {
         flags |= SimFlags::IgnoreEpisodeLength;
