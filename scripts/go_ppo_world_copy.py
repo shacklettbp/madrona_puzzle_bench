@@ -18,7 +18,6 @@ import numpy as np
 import time
 import os
 import hashlib
-
 torch.manual_seed(0)
 
 arg_parser = argparse.ArgumentParser()
@@ -181,6 +180,34 @@ def hash_obs(obs):
             sub_hashes.append(element_hash_np_int)
         hashes.append(sub_hashes)
     return torch.tensor(hashes, device=obs.device)
+
+
+
+
+def simhash(x, proj):
+    # ys: projected input
+    ys = torch.matmul(proj, x.T)  # size will be [hash_power, num_data_points]
+
+    # Convert the projections into binary hash codes
+    binary_codes = (ys > 0).long()  # Convert positive to 1, else to 0
+
+    # Convert binary codes to integer hash values
+    powers_of_two = 2**torch.arange(binary_codes.shape[0])
+    hash_values = torch.matmul(powers_of_two.unsqueeze(1).T, binary_codes).squeeze()  # size will be [num_data_points]
+
+    return hash_values
+
+
+def simhash_obs(obs, hashdim = 64): #up to 8 bytes, so goes from 0 to 64-1 bits
+    proj_matx = torch.randn((hashdim, obs.shape[-1])) #(8, 213)
+    allys = [] 
+    for elem in obs:
+        ys = simhash(elem.detach().cpu(), proj_matx) #(8,213)x (213, 8192) -> (8,8192)
+        allys.append(ys) #(40, 8, 8192)
+
+    return torch.tensor(np.array(allys), device=obs.device)
+
+
 
 class GoExplore:
     def __init__(self, num_worlds, device):
@@ -386,6 +413,9 @@ class GoExplore:
         elif self.binning == "hash":
             states_flattened = torch.cat([state.reshape(states[0].shape[1], self.num_worlds,-1) for state in states], dim=-1)
             return (hash_obs(states_flattened)).int() % self.num_bins
+        elif self.binning == "SimHash":
+            states_flattened = torch.cat([state.reshape(states[0].shape[1], self.num_worlds,-1) for state in states], dim=-1)
+            return (simhash_obs(states_flattened)).int() % self.num_bins
         elif self.binning == "gpt_block_button":
             obs_list = states
             max_bins = 1000
