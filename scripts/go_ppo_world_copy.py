@@ -121,7 +121,7 @@ else:
 ckpt_dir = Path(args.ckpt_dir)
 
 ckpt_dir.mkdir(exist_ok=True, parents=True)
-
+simhash_seed = torch.randint(0,1000, (1,), device='cpu').item()
 from torch.distributions.categorical import Categorical
 
 class Box:
@@ -181,31 +181,21 @@ def hash_obs(obs):
         hashes.append(sub_hashes)
     return torch.tensor(hashes, device=obs.device)
 
-
-
-
 def simhash(x, proj):
     # ys: projected input
-    ys = torch.matmul(proj, x.T)  # size will be [hash_power, num_data_points]
+    ys = torch.matmul(x, proj.T) #(40, ,, 8)
+    num_bins = torch.arange(ys.shape[-1], device = x.device)
+    mask = (ys > 0).long()  # (40, ,,, 8)
+    bits = mask.long() * (2 ** num_bins).long() #2^hash
+    return bits.sum(dim=-1) #( 40, ...)
 
-    # Convert the projections into binary hash codes
-    binary_codes = (ys > 0).long()  # Convert positive to 1, else to 0
-
-    # Convert binary codes to integer hash values
-    powers_of_two = 2**torch.arange(binary_codes.shape[0])
-    hash_values = torch.matmul(powers_of_two.unsqueeze(1).T, binary_codes).squeeze()  # size will be [num_data_points]
-
-    return hash_values
-
-
-def simhash_obs(obs, hashdim = 64): #up to 8 bytes, so goes from 0 to 64-1 bits
-    proj_matx = torch.randn((hashdim, obs.shape[-1])) #(8, 213)
-    allys = [] 
-    for elem in obs:
-        ys = simhash(elem.detach().cpu(), proj_matx) #(8,213)x (213, 8192) -> (8,8192)
-        allys.append(ys) #(40, 8, 8192)
-
-    return torch.tensor(np.array(allys), device=obs.device)
+def simhash_obs(obs, hashdim = 8): 
+    g = torch.Generator(device = obs.device)
+    g.manual_seed(simhash_seed)
+    proj_matx = torch.randn((hashdim, obs.shape[-1]), generator=g, device = obs.device) #(8, 213) x (213, 8192, 40
+    ys = simhash(obs, proj_matx) #(8,213)x (213, 8192) -> (8,8192)
+    print(torch.unique(ys, return_counts = True))
+    return ys
 
 
 
