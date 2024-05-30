@@ -186,10 +186,11 @@ inline void loadCheckpointSystem(Engine &ctx, CheckpointReset &reset)
         }
     }
 
-    {
-        ctx.singleton<GoalType>().type = ckpt.goalType;
-        ctx.get<Position>(ctx.singleton<Level>().goal) = ckpt.goalPos;
-    }
+    // TODO: restore, unify goal and exit state.
+    //{
+    //    ctx.singleton<GoalType>().type = ckpt.goalType;
+    //    ctx.get<Position>(ctx.singleton<Level>().goal) = ckpt.goalPos;
+    //}
 }
 
 inline void checkpointSystem(Engine &ctx, CheckpointSave &save)
@@ -281,10 +282,11 @@ inline void checkpointSystem(Engine &ctx, CheckpointSave &save)
         };
     }
 
-    {
-        ckpt.goalType = ctx.singleton<GoalType>().type;
-        ckpt.goalPos = ctx.get<Position>(ctx.singleton<Level>().goal);
-    }
+    // TODO: restore
+    //{
+    //    ckpt.goalType = ctx.singleton<GoalType>().type;
+    //    ckpt.goalPos = ctx.get<Position>(ctx.singleton<Level>().goal);
+    //}
 }
 
 // This system runs each frame and checks if the current episode is complete
@@ -805,9 +807,13 @@ inline void lavaSystem(Engine &ctx, Position lava_pos, EntityExtents lava_extent
     Vector3 agent_pos = ctx.get<Position>(ctx.data().agent);
 
     AABB lava_aabb = {
-        .pMin = lava_pos - lava_extents - 1.1f,
-        .pMax = lava_pos + lava_extents + 1.1f,
+        .pMin = lava_pos - lava_extents,
+        .pMax = lava_pos + lava_extents,
     };
+    //AABB lava_aabb = {
+    //    .pMin = lava_pos - lava_extents - 1.1f,
+    //    .pMax = lava_pos + lava_extents + 1.1f,
+    //};
 
     if (!lava_aabb.contains(agent_pos)) {
         return;
@@ -885,12 +891,12 @@ inline void collectObservationsSystem(
         (ctx.data().rng.sampleUniform() - 0.5f) * 60.0f,
         (ctx.data().rng.sampleUniform() - 0.5f) * 60.0f
     );
-    // TODO: restore
-    //ctx.get<Position>(level.exit) - pos;
-    Vector3 to_goal = ctx.get<Position>(level.goal) - pos;
+    Vector3 to_goal = ctx.get<Position>(level.exit) - pos;
+    // TODO: restore, unify goal marker.
+    //ctx.get<Position>(level.goal) - pos;
     agent_exit_obs = {
-        //.toExitPolar = xyzToPolar(to_view.rotateVec(to_exit)),
-        .toGoalPolar = xyzToPolar(to_view.rotateVec(to_goal)),
+        .toExitPolar = xyzToPolar(to_view.rotateVec(to_exit)),
+        //.toGoalPolar = xyzToPolar(to_view.rotateVec(to_goal)),
     };
 
     steps_remaining_obs.t =
@@ -1560,25 +1566,26 @@ static TaskGraphNodeID setupSimTasks(TaskGraphBuilder &builder,
             IsExit 
         >>({door_open_sys});
 
+    // TODO: restore, goal processing.
     // Maybe update the goal position from the training code.
-    auto update_goal_system = builder.addToGraph<ParallelForNode<Engine,
-        updateGoalSystem,
-            Entity,
-            EntityType
-        >>({check_exit_sys});
+    //auto update_goal_system = builder.addToGraph<ParallelForNode<Engine,
+    //    updateGoalSystem,
+    //        Entity,
+    //        EntityType
+    //    >>({check_exit_sys});
 
-    auto check_goal_sys = builder.addToGraph<ParallelForNode<Engine,
-        checkGoalSystem,
-            Position,
-            IsGoal
-        >>({update_goal_system});
+    // auto check_goal_sys = builder.addToGraph<ParallelForNode<Engine,
+    //     checkGoalSystem,
+    //         Position,
+    //         IsGoal
+    //     >>({update_goal_system});
 
     auto lava_sys = builder.addToGraph<ParallelForNode<Engine,
         lavaSystem,
             Position,
             EntityExtents,
             IsLava 
-        >>({check_goal_sys});
+        >>({check_exit_sys});
 
     return lava_sys;
 }

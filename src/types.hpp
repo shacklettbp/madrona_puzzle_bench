@@ -131,8 +131,8 @@ struct AgentLevelTypeObs {
 };
 
 struct AgentExitObs {
-    //PolarObs toExitPolar;
-    PolarObs toGoalPolar;
+    PolarObs toExitPolar;
+    //PolarObs toGoalPolar;
 };
 
 // Per-agent egocentric observations for the interactable entities
