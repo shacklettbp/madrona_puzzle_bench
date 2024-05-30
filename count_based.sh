@@ -30,7 +30,11 @@
 #    CUDA_VISIBLE_DEVICES=$seed python scripts/go_ppo_world_copy.py --num-worlds 8192 --fp16 --gpu-sim --reward-mode PerLevel --run-name hello --seed $seed --num-steps 10000 --num-bins 2400 --num-checkpoints 100 --seeds-per-checkpoint 512 --binning pattern --ckpt-dir ckpts/ppo_sparse_count/ --num-updates 10000 --new-frac 0.001 --bin-reward-type count --bin-reward-boost 0.01 --num-bptt-chunks 1 --entropy-loss-coef 0.001 --lr 0.0002 & 
 #done
 
-for seed in 0 1 2 3 4 5 6 7
-do
-    CUDA_VISIBLE_DEVICES=$seed python scripts/go_ppo_world_copy.py --num-worlds 8192 --fp16 --gpu-sim --reward-mode PerLevel --run-name hello --seed $seed --num-steps 10000 --num-bins 2400 --num-checkpoints 100 --seeds-per-checkpoint 512 --binning lava_button --ckpt-dir ckpts/ppo_sparse_count_lava_button/ --num-updates 10000 --new-frac 0.001 --bin-reward-type count --bin-reward-boost 0.01 --num-bptt-chunks 1 --entropy-loss-coef 0.001 --lr 0.0002 & 
-done
+#for seed in 0 1 2 3 4 5 6 7
+#do
+#    CUDA_VISIBLE_DEVICES=$seed python scripts/go_ppo_world_copy.py --num-worlds 8192 --fp16 --gpu-sim --reward-mode PerLevel --run-name hello --seed $seed --num-steps 10000 --num-bins 2400 --num-checkpoints 100 --seeds-per-checkpoint 512 --binning lava_button --ckpt-dir ckpts/ppo_sparse_count_lava_button/ --num-updates 10000 --new-frac 0.001 --bin-reward-type count --bin-reward-boost 0.01 --num-bptt-chunks 1 --entropy-loss-coef 0.001 --lr 0.0002 & 
+#done
+
+
+python3 scripts/go_ppo_world_copy.py --num-worlds 8192 --fp16 --reward-mode PerLevel --run-name hello --num-steps 10000 --num-bins 2400 --num-checkpoints 100 --seeds-per-checkpoint 512 --binning random --ckpt-dir ckpts/locomotionController/ --num-updates 10000 --new-frac 0.001 --bin-reward-type count --bin-reward-boost 0.01 --num-bptt-chunks 1 --entropy-loss-coef 0.001 --lr 0.0002 & 
+#python3 scripts/go_ppo_world_copy.py --num-worlds 8192 --fp16 --gpu-sim --reward-mode PerLevel --run-name hello --num-steps 10000 --num-bins 2400 --num-checkpoints 100 --seeds-per-checkpoint 512 --binning random --ckpt-dir ckpts/locomotionController/ --num-updates 10000 --new-frac 0.001 --bin-reward-type count --bin-reward-boost 0.01 --num-bptt-chunks 1 --entropy-loss-coef 0.001 --lr 0.0002 & 

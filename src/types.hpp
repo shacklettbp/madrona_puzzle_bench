@@ -51,6 +51,8 @@ enum class LevelType : uint32_t {
     BlockStack,
     PatternMatch,
     ChickenCoop,
+    SimpleLocomotion,
+    LavaCorridor,
     NumTypes,
 };
 
@@ -70,6 +72,7 @@ enum class EntityType : uint32_t {
     Pattern,
     Coop,
     FixedBlock,
+    Goal,
     NumTypes,
 };
 
@@ -79,6 +82,7 @@ struct EpisodeState {
     bool isDead;
     bool reachedExit;
     bool episodeFinished;
+    bool reachedGoal;
 };
 
 // Discrete action component. Ranges are defined by consts::numMoveBuckets (5),
@@ -127,7 +131,8 @@ struct AgentLevelTypeObs {
 };
 
 struct AgentExitObs {
-    PolarObs toExitPolar;
+    //PolarObs toExitPolar;
+    PolarObs toGoalPolar;
 };
 
 // Per-agent egocentric observations for the interactable entities
@@ -229,6 +234,7 @@ struct ChickenListElem : EntityLinkedListElem {};
 struct Level {
     RoomListElem rooms;
     Entity exit;
+    Entity goal;
 };
 
 struct DoorProperties {
@@ -261,6 +267,7 @@ struct DeferredDelete {
 struct IsExit {};
 
 struct IsLava {};
+struct IsGoal {};
 
 struct EnemyState {
     float moveForce;
@@ -295,6 +302,9 @@ struct Checkpoint {
         madrona::phys::JointConstraint grabJoint;
     };
 
+    int32_t goalType;
+    Vector3 goalPos;
+    
     madrona::RandKey initRNDCounter;
     int32_t curEpisodeStep;
     int32_t curEpisodeLevel;
@@ -322,6 +332,11 @@ struct CheckpointReset {
 // For connection to the viewer.
 struct CheckpointSave {
     int32_t save;
+};
+
+struct GoalType {
+    uint32_t type;
+    uint32_t reached;
 };
 
 struct RoomEntity : public madrona::Archetype<
@@ -419,6 +434,14 @@ struct ExitEntity : public madrona::Archetype<
 
     madrona::render::Renderable,
     IsExit
+> {};
+
+struct GoalEntity : public madrona::Archetype<
+    ObjectInstance,
+
+    EntityType,
+    madrona::render::Renderable,
+    IsGoal
 > {};
 
 // Generic archetype for entities that need physics but don't have custom

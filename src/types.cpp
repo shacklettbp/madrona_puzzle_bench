@@ -54,6 +54,7 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
 
     registry.registerComponent<IsExit>();
     registry.registerComponent<IsLava>();
+    registry.registerComponent<IsGoal>();
     registry.registerComponent<EnemyState>();
 
     registry.registerSingleton<WorldReset>();
@@ -66,12 +67,16 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
     registry.registerSingleton<CheckpointReset>();
     registry.registerSingleton<CheckpointSave>();
 
+    // Goal state.
+    registry.registerSingleton<GoalType>();
+
     registry.registerArchetype<Agent>();
     registry.registerArchetype<PhysicsEntity>();
     registry.registerArchetype<DoorEntity>();
     registry.registerArchetype<ButtonEntity>();
     registry.registerArchetype<RoomEntity>();
     registry.registerArchetype<ExitEntity>();
+    registry.registerArchetype<GoalEntity>();
     registry.registerArchetype<EnemyEntity>();
     registry.registerArchetype<LavaEntity>();
     registry.registerArchetype<PatternEntity>();
@@ -87,6 +92,8 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
         (uint32_t)ExportID::CheckpointSave);
     registry.exportSingleton<WorldReset>(
         (uint32_t)ExportID::Reset);
+    registry.exportSingleton<GoalType>(
+        (uint32_t)ExportID::Goal);
     registry.exportSingleton<EpisodeResult>(
         (uint32_t)ExportID::EpisodeResult);
 

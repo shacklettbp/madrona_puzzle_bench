@@ -355,6 +355,7 @@ struct Manager::CUDAImpl final : Manager::Impl {
         copyFromSim(strm, *buffers++, mgr.rewardTensor());
         copyFromSim(strm, *buffers++, mgr.doneTensor());
         copyFromSim(strm, *buffers++, mgr.episodeResultTensor());
+        copyFromSim(strm, *buffers++, mgr.goalTensor());
     }
 
     virtual void gpuStreamLoadCheckpoints(
@@ -362,6 +363,8 @@ struct Manager::CUDAImpl final : Manager::Impl {
     {
         copyToSim(strm, mgr.checkpointResetTensor(), *buffers++);
         copyToSim(strm, mgr.checkpointTensor(), *buffers++);
+        copyFromSim(strm, *buffers++, mgr.goalTensor());
+
 
         gpuExec.runAsync(stepGraph, strm);
 
@@ -419,6 +422,8 @@ static void loadRenderObjects(render::RenderManager &render_mgr)
         (std::filesystem::path(DATA_DIR) / "cube_render.obj").string();
     render_asset_paths[(size_t)SimObject::Exit] =
         (std::filesystem::path(DATA_DIR) / "exit.obj").string();
+    render_asset_paths[(size_t)SimObject::Goal] =
+        (std::filesystem::path(DATA_DIR) / "cube_render.obj").string();
     render_asset_paths[(size_t)SimObject::Plane] =
         (std::filesystem::path(DATA_DIR) / "plane.obj").string();
     render_asset_paths[(size_t)SimObject::Key] =
@@ -482,6 +487,8 @@ static void loadRenderObjects(render::RenderManager &render_mgr)
     render_assets->objects[(CountT)SimObject::Button].meshes[0].materialIDX = 6;
     render_assets->objects[(CountT)SimObject::Lava].meshes[0].materialIDX = 5;
     render_assets->objects[(CountT)SimObject::Exit].meshes[0].materialIDX = 7;
+    render_assets->objects[(CountT)SimObject::Goal].meshes[0].materialIDX = 8;
+
 
     render_assets->objects[(CountT)SimObject::Plane].meshes[0].materialIDX = 4;
 
@@ -523,6 +530,8 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
     asset_paths[(size_t)SimObject::Lava] =
         (std::filesystem::path(DATA_DIR) / "cube_collision.obj").string();
     asset_paths[(size_t)SimObject::Exit] =
+        (std::filesystem::path(DATA_DIR) / "cube_collision.obj").string();
+    asset_paths[(size_t)SimObject::Goal] =
         (std::filesystem::path(DATA_DIR) / "cube_collision.obj").string();
     asset_paths[(size_t)SimObject::Key] =
         (std::filesystem::path(DATA_DIR) / "cube_collision.obj").string();
@@ -623,6 +632,11 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
     });
 
     setupHull(SimObject::Exit, 1.f, {
+        .muS = 0.5f,
+        .muD = 0.5f,
+    });
+
+    setupHull(SimObject::Goal, 1.f, {
         .muS = 0.5f,
         .muD = 0.5f,
     });
@@ -962,6 +976,16 @@ Tensor Manager::resetTensor() const
                                {
                                    impl_->cfg.numWorlds,
                                    sizeof(WorldReset) / sizeof(int32_t)
+                               });
+}
+
+Tensor Manager::goalTensor() const
+{
+    return impl_->exportTensor(ExportID::Goal,
+                               TensorElementType::Int32,
+                               {
+                                   impl_->cfg.numWorlds,
+                                   sizeof(GoalType) / sizeof(int32_t)
                                });
 }
 

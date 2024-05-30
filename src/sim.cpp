@@ -98,6 +98,7 @@ static EpisodeState initEpisodeState()
         .isDead = false,
         .reachedExit = false,
         .episodeFinished = true,
+        .reachedGoal = false,
     };
 }
 
@@ -125,7 +126,7 @@ inline void loadCheckpointSystem(Engine &ctx, CheckpointReset &reset)
         ctx.iterateQuery(ctx.data().simEntityQuery,
         [&](Entity e, EntityType type) {
             if (type == EntityType::None || type == EntityType::Agent ||
-                    type == EntityType::Wall) {
+                    type == EntityType::Wall || type == EntityType::Goal) {
                 return;
             }
 
@@ -184,6 +185,11 @@ inline void loadCheckpointSystem(Engine &ctx, CheckpointReset &reset)
             ctx.get<GrabState>(agent).constraintEntity = joint_entity;
         }
     }
+
+    {
+        ctx.singleton<GoalType>().type = ckpt.goalType;
+        ctx.get<Position>(ctx.singleton<Level>().goal) = ckpt.goalPos;
+    }
 }
 
 inline void checkpointSystem(Engine &ctx, CheckpointSave &save)
@@ -220,7 +226,7 @@ inline void checkpointSystem(Engine &ctx, CheckpointSave &save)
         ctx.iterateQuery(ctx.data().simEntityQuery,
         [&](Entity e, EntityType type) {
             if (type == EntityType::None || type == EntityType::Agent ||
-                    type == EntityType::Wall) {
+                    type == EntityType::Wall || type == EntityType::Goal) {
                 return;
             }
 
@@ -273,6 +279,11 @@ inline void checkpointSystem(Engine &ctx, CheckpointSave &save)
             .grabIdx = (int32_t)agent_grab_idx,
             .grabJoint = grab_joint_out,
         };
+    }
+
+    {
+        ckpt.goalType = ctx.singleton<GoalType>().type;
+        ckpt.goalPos = ctx.get<Position>(ctx.singleton<Level>().goal);
     }
 }
 
@@ -721,6 +732,56 @@ inline void doorOpenSystem(Engine &ctx,
     }
 }
 
+// inline void trainingGoalSystem(Engine &ctx, Position &goal_pos, IsGoal) {
+//     if (ctx.singleton<EpisodeState>().reachedGoal) {
+
+//     }
+// }
+
+inline void updateGoalSystem(Engine &ctx, Entity &e, EntityType &eType) {
+    // System runs every frame. Before any step, training code can change it.
+    EntityType goal_type = EntityType(ctx.singleton<GoalType>().type);
+    Position &goal_pos = ctx.get<Position>(ctx.singleton<Level>().goal);
+
+    ctx.singleton<EpisodeState>().reachedGoal = false;
+    ctx.singleton<GoalType>().reached = 0;
+
+    
+    // None type entity encodes the exit.
+    if (goal_type == EntityType::None) {
+        goal_pos = ctx.get<Position>(ctx.singleton<Level>().exit);
+        return;
+    }
+    // This is a race if there are multiple entities of type
+    // goal_type in the scene.
+    if (eType == goal_type)
+    {
+        goal_pos = ctx.get<Position>(e);
+    }
+
+    // In case the door is below the ground.
+    goal_pos.z = 0.0f;
+}
+
+inline void checkGoalSystem(Engine &ctx, Position &goal_pos, IsGoal) {
+
+    Vector3 agent_pos = ctx.get<Position>(ctx.data().agent);
+
+    const float exit_tolerance = consts::agentRadius;
+
+    if (agent_pos.distance2(goal_pos) > exit_tolerance * exit_tolerance) {
+        return;
+    }
+
+    EpisodeState &episode_state = ctx.singleton<EpisodeState>();
+    if (episode_state.isDead) {
+        return;
+    }
+
+    episode_state.reachedGoal = true;
+    ctx.singleton<GoalType>().reached = 1;
+}
+
 inline void checkExitSystem(Engine &ctx, Position exit_pos, IsExit)
 {
     Vector3 agent_pos = ctx.get<Position>(ctx.data().agent);
@@ -819,9 +880,17 @@ inline void collectObservationsSystem(
 
     Quat to_view = rot.inv();
 
-    Vector3 to_exit = ctx.get<Position>(level.exit) - pos;
+    Vector3 to_exit = Vector3(
+        (ctx.data().rng.sampleUniform() - 0.5f) * 60.0f,
+        (ctx.data().rng.sampleUniform() - 0.5f) * 60.0f,
+        (ctx.data().rng.sampleUniform() - 0.5f) * 60.0f
+    );
+    // TODO: restore
+    //ctx.get<Position>(level.exit) - pos;
+    Vector3 to_goal = ctx.get<Position>(level.goal) - pos;
     agent_exit_obs = {
-        .toExitPolar = xyzToPolar(to_view.rotateVec(to_exit)),
+        //.toExitPolar = xyzToPolar(to_view.rotateVec(to_exit)),
+        .toGoalPolar = xyzToPolar(to_view.rotateVec(to_goal)),
     };
 
     steps_remaining_obs.t =
@@ -1162,6 +1231,29 @@ inline void dense2RewardSystem(Engine &ctx,
     out_reward.v = reward;
 }
 
+inline void perGoalRewardSystem(Engine &ctx,
+                                 Reward &out_reward)
+{ 
+    const auto &episode_state = ctx.singleton<EpisodeState>();
+
+    float reward = 0.f;
+
+    if (episode_state.isDead) {
+        reward -= 1.f;
+    }
+
+    if (episode_state.reachedGoal) {
+        reward += ctx.data().episodeLen - ctx.singleton<EpisodeState>().curStep;
+
+        //if (episode_state.curLevel == ctx.data().levelsPerEpisode) {
+        //    reward += 10.f;
+        //}
+    }
+
+    out_reward.v = reward;
+}
+
+
 inline void perLevelRewardSystem(Engine &ctx,
                                  Reward &out_reward)
 { 
@@ -1298,6 +1390,12 @@ static TaskGraphNodeID queueRewardSystem(const Sim::Config &cfg,
                 Reward
             >>(deps);
     } break;
+    case RewardMode::PerGoal: {
+        reward_sys = builder.addToGraph<ParallelForNode<Engine,
+             perGoalRewardSystem,
+                Reward
+            >>(deps);
+    } break;
     default: MADRONA_UNREACHABLE();
     }
 
@@ -1335,6 +1433,8 @@ static TaskGraphNodeID sortEntities(TaskGraphBuilder &builder,
     sort_sys = queueSortByWorld<RoomEntity>(
         builder, {sort_sys});
     sort_sys = queueSortByWorld<ExitEntity>(
+        builder, {sort_sys});
+    sort_sys = queueSortByWorld<GoalEntity>(
         builder, {sort_sys});
     sort_sys = queueSortByWorld<EnemyEntity>(
         builder, {sort_sys});
@@ -1460,12 +1560,25 @@ static TaskGraphNodeID setupSimTasks(TaskGraphBuilder &builder,
             IsExit 
         >>({door_open_sys});
 
+    // Maybe update the goal position from the training code.
+    auto update_goal_system = builder.addToGraph<ParallelForNode<Engine,
+        updateGoalSystem,
+            Entity,
+            EntityType
+        >>({check_exit_sys});
+
+    auto check_goal_sys = builder.addToGraph<ParallelForNode<Engine,
+        checkGoalSystem,
+            Position,
+            IsGoal
+        >>({update_goal_system});
+
     auto lava_sys = builder.addToGraph<ParallelForNode<Engine,
         lavaSystem,
             Position,
             EntityExtents,
             IsLava 
-        >>({check_exit_sys});
+        >>({check_goal_sys});
 
     return lava_sys;
 }
@@ -1679,6 +1792,7 @@ Sim::Sim(Engine &ctx,
     ctx.singleton<Level>() = {
         .rooms = { Entity::none() },
         .exit = ctx.makeRenderableEntity<ExitEntity>(),
+        .goal = ctx.makeRenderableEntity<GoalEntity>(),
     };
 
     ctx.singleton<EpisodeState>() = initEpisodeState();

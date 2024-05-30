@@ -580,13 +580,29 @@ static void makeSpawn(Engine &ctx, float spawn_size, Vector3 spawn_pos)
         });
 }
 
-static Entity makeExit(Engine &ctx, float room_size, Vector3 exit_pos)
-{
+static Entity makeExitEntity(Engine &ctx, Vector3 exit_pos) {
     Entity e = ctx.makeRenderableEntity<ExitEntity>();
     ctx.get<Position>(e) = exit_pos;
     ctx.get<Rotation>(e) = Quat { 1, 0, 0, 0 };
     ctx.get<Scale>(e) = Diag3x3 { 1, 1, 1 };
     ctx.get<ObjectID>(e) = ObjectID { (int32_t)SimObject::Exit };
+    return e;
+}
+
+static Entity makeGoalEntity(Engine &ctx, Vector3 goal_pos) {
+    Entity g = ctx.makeRenderableEntity<GoalEntity>();
+    ctx.get<Position>(g) = goal_pos;
+    ctx.get<Rotation>(g) = Quat { 1, 0, 0, 0 };
+    ctx.get<Scale>(g) = Diag3x3 { 0.25, 0.25, 0.25 };
+    ctx.get<EntityType>(g) = EntityType::Goal;
+    ctx.get<ObjectID>(g) = ObjectID { (int32_t)SimObject::Goal };
+    return g;
+}
+
+static Entity makeExit(Engine &ctx, float room_size, Vector3 exit_pos)
+{
+
+    Entity e = makeExitEntity(ctx, exit_pos);
 
     makeWall(ctx,
         exit_pos + Vector3 {
@@ -683,6 +699,123 @@ static Entity makeEnemy(Engine &ctx, Vector3 position,
 
     return enemy;
 }
+static void setupTrainingRoomLevel(Engine &ctx,
+                                 float level_size,
+                                 AABB *room_aabb_out)
+{
+    const float spawn_size = 0.0f;
+    const float half_wall_width = consts::wallWidth / 2.f;
+
+    makeFloor(ctx);
+
+    AABB room_aabb = {
+        .pMin = Vector3 { -level_size / 2.f, 0.f, 0.f },
+        .pMax = Vector3 { level_size / 2.f, level_size, 2.f },
+    };
+
+    auto makeSolidWall = [
+        &ctx
+    ](Vector3 p0, Vector3 p1)
+    {
+        Vector3 diff = p1 - p0;
+        assert(diff.z == 0);
+
+        Diag3x3 scale;
+        if (diff.x == 0) {
+            scale.d0 = consts::wallWidth;
+            scale.d1 = diff.y + consts::wallWidth;
+        } else if (diff.y == 0) {
+            scale.d0 = diff.x + consts::wallWidth;
+            scale.d1 = consts::wallWidth;
+        } else {
+            assert(false);
+        }
+        scale.d2 = 3.f; // 1 higher than num blocks should work
+
+        Vector3 center = (p0 + p1) / 2.f;
+
+        makeWall(ctx, center, scale);
+    };
+
+    makeRoomWalls(ctx, room_aabb,
+        {
+            { WallType::Solid },
+            { WallType::Solid },
+            { WallType::Solid },
+            { WallType::Solid },
+        }, nullptr, nullptr);
+
+
+    // Shrink returned AABB to account for walls
+    AABB safe_aabb = room_aabb;
+    safe_aabb.pMin.x += half_wall_width;
+    safe_aabb.pMin.y += half_wall_width;
+    safe_aabb.pMax.x -= half_wall_width;
+    safe_aabb.pMax.y -= half_wall_width;
+
+    Vector3 exit_pos = Vector3(
+        randBetween(ctx, safe_aabb.pMin.x, safe_aabb.pMax.x),
+        randBetween(ctx, safe_aabb.pMin.y, safe_aabb.pMax.y),
+        0.0f
+    );
+    // TODO: restore for random goal placement.
+    Vector3 goal_pos = Vector3(
+        randBetween(ctx, safe_aabb.pMin.x, safe_aabb.pMax.x),
+        randBetween(ctx, safe_aabb.pMin.y, safe_aabb.pMax.y),
+        0.0f
+    );
+    Vector3 spawn_pos = Vector3(
+        randBetween(ctx, safe_aabb.pMin.x, safe_aabb.pMax.x),
+        randBetween(ctx, safe_aabb.pMin.y, safe_aabb.pMax.y),
+        0.0f
+    );
+
+
+
+    // TODO: restore, hack for testing policy
+    const float button_width = ctx.data().buttonWidth;
+    const float half_button_width = button_width / 2.f;
+
+    float button_x = randBetween(ctx,
+                                 room_aabb.pMin.x + half_button_width,
+                                 room_aabb.pMax.x - half_button_width);
+
+    float button_y = randBetween(ctx,
+                                 room_aabb.pMin.y + half_button_width,
+                                 room_aabb.pMax.y - half_button_width);
+
+    //Entity button = makeButton(ctx, button_x, button_y);
+
+    Level &level = ctx.singleton<Level>();
+    level.exit = makeExitEntity(ctx, exit_pos);
+    goal_pos = exit_pos;
+    //ctx.get<Position>(button);
+    level.goal = makeGoalEntity(ctx, goal_pos);
+
+    // None type encodes that the goal should be at the exit.
+    ctx.singleton<GoalType>().type = int32_t(EntityType::None);
+    ctx.singleton<GoalType>().reached = 0;
+
+    resetAgent(ctx, spawn_pos, spawn_size, exit_pos);
+
+    RoomList room_list = RoomList::init(&level.rooms);
+
+    // Save a larger AABB in the room list that contains
+    // the exit and spawn rooms so they're picked up
+    // for observations
+    AABB obs_aabb = room_aabb;
+    obs_aabb.pMax.y += spawn_size;
+    obs_aabb.pMin.y -= spawn_size;
+
+    // Grow downwards so closed doors are still in obs
+    obs_aabb.pMin.z -= 1.f;
+
+    Entity room = room_list.add(ctx);
+    ctx.get<RoomAABB>(room) = obs_aabb;
+
+    *room_aabb_out = safe_aabb;
+}
+
 
 static void setupSingleRoomLevel(Engine &ctx,
                                  float level_size,
@@ -817,6 +950,15 @@ static void chaseLevel(Engine &ctx)
     enemy_spawn.x = randBetween(ctx, room_aabb.pMin.x, room_aabb.pMax.x);
 
     makeEnemy(ctx, enemy_spawn, 280.f, 280.f);
+}
+
+static void simpleLocomotionLevel(Engine &ctx) {
+    // TODO: Restore
+    const float level_size = 20.f;
+    AABB room_aabb;
+    setupTrainingRoomLevel(ctx, 
+    level_size,
+    &room_aabb);
 }
 
 static void lavaLevel(Engine &ctx, bool shouldMakeButton = false) {
@@ -1110,6 +1252,11 @@ static void lavaButtonLevel(Engine &ctx)
     lavaLevel(ctx, true);
 }
 
+static void lavaCorridorLevel(Engine & ctx) 
+{
+    lavaLevel(ctx, false);
+}
+
 static void lavaPathLevel(Engine &ctx)
 {
     lavaLevel(ctx, false);
@@ -1137,9 +1284,19 @@ static void singleButtonLevel(Engine &ctx)
 
         Entity button = makeButton(ctx, button_x, button_y);
 
+        // TODO: restore
+        Vector3 goal_pos = 
+        //ctx.get<Position>(ctx.singleton<Level>().exit);
+        ctx.get<Position>(button);
+
+        ctx.singleton<Level>().goal = makeGoalEntity(ctx, goal_pos);
+
         terminateButtonList(ctx,
             addButtonToList(ctx, exit_door, button));
     }
+    // TODO: restore
+    ctx.singleton<GoalType>().type = int32_t(EntityType::Button);
+    ctx.singleton<GoalType>().reached = 0;
 }
 
 static void singleBlockButtonLevel(Engine &ctx)
@@ -1391,6 +1548,7 @@ LevelType generateLevel(Engine &ctx)
     LevelType level_type = (LevelType)ctx.data().rng.sampleI32(
         0, (uint32_t)LevelType::NumTypes);
     //      3, 5);
+    // TODO: restore
     level_type = LevelType::LavaButton;
 
     switch (level_type) {
@@ -1423,6 +1581,12 @@ LevelType generateLevel(Engine &ctx)
     } break;
     case LevelType::ChickenCoop: {
         chickenCoopLevel(ctx);
+    } break;
+    case LevelType::SimpleLocomotion: {
+        simpleLocomotionLevel(ctx);
+    } break;
+    case LevelType::LavaCorridor: {
+        lavaCorridorLevel(ctx);
     } break;
     default: MADRONA_UNREACHABLE();
     }
@@ -1469,6 +1633,9 @@ void destroyLevel(Engine &ctx)
     });
 
     ctx.destroyRenderableEntity(lvl.exit);
+    //if (lvl.goal != Entity::none()) {
+    //    ctx.destroyRenderableEntity(lvl.goal);
+    //}
 }
 
 }

@@ -27,6 +27,7 @@ NB_MODULE(madrona_puzzle_bench, m) {
         .value("PerLevel", RewardMode::PerLevel)
         .value("EndOnly", RewardMode::EndOnly)
         .value("LavaButton", RewardMode::LavaButton)
+        .value("PerGoal", RewardMode::PerGoal)
     ;
 
     auto mgr_class = nb::class_<Manager> (m, "SimManager")
@@ -80,6 +81,7 @@ NB_MODULE(madrona_puzzle_bench, m) {
         .def("checkpoint_reset_tensor", &Manager::checkpointResetTensor)
         .def("checkpoint_tensor", &Manager::checkpointTensor)
         .def("reset_tensor", &Manager::resetTensor)
+        .def("goal_tensor", &Manager::goalTensor)
         .def("action_tensor", &Manager::actionTensor)
         .def("reward_tensor", &Manager::rewardTensor)
         .def("done_tensor", &Manager::doneTensor)

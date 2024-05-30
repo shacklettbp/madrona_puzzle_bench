@@ -57,6 +57,7 @@ public:
     madrona::py::Tensor checkpointResetTensor() const;
     madrona::py::Tensor checkpointTensor() const;
     madrona::py::Tensor resetTensor() const;
+    madrona::py::Tensor goalTensor() const;
     madrona::py::Tensor actionTensor() const;
     madrona::py::Tensor rewardTensor() const;
     madrona::py::Tensor doneTensor() const;

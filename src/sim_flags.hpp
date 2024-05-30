@@ -16,6 +16,7 @@ enum class RewardMode : uint32_t {
     PerLevel,
     EndOnly,
     LavaButton,
+    PerGoal,
 };
 
 inline SimFlags & operator|=(SimFlags &a, SimFlags b);

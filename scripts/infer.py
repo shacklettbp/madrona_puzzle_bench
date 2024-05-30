@@ -61,6 +61,13 @@ sim.init()
 obs, num_obs_features = setup_obs(sim, args.no_level_obs)
 policy = make_policy(num_obs_features, None, args.num_channels, args.separate_value)
 
+#TODO: 
+# 0. Figure out how to switch the goal dynamically within the world.
+# 1. Load multiple sets of weights for different low level controllers.
+# 2. Detect when the first controller is done to be able to easily change to the second controller.
+#    Actually, as long as we're using the right reward model, we should be able to tell because the 
+#    reward will be 0 until we've achieved the subgoal.
+
 weights = LearningState.load_policy_weights(args.ckpt_path)
 policy.load_state_dict(weights, strict=False)
 
@@ -69,6 +76,7 @@ policy = policy.to(torch.device(f"cuda:{args.gpu_id}")) if args.gpu_sim else pol
 actions = sim.action_tensor().to_torch()
 dones = sim.done_tensor().to_torch()
 rewards = sim.reward_tensor().to_torch()
+goals = sim.goal_tensor().to_torch()
 
 ckpts = sim.checkpoint_tensor().to_torch()
 
@@ -127,6 +135,21 @@ for i in range(args.num_steps):
     '''
     sim.step()
     print("Rewards:\n", rewards)
+    print("Goals:\n", goals)
+
+    # If the reward is positive, update the goal to the next Object ID
+    # ONLY WORKS with sparse reward.
+    # TODO: configure this to work with multiple worlds.
+    if goals[..., 1] == 1:
+        print("SWITCHING GOAL")
+        # We hit the goal, change the goal.
+        if goals[..., 0] == 6:
+            goals[..., 0] = 2
+        elif goals[..., 0] == 2:
+            goals[..., 0] = 0 # 0 encodes the nonetype which causes the goal marker to switch to the exit.
+
+
+
 
 if record_log:
     record_log.close()

@@ -15,6 +15,7 @@ class Engine;
 // for each component exported to the training code.
 enum class ExportID : uint32_t {
     Reset,
+    Goal,
     Action,
     Reward,
     Done,
@@ -54,6 +55,7 @@ enum class SimObject : uint32_t {
     PurpleKey,
     BlueKey,
     CyanKey,
+    Goal,
     Plane,
     NumObjects,
 };
