@@ -277,11 +277,18 @@ int main(int argc, char *argv[])
 
     float camera_move_speed = 10.f;
 
+    // TODO: restore
     math::Vector3 initial_camera_position = { 0, consts::worldWidth / 2.f, 30 };
 
+    
     math::Quat initial_camera_rotation =
         (math::Quat::angleAxis(-math::pi / 2.f, math::up) *
         math::Quat::angleAxis(-math::pi / 2.f, math::right)).normalize();
+
+    // Camera position for behind agent view.
+    //math::Vector3 initial_camera_position = { 0, -5, 1 };
+    //math::Quat initial_camera_rotation = math::Quat::angleAxis(0.0, math::up).normalize();
+
 
 
     // Create the viewer viewer
@@ -440,11 +447,13 @@ int main(int argc, char *argv[])
         }
 
         if (input.keyHit(Key::G)) {
-            interact = 1;
+            // TODO: restore
+            interact = 2;
         }
 
         if (input.keyPressed(Key::Space)) {
-            interact = 2;
+            // TODO: Restore
+            interact = 1;
         }
 
         int32_t move_amount;

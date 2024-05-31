@@ -232,6 +232,7 @@ class GoExplore:
         #start_bins = self.map_states_to_bins(self.obs)[0,:]
         #self.start_bin_steps[start_bins] = 0
 
+        # TODO: map this to jump.
         self.actions_num_buckets = [4, 8, 5, 2]
         self.action_space = Box(-float('inf'),float('inf'),(sum(self.actions_num_buckets),))
 
@@ -1334,7 +1335,6 @@ if args.restore:
 else:
     restore_ckpt = None
 
-# TODO: restore
 run = wandb.init(
     # Set the project where this run will be logged
     #project="puzzle-bench-counts",

@@ -351,7 +351,9 @@ inline bool onGround(Engine &ctx, const Position &pos, const Rotation &rot, cons
     Vector3 ray_o = pos + halfHeight * rot.rotateVec(math::up);
     Vector3 ray_d = rot.rotateVec(-math::up);
 
-    const float max_t = halfHeight;
+    // TODO: restore to halfheight
+    // Need extra to compensate for slight lava lift...
+    const float max_t = halfHeight + 0.001f;
 
     Entity grab_entity = bvh.traceRay(ray_o, ray_d, &hit_t, &hit_normal, max_t);
 
@@ -373,7 +375,8 @@ inline void jumpSystem(Engine &ctx,
                            ExternalForce &external_force)
 {
 
-    if (action.interact != 2) {
+    // TODO: restore, should be 2
+    if (action.interact != 1) {
         return;
     };
 
@@ -399,9 +402,10 @@ inline void movementSystem(Engine &ctx,
     float move_max = 800; //1000;
     constexpr float turn_max = 240; //320;
 
-    //if (!onGround(ctx, pos, rot, s)) {
-        //move_max = 500;
-    //}
+    // TODO: restore
+    if (!onGround(ctx, pos, rot, s)) {
+        move_max = 500;
+    }
 
     float move_amount = action.moveAmount *
         (move_max / (consts::numMoveAmountBuckets - 1));
@@ -432,7 +436,8 @@ inline void grabSystem(Engine &ctx,
                        Action action,
                        GrabState &grab)
 {
-    if (action.interact != 1) {
+    // TODO: restore, should be 1
+    if (action.interact != 2) {
         return;
     }
 

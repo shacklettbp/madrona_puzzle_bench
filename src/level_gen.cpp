@@ -510,7 +510,6 @@ static void makeRoomWalls(Engine &ctx,
         bool make_door = wall_cfg.type == WallType::Door;
 
         if (make_door || wall_cfg.type == WallType::Entrance) {
-            // TODO: Restore
             makeEntranceWall(
                 cur_corner, next_corner, wall_cfg.entranceT,
                 make_door ? &door_entities[side_idx] : nullptr,
@@ -835,15 +834,15 @@ static void setupSingleRoomLevel(Engine &ctx,
     makeFloor(ctx);
 
     // TODO: restore
-    AABB room_aabb = {
-        .pMin = Vector3 { -level_size / 3.2f, 0.f, 0.f },
-        .pMax = Vector3 { level_size / 3.2f, level_size, 2.f },
-    };
-
     //AABB room_aabb = {
-    //    .pMin = Vector3 { -level_size / 2.f, 0.f, 0.f },
-    //    .pMax = Vector3 { level_size / 2.f, level_size, 2.f },
+    //    .pMin = Vector3 { -level_size / 3.2f, 0.f, 0.f },
+    //    .pMax = Vector3 { level_size / 3.2f, level_size, 2.f },
     //};
+
+    AABB room_aabb = {
+        .pMin = Vector3 { -level_size / 2.f, 0.f, 0.f },
+        .pMax = Vector3 { level_size / 2.f, level_size, 2.f },
+    };
 
     // TODO: restore
     float exit_t = 0.5f; //ctx.data().rng.sampleUniform();
@@ -1032,7 +1031,7 @@ static void lavaLevel(Engine &ctx, bool shouldMakeButton = false) {
     Vector3 exit_pos = entrance_positions[0];
     Vector3 spawn_pos = entrance_positions[2];
 
-    const int gridsizeX = 3;
+    const int gridsizeX = 5;
     const int gridsizeY = 5;
     int grid[gridsizeX][gridsizeY];
 
@@ -1107,9 +1106,9 @@ static void lavaLevel(Engine &ctx, bool shouldMakeButton = false) {
 
     auto writeCheckerboard = [&]()
     {
-        for (int i = gridsizeX - 1; i >= 0; --i) {
+        for (int i = gridsizeX - 2; i >= 1; --i) {
            for (int j = gridsizeY - 1; j >= 0; --j) {
-               if ((i + j) % 2 == 0) {
+               if ((i + j) % 2 != 0) {
                     grid[i][j] = PATH;
                }
            }
