@@ -278,7 +278,8 @@ inline void checkpointSystem(Engine &ctx, CheckpointSave &save)
             .velocity = ctx.get<Velocity>(agent),
             .taskProgress = ctx.get<Progress>(agent),
             .grabIdx = (int32_t)agent_grab_idx,
-            .grabJoint = grab_joint_out,
+            // TODO: restore
+            //.grabJoint = grab_joint_out,
         };
     }
 
@@ -891,6 +892,7 @@ inline void collectObservationsSystem(
 
     Quat to_view = rot.inv();
 
+    // TODO: restore, fix and retrain with madrona GPU.
     Vector3 to_exit = Vector3(
         (ctx.data().rng.sampleUniform() - 0.5f) * 60.0f,
         (ctx.data().rng.sampleUniform() - 0.5f) * 60.0f,

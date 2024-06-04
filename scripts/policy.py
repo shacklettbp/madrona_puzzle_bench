@@ -14,18 +14,28 @@ from madrona_puzzle_bench_learn.rnn import LSTM
 import math
 import torch
 
-def setup_obs(sim, no_level_obs = False, use_onehot = True, separate_entity = False):
+def setup_obs(sim, no_level_obs = False, use_onehot = True, separate_entity = False, need_torch_conversion=True):
     # First define all the observation tensors
     agent_txfm_obs_tensor = sim.agent_txfm_obs_tensor().to_torch() # Scalars
+    print(type(sim.agent_txfm_obs_tensor()))
     agent_interact_obs_tensor = sim.agent_interact_obs_tensor().to_torch() # Bool, whether or not grabbing
+    print(agent_interact_obs_tensor.shape)
     agent_level_type_obs_tensor = sim.agent_level_type_obs_tensor().to_torch() # Enum
+    print(agent_level_type_obs_tensor.shape)
     agent_exit_obs_tensor = sim.agent_exit_obs_tensor().to_torch() # Scalars
+    print(agent_exit_obs_tensor.shape)
     entity_physics_state_obs_tensor = sim.entity_physics_state_obs_tensor().to_torch() # Scalars
+    print(entity_physics_state_obs_tensor.shape)
     entity_type_obs_tensor = sim.entity_type_obs_tensor().to_torch() # Enum
+    print(entity_type_obs_tensor.shape)
     entity_attr_obs_tensor = sim.entity_attr_obs_tensor().to_torch() # Enum, but I don't know max
+    print(entity_attr_obs_tensor.shape)
     lidar_depth_tensor = sim.lidar_depth_tensor().to_torch() # Scalars
+    print(lidar_depth_tensor.shape)
     lidar_hit_type_tensor = sim.lidar_hit_type().to_torch() # Enum (EntityType)
+    print(lidar_hit_type_tensor.shape)
     steps_remaining_tensor = sim.steps_remaining_tensor().to_torch() # Int but dont' need to convert
+    print(steps_remaining_tensor.shape)
 
     if no_level_obs:
         agent_level_type_obs_tensor = torch.zeros_like(agent_level_type_obs_tensor)

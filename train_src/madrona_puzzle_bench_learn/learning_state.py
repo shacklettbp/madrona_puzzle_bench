@@ -68,6 +68,7 @@ class LearningState:
 
     @staticmethod
     def load_policy_weights(path):
-        loaded = torch.load(path)
+        # TODO: restore
+        loaded = torch.load(path, map_location=torch.device('cpu'))
         return loaded['policy']
 
