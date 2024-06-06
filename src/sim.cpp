@@ -888,16 +888,16 @@ inline void collectObservationsSystem(
         .theta = computeZAngle(rot),
     };
 
-    // printf("agent_txfm_obs:\n");
-    // printf("localRoomPos = (%f, %f, %f)\n", local_room_pos.x, local_room_pos.y, local_room_pos.z);
-    // printf("roomAABB = (%f, %f, %f), (%f, %f, %f)\n", 
-    // room_aabb.pMin.x,
-    // room_aabb.pMin.y,
-    // room_aabb.pMin.z,
-    // room_aabb.pMax.x,
-    // room_aabb.pMax.y,
-    // room_aabb.pMax.z);
-    // printf("theta %f\n", computeZAngle(rot));
+    printf("agent_txfm_obs:\n");
+    printf("localRoomPos = (%f, %f, %f)\n", local_room_pos.x, local_room_pos.y, local_room_pos.z);
+    printf("roomAABB = (%f, %f, %f), (%f, %f, %f)\n", 
+    room_aabb.pMin.x,
+    room_aabb.pMin.y,
+    room_aabb.pMin.z,
+    room_aabb.pMax.x,
+    room_aabb.pMax.y,
+    room_aabb.pMax.z);
+    printf("theta %f\n", computeZAngle(rot));
 
     agent_interact_obs = AgentInteractObs {
         .isGrabbing = grab.constraintEntity != Entity::none() ? 1 : 0,
@@ -1048,8 +1048,7 @@ inline void lidarSystem(Engine &ctx,
             bvh.traceRay(pos + 0.5f * math::up, ray_dir, &hit_t,
                          &hit_normal, 200.f);
 
-        // TODO: restore
-        if (hit_entity == Entity::none() || true) {
+        if (hit_entity == Entity::none()) {
             lidar_depth.samples[idx] = 0.f;
             lidar_hit_type.samples[idx] = EntityType::None;
         } else {
@@ -1058,6 +1057,10 @@ inline void lidarSystem(Engine &ctx,
             lidar_depth.samples[idx] = hit_t;
             lidar_hit_type.samples[idx] = entity_type;
         }
+
+        // TODO: restore
+        printf("Lidar %d: %f, %d\n", idx, lidar_depth.samples[idx], int(lidar_hit_type.samples[idx]));
+
     };
 
     // MADRONA_GPU_MODE guards GPU specific logic
@@ -1104,9 +1107,10 @@ inline void dense1RewardSystem(Engine &ctx,
     if (episode_state.reachedExit) {
         reward += 1.f;
 
-        if (episode_state.curLevel == ctx.data().levelsPerEpisode) {
-            reward += 10.f;
-        }
+        // TODO: restore
+        //if (episode_state.curLevel == ctx.data().levelsPerEpisode) {
+        //    reward += 10.f;
+        //}
     }
 
     out_reward.v = reward;
