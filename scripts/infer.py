@@ -133,6 +133,7 @@ for i in range(args.num_steps):
     print("Actions:\n", actions.cpu().numpy())
     print("Values:\n", values.cpu().numpy())
     '''
+    
     sim.step()
     print("Rewards:\n", rewards)
     print("Goals:\n", goals)

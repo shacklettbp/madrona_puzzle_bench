@@ -425,7 +425,9 @@ inline void movementSystem(Engine &ctx,
         turn_delta_per_bucket * (action.rotate - consts::numTurnBuckets / 2);
 
     external_force = cur_rot.rotateVec({ f_x, f_y, 0 });
-    external_torque = Vector3 { 0, 0, t_z };
+    // TODO: restore
+    //external_torque = Vector3 { 0, 0, t_z };
+    external_torque = Vector3 { 0, 0, 0 };
 }
 
 // Implements the grab action by casting a short ray in front of the agent
@@ -886,19 +888,29 @@ inline void collectObservationsSystem(
         .theta = computeZAngle(rot),
     };
 
+    // printf("agent_txfm_obs:\n");
+    // printf("localRoomPos = (%f, %f, %f)\n", local_room_pos.x, local_room_pos.y, local_room_pos.z);
+    // printf("roomAABB = (%f, %f, %f), (%f, %f, %f)\n", 
+    // room_aabb.pMin.x,
+    // room_aabb.pMin.y,
+    // room_aabb.pMin.z,
+    // room_aabb.pMax.x,
+    // room_aabb.pMax.y,
+    // room_aabb.pMax.z);
+    // printf("theta %f\n", computeZAngle(rot));
+
     agent_interact_obs = AgentInteractObs {
         .isGrabbing = grab.constraintEntity != Entity::none() ? 1 : 0,
     };
 
     Quat to_view = rot.inv();
 
-    // TODO: restore, fix and retrain with madrona GPU.
-    Vector3 to_exit = Vector3(
-        (ctx.data().rng.sampleUniform() - 0.5f) * 60.0f,
-        (ctx.data().rng.sampleUniform() - 0.5f) * 60.0f,
-        (ctx.data().rng.sampleUniform() - 0.5f) * 60.0f
-    );
-    Vector3 to_goal = ctx.get<Position>(level.exit) - pos;
+    //Vector3 to_exit = Vector3(
+    //    (ctx.data().rng.sampleUniform() - 0.5f) * 60.0f,
+    //    (ctx.data().rng.sampleUniform() - 0.5f) * 60.0f,
+    //    (ctx.data().rng.sampleUniform() - 0.5f) * 60.0f
+    //);
+    Vector3 to_exit = ctx.get<Position>(level.exit) - pos;
     // TODO: restore, unify goal marker.
     //ctx.get<Position>(level.goal) - pos;
     agent_exit_obs = {
@@ -1036,7 +1048,8 @@ inline void lidarSystem(Engine &ctx,
             bvh.traceRay(pos + 0.5f * math::up, ray_dir, &hit_t,
                          &hit_normal, 200.f);
 
-        if (hit_entity == Entity::none()) {
+        // TODO: restore
+        if (hit_entity == Entity::none() || true) {
             lidar_depth.samples[idx] = 0.f;
             lidar_hit_type.samples[idx] = EntityType::None;
         } else {
