@@ -66,6 +66,8 @@ class RobloxSimManager:
         self.agent_exit_obs = torch.zeros([1, 3])
         self.entity_physics_state_obs = torch.zeros([1, 9, 12])
         self.entity_type_obs = torch.zeros([1, 9, 1])
+        self.lidar_depth = torch.zeros([1, 30, 1])
+        self.lidar_type = torch.zeros([1, 30, 1]) 
 
         # Action to pass to Roblox.
         self.action = torch.zeros([1, 4])
@@ -107,9 +109,9 @@ class RobloxSimManager:
     # For a first pass, we return 0 (no hit)
     # for all lidar samples.
     def lidar_depth_tensor(self): # Scalars
-        return ToTorchWrapper(torch.zeros([1, 30, 1]))
+        return ToTorchWrapper(self.lidar_depth)
     def lidar_hit_type(self): # Enum (EntityType)
-        return ToTorchWrapper(torch.zeros([1, 30, 1]))
+        return ToTorchWrapper(self.lidar_type)
     
     def steps_remaining_tensor(self): # Int but dont' need to convert
         #Always 0, shouldn't affect the inference.
@@ -220,9 +222,10 @@ def receiveObservations():
 
     # Update the observation tensors.
     data = request.get_json()
-    # TODO: restore
-    for key in data.keys():
-        print(key, ":", data[key])
+    #for idx, ob in enumerate(data["lidar"]):
+    #    print(idx, ob)
+    #for key in data.keys():
+    #    print(key, ":", data[key])
 
     pos = data["playerPos"]
     # Update agent observations
@@ -236,6 +239,9 @@ def receiveObservations():
     # Theta
     sim.agent_txfm_obs[..., 9] = 0
 
+    # TODO: restore
+    #print("Agent Observations", sim.agent_txfm_obs)
+
     # Agent relative exit vector, polar.
     # Note we are correctly discarding agent rotation
     # which hopefully the network is robust to.
@@ -248,7 +254,7 @@ def receiveObservations():
 
     # Update physics state and entity type observations.
     # Lava is type 5
-    print("NumLava:", len(data["lava"]))
+    #print("NumLava:", len(data["lava"]))
     for idx, lava in enumerate(data["lava"]):
         positionPolar = xyzToPolar([x - y for x, y in zip(lava[:3], pos)])
         # Physics state update
@@ -267,6 +273,13 @@ def receiveObservations():
                 sim.entity_physics_state_obs[0, idx, i] = 0
         # 5 is the entity type for lava.
         sim.entity_type_obs[0, idx, 0] = 5
+
+    # TODO: restore, no LIDAR
+    # Translate lidar observations.
+    #for idx, ob in enumerate(data["lidar"]):
+    #    sim.lidar_depth[0, idx, 0] = float(ob[0])
+    #    # Walls have type 9. In this sort of challenge, they are the only thing ever hit and they are always hit.
+    #    sim.lidar_type[0, idx, 0] = 9
     
     # Roblox observations.
 	# local obs = {
@@ -318,7 +331,7 @@ def sendAction():
     #     rem(3, 4, 5)
     # if not keyboard.is_pressed("d"):
     #     rem(1, 2, 3)
-    print(actions)
+    #print(actions)
 
     actionJson["moveAmount"] = int(actions[..., 0])
     #0 if len(moveAngles) == 0 else 3
