@@ -3,6 +3,8 @@ import madrona_puzzle_bench
 from madrona_puzzle_bench import SimFlags, RewardMode
 from madrona_puzzle_bench_learn import LearningState
 
+import time
+
 from policy import make_policy, setup_obs
 
 import numpy as np
@@ -91,7 +93,12 @@ if args.record_log:
 else:
     record_log = None
 
+
+count = 0
+timings = 0
+
 for i in range(args.num_steps):
+    start = time.time()
     with torch.no_grad():
         action_dists, values, cur_rnn_states = policy(cur_rnn_states, *obs)
         #action_dists.best(actions)
@@ -103,7 +110,10 @@ for i in range(args.num_steps):
             action_dists.best(actions)
 
         probs = action_dists.probs()
+    end = time.time()
 
+    timings += end - start
+    count += 1
     if record_log:
         ckpts.cpu().numpy().tofile(record_log)
 
@@ -133,7 +143,7 @@ for i in range(args.num_steps):
     print("Actions:\n", actions.cpu().numpy())
     print("Values:\n", values.cpu().numpy())
     '''
-    
+
     sim.step()
     print("Rewards:\n", rewards)
     print("Goals:\n", goals)
@@ -150,6 +160,7 @@ for i in range(args.num_steps):
             goals[..., 0] = 0 # 0 encodes the nonetype which causes the goal marker to switch to the exit.
 
 
+print("Average Time:", 1000 * timings / count, "ms")
 
 
 if record_log:
