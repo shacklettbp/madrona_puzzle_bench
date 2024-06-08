@@ -98,6 +98,12 @@ count = 0
 timings = 0
 
 for i in range(args.num_steps):
+
+
+    print("Observations")
+    for o in obs:
+        print(o)
+
     start = time.time()
     with torch.no_grad():
         action_dists, values, cur_rnn_states = policy(cur_rnn_states, *obs)

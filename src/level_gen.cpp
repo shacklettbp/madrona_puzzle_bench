@@ -1241,7 +1241,7 @@ static void lavaLevel(Engine &ctx, bool shouldMakeButton = false) {
             // Attempt to expand bounding box Y.
             bool canExpandY = int(currentLava.pMax.y) < gridsizeY - 1;
             for (int i = int(currentLava.pMin.x); i <= int(currentLava.pMax.x); ++i) {
-                if (grid[i][int(currentLava.pMax.y) + 1] != -1) {
+                if (grid[i][int(currentLava.pMax.y) + 1] == PATH) {
                     canExpandY = false;
                 }
             }
@@ -1251,7 +1251,7 @@ static void lavaLevel(Engine &ctx, bool shouldMakeButton = false) {
             // Attempt to expand bounding box X.
             bool canExpandX = int(currentLava.pMax.x) < gridsizeX - 1;
             for (int j = int(currentLava.pMin.y); j <= int(currentLava.pMax.y); ++j) {
-                if (grid[int(currentLava.pMax.x) + 1][j] != -1) {
+                if (grid[int(currentLava.pMax.x) + 1][j] == PATH) {
                     canExpandX = false;
                 }
             }

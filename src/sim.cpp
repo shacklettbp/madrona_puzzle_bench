@@ -888,16 +888,16 @@ inline void collectObservationsSystem(
         .theta = computeZAngle(rot),
     };
 
-    printf("agent_txfm_obs:\n");
-    printf("localRoomPos = (%f, %f, %f)\n", local_room_pos.x, local_room_pos.y, local_room_pos.z);
-    printf("roomAABB = (%f, %f, %f), (%f, %f, %f)\n", 
-    room_aabb.pMin.x,
-    room_aabb.pMin.y,
-    room_aabb.pMin.z,
-    room_aabb.pMax.x,
-    room_aabb.pMax.y,
-    room_aabb.pMax.z);
-    printf("theta %f\n", computeZAngle(rot));
+    // printf("agent_txfm_obs:\n");
+    // printf("localRoomPos = (%f, %f, %f)\n", local_room_pos.x, local_room_pos.y, local_room_pos.z);
+    // printf("roomAABB = (%f, %f, %f), (%f, %f, %f)\n", 
+    // room_aabb.pMin.x,
+    // room_aabb.pMin.y,
+    // room_aabb.pMin.z,
+    // room_aabb.pMax.x,
+    // room_aabb.pMax.y,
+    // room_aabb.pMax.z);
+    // printf("theta %f\n", computeZAngle(rot));
 
     agent_interact_obs = AgentInteractObs {
         .isGrabbing = grab.constraintEntity != Entity::none() ? 1 : 0,
@@ -918,8 +918,8 @@ inline void collectObservationsSystem(
         //.toGoalPolar = xyzToPolar(to_view.rotateVec(to_goal)),
     };
 
-    steps_remaining_obs.t =
-        ctx.data().episodeLen - ctx.singleton<EpisodeState>().curStep;
+    steps_remaining_obs.t = 0;
+        //ctx.data().episodeLen - ctx.singleton<EpisodeState>().curStep;
 
     CountT cur_obs_idx = 0;
     PhysicsSystem::findEntitiesWithinAABB(ctx, room_aabb, [&]
@@ -1058,8 +1058,7 @@ inline void lidarSystem(Engine &ctx,
             lidar_hit_type.samples[idx] = entity_type;
         }
 
-        // TODO: restore
-        printf("Lidar %d: %f, %d\n", idx, lidar_depth.samples[idx], int(lidar_hit_type.samples[idx]));
+        //printf("Lidar %d: %f, %d\n", idx, lidar_depth.samples[idx], int(lidar_hit_type.samples[idx]));
 
     };
 
