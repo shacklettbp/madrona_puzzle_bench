@@ -2,12 +2,17 @@ import torch
 import madrona_puzzle_bench
 from madrona_puzzle_bench import SimFlags, RewardMode
 from madrona_puzzle_bench_learn import LearningState
-
+import time
 
 import keyboard
 from flask import Flask
 from flask import request
 import json
+
+# Keep flasking from printing messages on very http request
+import logging
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
@@ -71,6 +76,14 @@ class RobloxSimManager:
 
         # Action to pass to Roblox.
         self.action = torch.zeros([1, 4])
+
+    def obsString(self):
+        return str(self.agent_txfm_obs) + "\n" + \
+        str(self.agent_exit_obs) + "\n" + \
+        str(self.entity_physics_state_obs) + "\n" + \
+        str(self.entity_type_obs) + "\n" + \
+        str(self.lidar_depth) + "\n" + \
+        str(self.lidar_type)
 
     # Observation tensors.
     def agent_txfm_obs_tensor(self):
@@ -217,15 +230,44 @@ def xyzToPolar(v):
 
 #print(xyzToPolar(torch.ones_like(sim.agent_exit_obs).squeeze().tolist()))
 
+timingFrames = 300
+timings = [0 for x in range(timingFrames)]
+timeIdx = 0
+hasLogged = False
+
+
 @app.route("/index.json", methods=['POST'])
 def receiveObservations():
-
-    # Update the observation tensors.
     data = request.get_json()
+
+    # Timing
+    # global timings
+    # global timeIdx
+    # global hasLogged
+    # global timingFrames
+
+    # start = time.time()
+    # end = time.time()
+    # if timeIdx < timingFrames:
+    #     obsTime = data["obsTime"] + 60 * 60 * 8
+    #     recTime = time.time()
+    #     timings[timeIdx] = { "timingDiff" : recTime - obsTime, "jsonTime" : end - start }
+    #     timeIdx += 1
+    # elif not hasLogged:
+    #     with open("timinglogLimit.txt", "a") as f:
+    #         f.write(str(timings))
+    #     print("wrote file")
+    #     hasLogged = True
+    # else:
+    #     print("done")
+    # Update the observation tensors.
+
     #for idx, ob in enumerate(data["lidar"]):
     #    print(idx, ob)
     #for key in data.keys():
     #    print(key, ":", data[key])
+
+    #print("Sent Time:", obsTime, "Rec Time:", recTime, "Difference:", recTime - obsTime)
 
     pos = data["playerPos"]
     # Update agent observations
@@ -239,18 +281,18 @@ def receiveObservations():
     # Theta
     sim.agent_txfm_obs[..., 9] = 0
 
-    # TODO: restore
-    #print("Agent Observations", sim.agent_txfm_obs)
-
     # Agent relative exit vector, polar.
     # Note we are correctly discarding agent rotation
     # which hopefully the network is robust to.
     for i in range(3):
         sim.agent_exit_obs[..., i] = data["goalPos"][i]
     sim.agent_exit_obs -= torch.tensor(data["playerPos"])
-    sim.agent_exit_obs = torch.tensor(xyzToPolar(sim.agent_exit_obs.squeeze().tolist()))
+    sim.agent_exit_obs[..., 2] = 0 #
+    #print("pre XYZ", sim.agent_exit_obs)
+    for i, x in enumerate(xyzToPolar(sim.agent_exit_obs.squeeze().tolist())):
+        sim.agent_exit_obs[..., i] = x
 
-    sim.entity_physics_state_obs = torch.zeros([1, 9, 12])
+    #sim.entity_physics_state_obs = torch.zeros([1, 9, 12])
 
     # Update physics state and entity type observations.
     # Lava is type 5
@@ -273,6 +315,9 @@ def receiveObservations():
                 sim.entity_physics_state_obs[0, idx, i] = 0
         # 5 is the entity type for lava.
         sim.entity_type_obs[0, idx, 0] = 5
+
+
+    #print(sim.obsString())
 
     # TODO: restore, no LIDAR
     # Translate lidar observations.
@@ -302,6 +347,10 @@ actionJson = {
 @app.route("/index.json", methods=['GET'])
 def sendAction():
     global cur_rnn_states
+
+    #print("Observations")
+    #for o in obs:
+    #    print(o)
     # TODO: Do inference on the current observations and send the resulting action
     with torch.no_grad():
         action_dists, values, cur_rnn_states = policy(cur_rnn_states, *obs)
@@ -356,7 +405,6 @@ def sendAction():
 #     #sendDict = controlDict.copy()
 #     #sendDict["shouldStep"] = shouldStep
 #     return json.dumps(controlDict)
-
 
 app.run()
 # TODO: restore after testing server connection.
