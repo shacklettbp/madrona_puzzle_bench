@@ -10,9 +10,9 @@ from flask import request
 import json
 
 # Keep flasking from printing messages on very http request
-import logging
-log = logging.getLogger('werkzeug')
-log.setLevel(logging.ERROR)
+#import logging
+#log = logging.getLogger('werkzeug')
+#log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
@@ -235,11 +235,75 @@ timings = [0 for x in range(timingFrames)]
 timeIdx = 0
 hasLogged = False
 
+# We ignore rotation for the moment.
+# The agent shouldn't need it for this challenge.
+actionJson = {
+    "moveAmount" : 0,
+    "moveAngle" : 0,
+    "jump" : 0,
+    "obsTime" : 0
+}
+
+
+#@app.route("/index.json", methods=['GET'])
+def sendAction():
+    global cur_rnn_states
+
+    # TODO: restore
+    print("Observations")
+    for o in obs:
+        print(o)
+
+    with torch.no_grad():
+        action_dists, values, cur_rnn_states = policy(cur_rnn_states, *obs)
+        #action_dists.best(actions)
+        # Make placeholders for actions_out and log_probs_out
+        log_probs_out = torch.zeros_like(actions).float()
+        action_dists.sample(actions, log_probs_out)
+    # Translate actions here
+    # struct Action {
+    # int32_t moveAmount; // [0, 3]
+    # int32_t moveAngle; // [0, 7]
+    # int32_t rotate; // [-2, 2]
+    # int32_t interact; // 0 = do nothing, 1 = grab / release, 2 = jump
+
+    # moveAngles = [i for i in range(8)]
+
+    # def rem(*args):
+    #     for x in args:
+    #         if x in moveAngles:
+    #             moveAngles.remove(x)
+
+    # if not keyboard.is_pressed("w"):
+    #     rem(0, 1, 7)
+    # if not keyboard.is_pressed("a"):
+    #     rem(5, 6, 7)
+    # if not keyboard.is_pressed("s"):
+    #     rem(3, 4, 5)
+    # if not keyboard.is_pressed("d"):
+    #     rem(1, 2, 3)
+    #print(actions)
+
+    #print(actionJson)
+
+    actionJson["moveAmount"] = int(actions[..., 0])
+    #0 if len(moveAngles) == 0 else 3
+    actionJson["moveAngle"] = int(actions[..., 1])
+    #0 if len(moveAngles) == 0 else moveAngles[0]
+    actionJson["jump"] = int(actions[..., 3])
+    #1 if keyboard.is_pressed("space") else 0
+
+    return json.dumps(actionJson)
+
 
 @app.route("/index.json", methods=['POST'])
 def receiveObservations():
     data = request.get_json()
 
+    print(data)
+    scale = 4
+    # Record the time.
+    actionJson["obsTime"] = data["obsTime"]
     # Timing
     # global timings
     # global timeIdx
@@ -274,19 +338,21 @@ def receiveObservations():
     # Agent position, not polar.
     for i in range(9):
         if i < 3:
-            sim.agent_txfm_obs[..., i] = pos[i]
+            sim.agent_txfm_obs[..., i] = pos[i] / scale
         elif i < 9:
-            sim.agent_txfm_obs[..., i] = data["roomAABB"][(i - 3) // 3][i % 3]
+            sim.agent_txfm_obs[..., i] = data["roomAABB"][(i - 3) // 3][i % 3] / scale
     sim.agent_txfm_obs[..., :3] -= (sim.agent_txfm_obs[..., 3:6] + sim.agent_txfm_obs[..., 6:9]) * 0.5
     # Theta
     sim.agent_txfm_obs[..., 9] = 0
+
+    #print(sim.agent_txfm_obs)
 
     # Agent relative exit vector, polar.
     # Note we are correctly discarding agent rotation
     # which hopefully the network is robust to.
     for i in range(3):
-        sim.agent_exit_obs[..., i] = data["goalPos"][i]
-    sim.agent_exit_obs -= torch.tensor(data["playerPos"])
+        sim.agent_exit_obs[..., i] = data["goalPos"][i] / scale
+    sim.agent_exit_obs -= torch.tensor(data["playerPos"]) / scale
     sim.agent_exit_obs[..., 2] = 0 #
     #print("pre XYZ", sim.agent_exit_obs)
     for i, x in enumerate(xyzToPolar(sim.agent_exit_obs.squeeze().tolist())):
@@ -296,20 +362,20 @@ def receiveObservations():
 
     # Update physics state and entity type observations.
     # Lava is type 5
-    #print("NumLava:", len(data["lava"]))
+    print("NumLava:", len(data["lava"]))
     for idx, lava in enumerate(data["lava"]):
         positionPolar = xyzToPolar([x - y for x, y in zip(lava[:3], pos)])
         # Physics state update
         for i in range(12):
             if i < 3:
                 # Position
-                sim.entity_physics_state_obs[0, idx, i] = positionPolar[i]
+                sim.entity_physics_state_obs[0, idx, i] = positionPolar[i] / scale
             elif i < 6:
                 # Velocity
                 sim.entity_physics_state_obs[0, idx, i] = 0 # velocity.
             elif i < 9:
                 # Extents
-                sim.entity_physics_state_obs[0, idx, i] = lava[i - 3]
+                sim.entity_physics_state_obs[0, idx, i] = lava[i - 3] / scale
             else:
                 # Rotation
                 sim.entity_physics_state_obs[0, idx, i] = 0
@@ -333,63 +399,7 @@ def receiveObservations():
     #     goalPos = {goalPosZUp.X, goalPosZUp.Y, goalPosZUp.Z},
     #     lava = lavaObservations()
 	# }
-    return "Received"
-
-
-# We ignore rotation for the moment.
-# The agent shouldn't need it for this challenge.
-actionJson = {
-    "moveAmount" : 0,
-    "moveAngle" : 0,
-    "jump" : 0
-}
-
-@app.route("/index.json", methods=['GET'])
-def sendAction():
-    global cur_rnn_states
-
-    #print("Observations")
-    #for o in obs:
-    #    print(o)
-    # TODO: Do inference on the current observations and send the resulting action
-    with torch.no_grad():
-        action_dists, values, cur_rnn_states = policy(cur_rnn_states, *obs)
-        #action_dists.best(actions)
-        # Make placeholders for actions_out and log_probs_out
-        log_probs_out = torch.zeros_like(actions).float()
-        action_dists.sample(actions, log_probs_out)
-    # Translate actions here
-    # struct Action {
-    # int32_t moveAmount; // [0, 3]
-    # int32_t moveAngle; // [0, 7]
-    # int32_t rotate; // [-2, 2]
-    # int32_t interact; // 0 = do nothing, 1 = grab / release, 2 = jump
-
-    # moveAngles = [i for i in range(8)]
-
-    # def rem(*args):
-    #     for x in args:
-    #         if x in moveAngles:
-    #             moveAngles.remove(x)
-
-    # if not keyboard.is_pressed("w"):
-    #     rem(0, 1, 7)
-    # if not keyboard.is_pressed("a"):
-    #     rem(5, 6, 7)
-    # if not keyboard.is_pressed("s"):
-    #     rem(3, 4, 5)
-    # if not keyboard.is_pressed("d"):
-    #     rem(1, 2, 3)
-    #print(actions)
-
-    actionJson["moveAmount"] = int(actions[..., 0])
-    #0 if len(moveAngles) == 0 else 3
-    actionJson["moveAngle"] = int(actions[..., 1])
-    #0 if len(moveAngles) == 0 else moveAngles[0]
-    actionJson["jump"] = int(actions[..., 3])
-    #1 if keyboard.is_pressed("space") else 0
-
-    return json.dumps(actionJson)
+    return sendAction()
 
 
 # TODO: debuggin.
