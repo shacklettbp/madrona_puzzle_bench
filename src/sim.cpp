@@ -814,14 +814,19 @@ inline void lavaSystem(Engine &ctx, Position lava_pos, EntityExtents lava_extent
 {
     Vector3 agent_pos = ctx.get<Position>(ctx.data().agent);
 
-    AABB lava_aabb = {
-        .pMin = lava_pos - lava_extents,
-        .pMax = lava_pos + lava_extents,
-    };
     //AABB lava_aabb = {
-    //    .pMin = lava_pos - lava_extents - 1.1f,
-    //    .pMax = lava_pos + lava_extents + 1.1f,
+    //    .pMin = lava_pos - lava_extents,
+    //    .pMax = lava_pos + lava_extents,
     //};
+
+    // TODO: restore
+    const float lavaExpansion = 0.0f;
+
+    // Expand lava hit zone.
+    AABB lava_aabb = {
+        .pMin = lava_pos - lava_extents - lavaExpansion,
+        .pMax = lava_pos + lava_extents + lavaExpansion,
+    };
 
     if (!lava_aabb.contains(agent_pos)) {
         return;
@@ -918,8 +923,8 @@ inline void collectObservationsSystem(
         //.toGoalPolar = xyzToPolar(to_view.rotateVec(to_goal)),
     };
 
-    steps_remaining_obs.t = 0;
-        //ctx.data().episodeLen - ctx.singleton<EpisodeState>().curStep;
+    steps_remaining_obs.t = 
+        ctx.data().episodeLen - ctx.singleton<EpisodeState>().curStep;
 
     CountT cur_obs_idx = 0;
     PhysicsSystem::findEntitiesWithinAABB(ctx, room_aabb, [&]
@@ -1027,6 +1032,7 @@ inline void lidarSystem(Engine &ctx,
                         LidarDepth &lidar_depth,
                         LidarHitType &lidar_hit_type)
 {
+
     Vector3 pos = ctx.get<Position>(e);
     Quat rot = ctx.get<Rotation>(e);
     auto &bvh = ctx.singleton<broadphase::BVH>();
@@ -1048,7 +1054,8 @@ inline void lidarSystem(Engine &ctx,
             bvh.traceRay(pos + 0.5f * math::up, ray_dir, &hit_t,
                          &hit_normal, 200.f);
 
-        if (hit_entity == Entity::none()) {
+        // TODO: restore
+        if (hit_entity == Entity::none() || true) {
             lidar_depth.samples[idx] = 0.f;
             lidar_hit_type.samples[idx] = EntityType::None;
         } else {
@@ -1104,7 +1111,7 @@ inline void dense1RewardSystem(Engine &ctx,
     }
 
     if (episode_state.reachedExit) {
-        reward += 1.f;
+        reward += 10.f; // TODO: restore, 1.0f
 
         // TODO: restore
         //if (episode_state.curLevel == ctx.data().levelsPerEpisode) {

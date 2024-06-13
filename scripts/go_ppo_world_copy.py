@@ -561,8 +561,8 @@ class GoExplore:
             # Now access lidar depth forward
             lidar_depth = states[7].view(-1, self.num_worlds, 30)
             lidar_hit_type = states[8].view(-1, self.num_worlds, 30)
-            print("Lidar depth", lidar_depth.shape)
-            print("Agent bin", agent_bin.shape)
+            #print("Lidar depth", lidar_depth.shape)
+            #print("Agent bin", agent_bin.shape)
             agent_bin = agent_bin.view(-1, self.num_worlds, 1).type(torch.cuda.LongTensor).to(lidar_depth.device)
             # Make sure agent_bin is in range
             agent_bin = torch.clamp(agent_bin, 0, 29)
@@ -578,11 +578,12 @@ class GoExplore:
             # 3: In lava, forward room, no forward wall
             # 4: In lava, sideways room, no forward wall
             # 5: In lava, forward room, forward wall
-            print("Before lava", before_lava.shape)
-            print("After lava", after_lava.shape)
-            print("Forward depth", forward_depth.shape)
-            print("Forward wall", forward_wall.shape)
-            print("Sideways depth", sideways_depth.shape)
+            # TODO: Restore
+            #print("Before lava", before_lava.shape)
+            #print("After lava", after_lava.shape)
+            #print("Forward depth", forward_depth.shape)
+            #print("Forward wall", forward_wall.shape)
+            #print("Sideways depth", sideways_depth.shape)
             stage_obs = 1*before_lava + 2*after_lava + 3*(before_lava == 0)*(after_lava == 0)*(forward_depth > 3.0)*(forward_wall == 0) + 4*(before_lava == 0)*(after_lava == 0)*(forward_depth > 3.0)*(forward_wall == 1) + 5*(before_lava == 0)*(after_lava == 0)*(sideways_depth > 3.0)*(forward_depth <= 3.0)
             # How do we define success? 
             # If there's forward room, we want to make forward progress without death

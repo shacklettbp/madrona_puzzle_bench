@@ -359,6 +359,9 @@ static Entity makeWall(Engine &ctx, Vector3 center, Diag3x3 scale)
         ResponseType::Static,
         scale);
     registerRigidBodyEntity(ctx, wall, SimObject::Wall);
+    printf("Wall pos: %f, %f, %f scale: %f, %f, %fs\n", 
+    center.x * 4, center.y * 4, center.z * 4,
+    scale.d0 * 4, scale.d1 * 4, scale.d2 * 4);
 
     return wall;
 }
@@ -399,7 +402,8 @@ static void makeRoomWalls(Engine &ctx,
                           AABB room_aabb,
                           Span<const WallConfig> wall_cfgs,
                           Entity *door_entities,
-                          Vector3 *entrance_positions)
+                          Vector3 *entrance_positions,
+                          float entrance_width)
 {
     auto makeSolidWall = [
         &ctx
@@ -425,8 +429,6 @@ static void makeRoomWalls(Engine &ctx,
         makeWall(ctx, center, scale);
     };
 
-    const float entrance_width = 12.0f;
-    //ctx.data().doorWidth;
     auto makeEntranceWall = [
         &ctx, entrance_width
     ](Vector3 p0, Vector3 p1, float entrance_t,
@@ -587,6 +589,7 @@ static Entity makeExitEntity(Engine &ctx, Vector3 exit_pos) {
     ctx.get<Rotation>(e) = Quat { 1, 0, 0, 0 };
     ctx.get<Scale>(e) = Diag3x3 { 1, 1, 1 };
     ctx.get<ObjectID>(e) = ObjectID { (int32_t)SimObject::Exit };
+    printf("exit pos: %f, %f, %f\n", exit_pos.x,exit_pos.y,exit_pos.z);
     return e;
 }
 
@@ -664,6 +667,10 @@ static Entity makeLava(Engine &ctx, Vector3 position,
         scale.d1,
         scale.d2
     };
+
+    printf("Lava pos: %f, %f, %f scale: %f, %f, %f\n", 
+    position.x, position.y, position.z,
+    scale.d0, scale.d1, scale.d2);
 
     return lava;
 }
@@ -744,7 +751,7 @@ static void setupTrainingRoomLevel(Engine &ctx,
             { WallType::Solid },
             { WallType::Solid },
             { WallType::Solid },
-        }, nullptr, nullptr);
+        }, nullptr, nullptr, ctx.data().doorWidth);
 
 
     // Shrink returned AABB to account for walls
@@ -824,29 +831,31 @@ static void setupSingleRoomLevel(Engine &ctx,
                                  AABB *room_aabb_out,
                                  Vector3* entrance_positions,
                                  bool hop_wall = false,
-                                 bool exit_door_is_persistent = false)
+                                 bool exit_door_is_persistent = false, 
+                                 bool corridor = false)
 {
-    // TODO: restore
-    const float spawn_size = level_size / 1.6f;
-    //1.5f * ctx.data().doorWidth;
+    float spawn_size = 1.5f * ctx.data().doorWidth;
+
+    if (corridor) {
+        spawn_size = level_size / 1.6f;
+    }
+
     const float half_wall_width = consts::wallWidth / 2.f;
 
     makeFloor(ctx);
 
-    // TODO: restore
-    //AABB room_aabb = {
-    //    .pMin = Vector3 { -level_size / 3.2f, 0.f, 0.f },
-    //    .pMax = Vector3 { level_size / 3.2f, level_size, 2.f },
-    //};
-
     AABB room_aabb = {
-        .pMin = Vector3 { -level_size / 2.f, 0.f, 0.f },
-        .pMax = Vector3 { level_size / 2.f, level_size, 2.f },
+        .pMin = Vector3{-level_size / 2.f, 0.f, 0.f},
+        .pMax = Vector3{level_size / 2.f, level_size, 2.f},
     };
 
-    // TODO: restore
-    float exit_t = 0.5f; //ctx.data().rng.sampleUniform();
-    float spawn_t = 0.5f; //ctx.data().rng.sampleUniform();
+    float exit_t = ctx.data().rng.sampleUniform();
+    float spawn_t = ctx.data().rng.sampleUniform();
+
+    if (corridor) {
+        exit_t = 0.5f;
+        spawn_t = 0.5f;
+    }
 
     Entity doors[4];
     Vector3 local_entrance_positions[4];
@@ -887,7 +896,7 @@ static void setupSingleRoomLevel(Engine &ctx,
             { WallType::Solid },
             { WallType::Entrance, spawn_t },
             { WallType::Solid },
-        }, doors, local_entrance_positions);
+        }, doors, local_entrance_positions, corridor ? 12.0f : ctx.data().doorWidth);
 
 
     if (entrance_positions != nullptr) {
@@ -1008,7 +1017,7 @@ int lavaWriteIdx)
 }
 
 
-static void lavaLevel(Engine &ctx, bool shouldMakeButton = false) {
+static void lavaLevel(Engine &ctx, bool shouldMakeButton, bool checkerboard) {
     const float level_size = 20.f;
 
     Entity exit_door;
@@ -1016,14 +1025,17 @@ static void lavaLevel(Engine &ctx, bool shouldMakeButton = false) {
     Vector3 entrance_positions[4];
     setupSingleRoomLevel(ctx, 
     level_size, 
-    nullptr, 
-    //&exit_door, 
+    checkerboard ? nullptr : &exit_door, 
     &room_aabb, 
     entrance_positions,
     false, // hop wall
-    true); // exit door is persistent.
+    true, // exit door is persistent.
+    checkerboard); // Corridor setup (no door, fixed exit, lava corridor)
 
-    const Vector3 level_scale = room_aabb.pMax - room_aabb.pMin;
+    Vector3 level_scale = Vector3(level_size, level_size, 0.0f);
+    if (checkerboard) {
+        level_scale = room_aabb.pMax - room_aabb.pMin;
+    }
 
     //printf("roomMin %f, %f, %f", room_aabb.pMin.x, room_aabb.pMin.y, room_aabb.pMin.z);
     //printf("roomMax %f, %f, %f", room_aabb.pMax.x, room_aabb.pMax.y, room_aabb.pMax.z);
@@ -1031,8 +1043,9 @@ static void lavaLevel(Engine &ctx, bool shouldMakeButton = false) {
     Vector3 exit_pos = entrance_positions[0];
     Vector3 spawn_pos = entrance_positions[2];
 
-    const int gridsizeX = 5;
-    const int gridsizeY = 5;
+    // TODO: solve variable gridsize.
+    const int gridsizeX = 5; // 8 for path
+    const int gridsizeY = 5; // 8 for path
     int grid[gridsizeX][gridsizeY];
 
     const int EMPTY = -1;
@@ -1048,20 +1061,32 @@ static void lavaLevel(Engine &ctx, bool shouldMakeButton = false) {
 
     // Visualize the grid.
     // TODO: restore
-    auto debugPrintGrid = [&](){
-       for (int i = gridsizeX - 1; i >= 0; --i) {
-           for (int j = gridsizeY - 1; j >= 0; --j) {
-               printf(" ");
-               if (grid[i][j] >= 0) {
-                   printf("+");
-               }
-               printf("%d", grid[i][j]);
-           }
-           printf("\n");
-       }
+    auto debugPrintGrid = [&]()
+    {
+        for (int j = gridsizeY - 1; j >= 0; --j)
+        {
+            printf("=");
+        }
+        printf("\n");
+        for (int i = gridsizeX - 1; i >= 0; --i)
+        {
+            for (int j = gridsizeY - 1; j >= 0; --j)
+            {
+                printf(" ");
+                if (grid[i][j] >= 0)
+                {
+                    printf("+");
+                }
+                printf("%d", grid[i][j]);
+            }
+            printf("\n");
+        }
+        for (int j = gridsizeY - 1; j >= 0; --j)
+        {
+            printf("=");
+        }
+        printf("\n");
     };
-
-    Vector3 gridsizeVector = Vector3(gridsizeX, gridsizeY, 1.0f);
 
     Vector3 exit_coord = (exit_pos - room_aabb.pMin);
     exit_coord.x *= gridsizeX / level_scale.x;
@@ -1070,6 +1095,9 @@ static void lavaLevel(Engine &ctx, bool shouldMakeButton = false) {
     entrance_coord.x *= gridsizeX / level_scale.x;
     entrance_coord.y *= gridsizeY / level_scale.y;
 
+    // TODO: Restore
+    //printf("exit: %f, %f, %f\n", exit_coord.x, exit_coord.y, exit_coord.z);
+    //printf("spawn: %f, %f, %f\n", entrance_coord.x, entrance_coord.y, entrance_coord.z);
 
     // Simple 2-int storage class.
     struct Vector2Int32 {
@@ -1099,16 +1127,27 @@ static void lavaLevel(Engine &ctx, bool shouldMakeButton = false) {
     Vector2Int32 exitCoord = {int(exit_coord.x), int(exit_coord.y)};
     Vector2Int32 entranceCoord = {int(entrance_coord.x), int(entrance_coord.y)};
 
-    // TODO: Restore, don't need to set entrance and exit coord.
-    //grid[exitCoord.x][exitCoord.y] = 2;
-    //grid[entranceCoord.x][entranceCoord.y] = 2;
-
-
+    if (!checkerboard) {
+        grid[exitCoord.x][exitCoord.y] = 2;
+        grid[entranceCoord.x][entranceCoord.y] = 2;
+    }
+    
     auto writeCheckerboard = [&]()
     {
         for (int i = gridsizeX - 2; i >= 1; --i) {
            for (int j = gridsizeY - 1; j >= 0; --j) {
                if ((i + j) % 2 != 0) {
+                    grid[i][j] = PATH;
+               }
+           }
+       }
+    };
+
+    auto writeColumn = [&]()
+    {
+        for (int i = gridsizeX - 1; i >= 0; --i) {
+           for (int j = gridsizeY - 1; j >= 0; --j) {
+               if (j != 2 && i != 0 && i != gridsizeX - 1) {
                     grid[i][j] = PATH;
                }
            }
@@ -1189,10 +1228,12 @@ static void lavaLevel(Engine &ctx, bool shouldMakeButton = false) {
     };
 
     Vector2Int32 branchCoord = Vector2Int32{-1, -1};
-    // TODO: Restore
-    //writeShortestPath(entranceCoord, exitCoord, branchStep, branchCoord);
-
-    writeCheckerboard();
+    if (checkerboard) {
+        writeColumn();
+        //writeCheckerboard();
+    } else {
+        writeShortestPath(entranceCoord, exitCoord, branchStep, branchCoord);
+    }
 
     if (shouldMakeButton) {
         // Add a button with a path to that button from a random
@@ -1233,6 +1274,7 @@ static void lavaLevel(Engine &ctx, bool shouldMakeButton = false) {
     // Up to 20 lava blocks.
     AABB lavaBounds[consts::maxObjectsPerLevel];
     int lavaWriteIdx = 0;
+
 
     auto processLavaBlock = [&](AABB currentLava) {
         // Attempt to expand in each direction.
@@ -1289,27 +1331,24 @@ static void lavaLevel(Engine &ctx, bool shouldMakeButton = false) {
         }
     }
 
-    //debugPrintGrid();
-
     // Create the lava blocks from the grid.
     makeLavaFromGrid(ctx, lavaBounds, gridsizeX, gridsizeY, room_aabb, level_scale, lavaWriteIdx);
-
 }
 
 static void lavaButtonLevel(Engine &ctx)
 {
     // Make a lava level including a button.
-    lavaLevel(ctx, true);
+    lavaLevel(ctx, true, false);
 }
 
 static void lavaCorridorLevel(Engine & ctx) 
 {
-    lavaLevel(ctx, false);
+    lavaLevel(ctx, false, true);
 }
 
 static void lavaPathLevel(Engine &ctx)
 {
-    lavaLevel(ctx, false);
+    lavaLevel(ctx, false, false);
 }
 
 static void singleButtonLevel(Engine &ctx)
