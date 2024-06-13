@@ -31,6 +31,10 @@ arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument('--gpu-id', type=int, default=0)
 arg_parser.add_argument('--ckpt-path', type=str, required=True)
 arg_parser.add_argument('--record-log', type=str)
+arg_parser.add_argument('--replay-trajectories', type=str, help="JSON file of trajectories to replay.")
+arg_parser.add_argument('--key-control', action='store_true', help="If true, control actions with the keyboard.")
+
+
 
 arg_parser.add_argument('--use-fixed-world', action='store_true')
 
@@ -73,6 +77,8 @@ class RobloxSimManager:
         self.entity_type_obs = torch.zeros([1, 9, 1])
         self.lidar_depth = torch.zeros([1, 30, 1])
         self.lidar_type = torch.zeros([1, 30, 1]) 
+        self.steps_remaining = torch.zeros([1, 1])
+        self.steps_remaining[...] = 200 # initialize steps remaining.
 
         # Action to pass to Roblox.
         self.action = torch.zeros([1, 4])
@@ -127,8 +133,7 @@ class RobloxSimManager:
         return ToTorchWrapper(self.lidar_type)
     
     def steps_remaining_tensor(self): # Int but dont' need to convert
-        #Always 0, shouldn't affect the inference.
-        return ToTorchWrapper(torch.zeros([1, 1]))
+        return ToTorchWrapper(self.steps_remaining)
     
     # Action tensors
     def action_tensor(self):
@@ -204,6 +209,35 @@ else:
     record_log = None
 
 
+if args.replay_trajectories:
+    with open(args.replay_trajectories, "r") as f:
+        trajectories = json.loads(f.read())
+    trajectory_start_indices = []
+    #Convert trajectories to tensor form
+    for idx, t in enumerate(trajectories):
+        t["observations"] = [torch.tensor(o) for o in t["observations"]]
+        t["action"] = torch.tensor(t["action"])
+        t["action_probs"] = [torch.tensor(p) for p in t["action_probs"]]
+        if t["observations"][-3][...] == 200:
+            trajectory_start_indices.append(idx)
+        current_trajectory = -1
+        current_trajectory_step = 0
+    print(len(trajectories))
+    print(trajectory_start_indices)
+    print(trajectories[0]["observations"])
+else:
+    trajectories = None
+    trajectory_start_indices = None
+    current_trajectory = None
+    current_trajectory_step = None
+
+#Analyze the first trajectory
+for i in range(trajectory_start_indices[1]):
+    print(trajectories[i]["action"])
+
+print([i1 - i0 for i0,i1 in zip(trajectory_start_indices[:-1], trajectory_start_indices[1:])])
+
+
 controlDict = {
     "w" : "up",
     "a" : "up",
@@ -228,80 +262,114 @@ def xyzToPolar(v):
     return[r, theta, phi]
 
 
-#print(xyzToPolar(torch.ones_like(sim.agent_exit_obs).squeeze().tolist()))
-
-timingFrames = 300
-timings = [0 for x in range(timingFrames)]
-timeIdx = 0
-hasLogged = False
-
 # We ignore rotation for the moment.
 # The agent shouldn't need it for this challenge.
 actionJson = {
     "moveAmount" : 0,
     "moveAngle" : 0,
     "jump" : 0,
-    "obsTime" : 0
+    "obsTime" : 0,
+    "kill" : False,
+    "startPos" : [0,0,0]
 }
 
+MADRONA_TO_ROBLOX_SCALE = 4
 
-#@app.route("/index.json", methods=['GET'])
+
+def processKeyboardInput():
+    moveAngles = [i for i in range(8)]
+
+    def rem(*args):
+        for x in args:
+            if x in moveAngles:
+                moveAngles.remove(x)
+
+    if not keyboard.is_pressed("w"):
+        rem(0, 1, 7)
+    if not keyboard.is_pressed("a"):
+        rem(5, 6, 7)
+    if not keyboard.is_pressed("s"):
+        rem(3, 4, 5)
+    if not keyboard.is_pressed("d"):
+        rem(1, 2, 3)
+
+    a = actionJson.copy()
+
+    a["moveAmount"] = 0 if len(moveAngles) == 0 else 3
+    a["moveAngle"] = 0 if len(moveAngles) == 0 else moveAngles[0]
+    a["jump"] = 1 if keyboard.is_pressed("space") else 0
+
+    return a
+
+
 def sendAction():
     global cur_rnn_states
+    global current_trajectory_step
+    global current_trajectory
 
     # TODO: restore
-    print("Observations")
-    for o in obs:
-        print(o)
+    #print("Observations")
+    #for o in obs:
+    #    print(o)
 
-    with torch.no_grad():
-        action_dists, values, cur_rnn_states = policy(cur_rnn_states, *obs)
-        #action_dists.best(actions)
-        # Make placeholders for actions_out and log_probs_out
-        log_probs_out = torch.zeros_like(actions).float()
-        action_dists.sample(actions, log_probs_out)
-    # Translate actions here
-    # struct Action {
-    # int32_t moveAmount; // [0, 3]
-    # int32_t moveAngle; // [0, 7]
-    # int32_t rotate; // [-2, 2]
-    # int32_t interact; // 0 = do nothing, 1 = grab / release, 2 = jump
+    a = actionJson.copy()
 
-    # moveAngles = [i for i in range(8)]
+    if trajectories:
+        # Track whether to adjust the start position of the agent.
+        if sim.steps_remaining[...] == 200:
+            # Start a new trajectory, looping if necessary.
+            current_trajectory  = (current_trajectory + 1) % len(trajectory_start_indices)
+            current_trajectory_step = 0
+            print("Starting Trajectory {}/{}:".format(current_trajectory,len(trajectory_start_indices)))
 
-    # def rem(*args):
-    #     for x in args:
-    #         if x in moveAngles:
-    #             moveAngles.remove(x)
+            # Translate new starting position back to world space (not AABB relative)
+            newStartPos = trajectories[current_trajectory]["observations"][0][..., :3] + \
+                (trajectories[current_trajectory]["observations"][0][..., 3:6] + trajectories[current_trajectory]["observations"][0][..., 6:9]) * 0.5
+            a["startPos"] = (newStartPos.squeeze() * MADRONA_TO_ROBLOX_SCALE).tolist()
+            print(a["startPos"])
 
-    # if not keyboard.is_pressed("w"):
-    #     rem(0, 1, 7)
-    # if not keyboard.is_pressed("a"):
-    #     rem(5, 6, 7)
-    # if not keyboard.is_pressed("s"):
-    #     rem(3, 4, 5)
-    # if not keyboard.is_pressed("d"):
-    #     rem(1, 2, 3)
-    #print(actions)
+        t_step_idx = trajectory_start_indices[current_trajectory] + current_trajectory_step
+        print(t_step_idx)
+        print(trajectory_start_indices[(current_trajectory + 1) % len(trajectory_start_indices)])
+        # Account for differing action rates between madrona and roblox.
+        current_trajectory_step += 2
+        
+        if (t_step_idx % len(trajectories)) > trajectory_start_indices[(current_trajectory + 1) % len(trajectory_start_indices)]:
+            print("KILL")
+            # We reached the end of this trajectory, but the character is still alive.
+            # Send kill signal, which forces the character to respawn and will move us to the next trajectory.
+            a["kill"] = True
+        actions = trajectories[t_step_idx]["action"]
+    else:
+        pass
+        # TODO: restore
+        # Live inference with Madrona policy.
+        #with torch.no_grad():
+        #    action_dists, values, cur_rnn_states = policy(cur_rnn_states, *obs)
+        #    #action_dists.best(actions)
+        #    # Make placeholders for actions_out and log_probs_out
+        #    log_probs_out = torch.zeros_like(actions).float()
+        #    action_dists.sample(actions, log_probs_out)
 
-    #print(actionJson)
 
-    actionJson["moveAmount"] = int(actions[..., 0])
-    #0 if len(moveAngles) == 0 else 3
-    actionJson["moveAngle"] = int(actions[..., 1])
-    #0 if len(moveAngles) == 0 else moveAngles[0]
-    actionJson["jump"] = int(actions[..., 3])
-    #1 if keyboard.is_pressed("space") else 0
 
-    return json.dumps(actionJson)
+    if args.key_control:
+        a = processKeyboardInput()
+    else:
+        # Write policy actions (possibly from a trajectory)
+        a["moveAmount"] = int(actions[..., 0])
+        a["moveAngle"] = int(actions[..., 1])
+        a["jump"] = int(actions[..., 3])
+
+    sim.steps_remaining[...] -= 1
+
+    return json.dumps(a)
 
 
 @app.route("/index.json", methods=['POST'])
 def receiveObservations():
     data = request.get_json()
 
-    print(data)
-    scale = 4
     # Record the time.
     actionJson["obsTime"] = data["obsTime"]
     # Timing
@@ -338,9 +406,9 @@ def receiveObservations():
     # Agent position, not polar.
     for i in range(9):
         if i < 3:
-            sim.agent_txfm_obs[..., i] = pos[i] / scale
+            sim.agent_txfm_obs[..., i] = pos[i] / MADRONA_TO_ROBLOX_SCALE
         elif i < 9:
-            sim.agent_txfm_obs[..., i] = data["roomAABB"][(i - 3) // 3][i % 3] / scale
+            sim.agent_txfm_obs[..., i] = data["roomAABB"][(i - 3) // 3][i % 3] / MADRONA_TO_ROBLOX_SCALE
     sim.agent_txfm_obs[..., :3] -= (sim.agent_txfm_obs[..., 3:6] + sim.agent_txfm_obs[..., 6:9]) * 0.5
     # Theta
     sim.agent_txfm_obs[..., 9] = 0
@@ -351,8 +419,8 @@ def receiveObservations():
     # Note we are correctly discarding agent rotation
     # which hopefully the network is robust to.
     for i in range(3):
-        sim.agent_exit_obs[..., i] = data["goalPos"][i] / scale
-    sim.agent_exit_obs -= torch.tensor(data["playerPos"]) / scale
+        sim.agent_exit_obs[..., i] = data["goalPos"][i] / MADRONA_TO_ROBLOX_SCALE
+    sim.agent_exit_obs -= torch.tensor(data["playerPos"]) / MADRONA_TO_ROBLOX_SCALE
     sim.agent_exit_obs[..., 2] = 0 #
     #print("pre XYZ", sim.agent_exit_obs)
     for i, x in enumerate(xyzToPolar(sim.agent_exit_obs.squeeze().tolist())):
@@ -362,30 +430,36 @@ def receiveObservations():
 
     # Update physics state and entity type observations.
     # Lava is type 5
-    print("NumLava:", len(data["lava"]))
+    #print("NumLava:", len(data["lava"]))
     for idx, lava in enumerate(data["lava"]):
         positionPolar = xyzToPolar([x - y for x, y in zip(lava[:3], pos)])
         # Physics state update
         for i in range(12):
             if i < 3:
                 # Position
-                sim.entity_physics_state_obs[0, idx, i] = positionPolar[i] / scale
+                sim.entity_physics_state_obs[0, idx, i] = positionPolar[i] / MADRONA_TO_ROBLOX_SCALE
             elif i < 6:
                 # Velocity
                 sim.entity_physics_state_obs[0, idx, i] = 0 # velocity.
             elif i < 9:
                 # Extents
-                sim.entity_physics_state_obs[0, idx, i] = lava[i - 3] / scale
+                sim.entity_physics_state_obs[0, idx, i] = lava[i - 3] / MADRONA_TO_ROBLOX_SCALE
             else:
                 # Rotation
                 sim.entity_physics_state_obs[0, idx, i] = 0
         # 5 is the entity type for lava.
         sim.entity_type_obs[0, idx, 0] = 5
 
-
+    if not data["alive"]:
+        # Don't execute an action.
+        sim.steps_remaining[...] = 200
+        print("Dead")
+        return json.dumps(actionJson)
     #print(sim.obsString())
 
     # TODO: restore, no LIDAR
+
+
     # Translate lidar observations.
     #for idx, ob in enumerate(data["lidar"]):
     #    sim.lidar_depth[0, idx, 0] = float(ob[0])
