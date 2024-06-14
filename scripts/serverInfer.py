@@ -225,17 +225,20 @@ if args.replay_trajectories:
     print(len(trajectories))
     print(trajectory_start_indices)
     print(trajectories[0]["observations"])
+
+
+    #Analyze the first trajectory
+    for i in range(trajectory_start_indices[1]):
+        print(trajectories[i]["action"])
+
+    print([i1 - i0 for i0,i1 in zip(trajectory_start_indices[:-1], trajectory_start_indices[1:])])
 else:
     trajectories = None
     trajectory_start_indices = None
     current_trajectory = None
     current_trajectory_step = None
 
-#Analyze the first trajectory
-for i in range(trajectory_start_indices[1]):
-    print(trajectories[i]["action"])
 
-print([i1 - i0 for i0,i1 in zip(trajectory_start_indices[:-1], trajectory_start_indices[1:])])
 
 
 controlDict = {
@@ -270,7 +273,8 @@ actionJson = {
     "jump" : 0,
     "obsTime" : 0,
     "kill" : False,
-    "startPos" : [0,0,0]
+    "startPos" : [0,0,0],
+    "isTrajectory" : False
 }
 
 MADRONA_TO_ROBLOX_SCALE = 4
@@ -307,6 +311,7 @@ def sendAction():
     global current_trajectory_step
     global current_trajectory
 
+    global actions
     # TODO: restore
     #print("Observations")
     #for o in obs:
@@ -341,15 +346,13 @@ def sendAction():
             a["kill"] = True
         actions = trajectories[t_step_idx]["action"]
     else:
-        pass
-        # TODO: restore
         # Live inference with Madrona policy.
-        #with torch.no_grad():
-        #    action_dists, values, cur_rnn_states = policy(cur_rnn_states, *obs)
-        #    #action_dists.best(actions)
-        #    # Make placeholders for actions_out and log_probs_out
-        #    log_probs_out = torch.zeros_like(actions).float()
-        #    action_dists.sample(actions, log_probs_out)
+        with torch.no_grad():
+            action_dists, values, cur_rnn_states = policy(cur_rnn_states, *obs)
+            #action_dists.best(actions)
+            # Make placeholders for actions_out and log_probs_out
+            log_probs_out = torch.zeros_like(actions).float()
+            action_dists.sample(actions, log_probs_out)
 
 
 
@@ -366,7 +369,7 @@ def sendAction():
     return json.dumps(a)
 
 
-@app.route("/index.json", methods=['POST'])
+@app.route("/sendObservations", methods=['POST'])
 def receiveObservations():
     data = request.get_json()
 
