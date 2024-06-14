@@ -14,12 +14,15 @@ from pathlib import Path
 import warnings
 warnings.filterwarnings("error")
 
+import json
+
 torch.manual_seed(0)
 
 arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument('--gpu-id', type=int, default=0)
 arg_parser.add_argument('--ckpt-path', type=str, required=True)
 arg_parser.add_argument('--record-log', type=str)
+arg_parser.add_argument('--trajectory-log', type=str)
 
 arg_parser.add_argument('--use-fixed-world', action='store_true')
 
@@ -94,15 +97,31 @@ else:
     record_log = None
 
 
+if args.trajectory_log:
+    trajectory_log = open(args.trajectory_log, 'w')
+
+
 count = 0
 timings = 0
+
+trajectory_step = {
+    "observations" : {},
+    "action" : {},
+    "action_probs" : {}
+}
+
+trajectories = []
 
 for i in range(args.num_steps):
 
 
-    print("Observations")
-    for o in obs:
-        print(o)
+    #print("Observations")
+    #for o in obs:
+    #    print(o)
+
+    print(obs[-3]) # Steps remaining
+
+    trajectory_step["observations"] = [o.tolist() for o in obs]
 
     start = time.time()
     with torch.no_grad():
@@ -115,9 +134,14 @@ for i in range(args.num_steps):
         else:
             action_dists.best(actions)
 
+        trajectory_step["action"] = actions.tolist()
         probs = action_dists.probs()
+        trajectory_step["action_probs"] = [p.tolist() for p in probs]
     end = time.time()
 
+    if trajectory_log:
+        trajectories.append(trajectory_step.copy())
+    
     timings += end - start
     count += 1
     if record_log:
@@ -150,20 +174,21 @@ for i in range(args.num_steps):
     print("Values:\n", values.cpu().numpy())
     '''
 
-    sim.step()
+    
+    print("Sim Step Time:", end - start)
     print("Rewards:\n", rewards)
     print("Goals:\n", goals)
 
     # If the reward is positive, update the goal to the next Object ID
     # ONLY WORKS with sparse reward.
     # TODO: configure this to work with multiple worlds.
-    if goals[..., 1] == 1:
-        print("SWITCHING GOAL")
-        # We hit the goal, change the goal.
-        if goals[..., 0] == 6:
-            goals[..., 0] = 2
-        elif goals[..., 0] == 2:
-            goals[..., 0] = 0 # 0 encodes the nonetype which causes the goal marker to switch to the exit.
+    #if goals[..., 1] == 1:
+    #    print("SWITCHING GOAL")
+    #    # We hit the goal, change the goal.
+    #    if goals[..., 0] == 6:
+    #        goals[..., 0] = 2
+    #    elif goals[..., 0] == 2:
+    #        goals[..., 0] = 0 # 0 encodes the nonetype which causes the goal marker to switch to the exit.
 
 
 print("Average Time:", 1000 * timings / count, "ms")
@@ -171,3 +196,7 @@ print("Average Time:", 1000 * timings / count, "ms")
 
 if record_log:
     record_log.close()
+
+if trajectory_log:
+    trajectory_log.write(json.dumps(trajectories))
+    trajectory_log.close()

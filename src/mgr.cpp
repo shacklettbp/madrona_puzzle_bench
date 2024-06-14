@@ -594,8 +594,8 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
     });
 
     setupHull(SimObject::Wall, 0.f, {
-        .muS = 0.5f, // TODO: restore 0.5
-        .muD = 0.5f, // TODO: restore, walls have 0 friction
+        .muS = 0.0f, //0.5f, // TODO: restore 0.5
+        .muD = 0.0f, //0.5f, // TODO: restore, walls have 0 friction
     });
 
     setupHull(SimObject::Door, 0.f, {
@@ -617,8 +617,8 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
     });
 
     setupHull(SimObject::Agent, 1.f, {
-        .muS = 0.5f, // TODO: restore
-        .muD = 0.5f, // TODO: restore
+        .muS = 0.0f, //0.5f, // TODO: restore
+        .muD = 0.0f, //0.5f, // TODO: restore
     });
 
     setupHull(SimObject::Enemy, 1.f, {
