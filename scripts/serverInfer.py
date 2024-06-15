@@ -239,8 +239,6 @@ else:
     current_trajectory_step = None
 
 
-
-
 controlDict = {
     "w" : "up",
     "a" : "up",
@@ -312,10 +310,11 @@ def sendAction():
     global current_trajectory
 
     global actions
-    # TODO: restore
-    #print("Observations")
-    #for o in obs:
-    #    print(o)
+
+    # Debugging.
+    print("Observations")
+    for o in obs:
+        print(o)
 
     a = actionJson.copy()
 
@@ -460,9 +459,6 @@ def receiveObservations():
         return json.dumps(actionJson)
     #print(sim.obsString())
 
-    # TODO: restore, no LIDAR
-
-
     # Translate lidar observations.
     #for idx, ob in enumerate(data["lidar"]):
     #    sim.lidar_depth[0, idx, 0] = float(ob[0])
@@ -479,70 +475,39 @@ def receiveObservations():
     return sendAction()
 
 
-# TODO: debuggin.
-# @app.route("/index.json", methods=['GET'])
-# def sendKeypress():
-#     #return "{\"key\": \"d\"}"
-#     for k in controlDict.keys():
-#         controlDict[k] = "down" if keyboard.is_pressed(k) else "up"
-#     #shouldStep = "False"
-#     #for k in controlDict.keys():
-#     #    if controlDict[k] == "down":
-#     #        shouldStep = "True"
-#     #sendDict = controlDict.copy()
-#     #sendDict["shouldStep"] = shouldStep
-#     return json.dumps(controlDict)
+@app.route("/requestTrajectory", methods=['GET'])
+def sendTrajectory():
+    global current_trajectory
+    global trajectory_start_indices
+    global trajectories
+
+    current_trajectory  = (current_trajectory + 1) % len(trajectory_start_indices)
+    print("TRAJECTORY", current_trajectory)
+
+    # Get the current trajectory.
+    start = trajectory_start_indices[current_trajectory]
+    end = len(trajectories) if current_trajectory + 1 == len(trajectory_start_indices) else trajectory_start_indices[current_trajectory + 1]
+    #print("Start:", start, "End:", end)
+    trajectory = [trajectories[i] for i in range(start, end)]
+    #print(trajectory)
+
+    # Modify the trajectorys to include position and action
+    def getRobloxWSPositionFromTrajectoryStep(t):
+        pos = t["observations"][0][..., :3] + \
+                (t["observations"][0][..., 3:6] + t["observations"][0][..., 6:9]) * 0.5
+        return (pos.squeeze() * MADRONA_TO_ROBLOX_SCALE).tolist()
+    
+    # The trajectory in roblox only needs the WS position and action for all replay options
+    robloxTrajectory = [{"position" : getRobloxWSPositionFromTrajectoryStep(t), "action" : t["action"].squeeze().tolist()} for t in trajectory]
+    print("Roblox trajectory:", robloxTrajectory)
+
+    trajectoryJson = {
+        "trajectory" : robloxTrajectory,
+        "secondsPerTrajectoryStep" : 1 / 20, #From madrona sim, will vary
+        "isTrajectory" : True
+    }
+
+    return json.dumps(trajectoryJson)
+
 
 app.run()
-# TODO: restore after testing server connection.
-
-# for i in range(args.num_steps):
-#     with torch.no_grad():
-#         action_dists, values, cur_rnn_states = policy(cur_rnn_states, *obs)
-#         #action_dists.best(actions)
-#         # Make placeholders for actions_out and log_probs_out
-#         if True:
-#             log_probs_out = torch.zeros_like(actions).float()
-#             action_dists.sample(actions, log_probs_out)
-#         else:
-#             action_dists.best(actions)
-
-#         probs = action_dists.probs()
-
-#     if record_log:
-#         ckpts.cpu().numpy().tofile(record_log)
-
-#     '''
-#     print()
-#     print("Self:", obs[0])
-#     print("Partners:", obs[1])
-#     print("Room Entities:", obs[2])
-#     print("Lidar:", obs[3])
-
-#     print("Move Amount Probs")
-#     print(" ", np.array_str(probs[0][0].cpu().numpy(), precision=2, suppress_small=True))
-#     print(" ", np.array_str(probs[0][1].cpu().numpy(), precision=2, suppress_small=True))
-
-#     print("Move Angle Probs")
-#     print(" ", np.array_str(probs[1][0].cpu().numpy(), precision=2, suppress_small=True))
-#     print(" ", np.array_str(probs[1][1].cpu().numpy(), precision=2, suppress_small=True))
-
-#     print("Rotate Probs")
-#     print(" ", np.array_str(probs[2][0].cpu().numpy(), precision=2, suppress_small=True))
-#     print(" ", np.array_str(probs[2][1].cpu().numpy(), precision=2, suppress_small=True))
-
-#     print("Grab Probs")
-#     print(" ", np.array_str(probs[3][0].cpu().numpy(), precision=2, suppress_small=True))
-#     print(" ", np.array_str(probs[3][1].cpu().numpy(), precision=2, suppress_small=True))
-
-#     print("Actions:\n", actions.cpu().numpy())
-#     print("Values:\n", values.cpu().numpy())
-#     '''
-#     sim.step()
-#     print("Rewards:\n", rewards)
-#     print("Goals:\n", goals)
-
-
-
-if record_log:
-    record_log.close()
