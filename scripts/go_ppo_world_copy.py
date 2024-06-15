@@ -1344,10 +1344,11 @@ run = wandb.init(
     config=args
 )
 
+# TODO: restore, make steps per action robust.
 train(
     dev,
     SimInterface(
-            step = lambda: goExplore.worlds.step(),
+            step = lambda : [goExplore.worlds.step() for _ in range(5)],
             obs = goExplore.obs,
             actions = goExplore.actions,
             dones = goExplore.dones,

@@ -115,9 +115,9 @@ trajectories = []
 for i in range(args.num_steps):
 
 
-    #print("Observations")
-    #for o in obs:
-    #    print(o)
+    print("Observations")
+    for o in obs:
+        print(o)
 
     print(obs[-3]) # Steps remaining
 
@@ -174,7 +174,7 @@ for i in range(args.num_steps):
     print("Values:\n", values.cpu().numpy())
     '''
 
-    
+
     print("Sim Step Time:", end - start)
     print("Rewards:\n", rewards)
     print("Goals:\n", goals)

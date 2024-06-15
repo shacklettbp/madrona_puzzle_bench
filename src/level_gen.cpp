@@ -359,9 +359,9 @@ static Entity makeWall(Engine &ctx, Vector3 center, Diag3x3 scale)
         ResponseType::Static,
         scale);
     registerRigidBodyEntity(ctx, wall, SimObject::Wall);
-    printf("Wall pos: %f, %f, %f scale: %f, %f, %fs\n", 
-    center.x * 4, center.y * 4, center.z * 4,
-    scale.d0 * 4, scale.d1 * 4, scale.d2 * 4);
+    // printf("Wall pos: %f, %f, %f scale: %f, %f, %fs\n", 
+    // center.x * 4, center.y * 4, center.z * 4,
+    // scale.d0 * 4, scale.d1 * 4, scale.d2 * 4);
 
     return wall;
 }
@@ -668,9 +668,9 @@ static Entity makeLava(Engine &ctx, Vector3 position,
         scale.d2
     };
 
-    printf("Lava pos: %f, %f, %f scale: %f, %f, %f\n", 
-    position.x, position.y, position.z,
-    scale.d0, scale.d1, scale.d2);
+    // printf("Lava pos: %f, %f, %f scale: %f, %f, %f\n", 
+    // position.x, position.y, position.z,
+    // scale.d0, scale.d1, scale.d2);
 
     return lava;
 }
