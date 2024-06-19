@@ -229,7 +229,9 @@ if args.replay_trajectories:
 
     #Analyze the first trajectory
     for i in range(trajectory_start_indices[1]):
-        print(trajectories[i]["action"])
+        #print(trajectories[i])
+        print(trajectories[i]["observations"][0][..., 1], trajectories[i]["observations"][0][..., 2], \
+              trajectories[i]["observations"][0][..., 9], trajectories[i]["action"])
 
     print([i1 - i0 for i0,i1 in zip(trajectory_start_indices[:-1], trajectory_start_indices[1:])])
 else:
@@ -272,7 +274,7 @@ actionJson = {
     "obsTime" : 0,
     "kill" : False,
     "startPos" : [0,0,0],
-    "isTrajectory" : False
+    "msgType" : "Action"
 }
 
 MADRONA_TO_ROBLOX_SCALE = 4
@@ -303,13 +305,16 @@ def processKeyboardInput():
 
     return a
 
-
+trajectoryDelta = 0
+trajectoryStartTime = 0
+TRAJECTORY_TICK_RATE = 1 / 20 # from Madrona
 def sendAction():
     global cur_rnn_states
     global current_trajectory_step
     global current_trajectory
-
     global actions
+    global trajectoryDelta
+    global trajectoryStartTime
 
     # Debugging.
     print("Observations")
@@ -324,6 +329,7 @@ def sendAction():
             # Start a new trajectory, looping if necessary.
             current_trajectory  = (current_trajectory + 1) % len(trajectory_start_indices)
             current_trajectory_step = 0
+            trajectoryStartTime = 0
             print("Starting Trajectory {}/{}:".format(current_trajectory,len(trajectory_start_indices)))
 
             # Translate new starting position back to world space (not AABB relative)
@@ -332,11 +338,13 @@ def sendAction():
             a["startPos"] = (newStartPos.squeeze() * MADRONA_TO_ROBLOX_SCALE).tolist()
             print(a["startPos"])
 
-        t_step_idx = trajectory_start_indices[current_trajectory] + current_trajectory_step
+        t_step_idx = trajectory_start_indices[current_trajectory] + math.floor(trajectoryDelta / TRAJECTORY_TICK_RATE)
+        if trajectoryStartTime == 0:
+            trajectoryStartTime = time.time()
+        trajectoryDelta = time.time() - trajectoryStartTime
+        print("TrajectoryDelta:", trajectoryDelta)
         print(t_step_idx)
         print(trajectory_start_indices[(current_trajectory + 1) % len(trajectory_start_indices)])
-        # Account for differing action rates between madrona and roblox.
-        current_trajectory_step += 2
         
         if (t_step_idx % len(trajectories)) > trajectory_start_indices[(current_trajectory + 1) % len(trajectory_start_indices)]:
             print("KILL")
@@ -465,15 +473,23 @@ def receiveObservations():
     #    # Walls have type 9. In this sort of challenge, they are the only thing ever hit and they are always hit.
     #    sim.lidar_type[0, idx, 0] = 9
     
-    # Roblox observations.
-	# local obs = {
-	# 	roomAABB = AABB,
-	# 	playerPos = {posZUp.X, posZUp.Y, posZUp.Z},
-    #     goalPos = {goalPosZUp.X, goalPosZUp.Y, goalPosZUp.Z},
-    #     lava = lavaObservations()
-	# }
     return sendAction()
 
+serverConfigJson = {
+    "LEVEL" : "SimpleLevel",
+    "MODE" : "LIVE" if not trajectories else "PLAYBACK",
+    "msgType" : "Config"
+}
+
+@app.route("/setupServer", methods=['GET'])
+def setupServer():
+    return json.dumps(serverConfigJson)
+
+@app.route("/error", methods=['POST'])
+def error():
+    errorMsg= request.get_json()
+    print("ROBLOX ERROR:", errorMsg["error"])
+    return "Received"
 
 @app.route("/requestTrajectory", methods=['GET'])
 def sendTrajectory():
@@ -487,7 +503,7 @@ def sendTrajectory():
     # Get the current trajectory.
     start = trajectory_start_indices[current_trajectory]
     end = len(trajectories) if current_trajectory + 1 == len(trajectory_start_indices) else trajectory_start_indices[current_trajectory + 1]
-    #print("Start:", start, "End:", end)
+    print("Start:", start, "End:", end)
     trajectory = [trajectories[i] for i in range(start, end)]
     #print(trajectory)
 
@@ -503,8 +519,9 @@ def sendTrajectory():
 
     trajectoryJson = {
         "trajectory" : robloxTrajectory,
-        "secondsPerTrajectoryStep" : 1 / 20, #From madrona sim, will vary
-        "isTrajectory" : True
+        "secondsPerTrajectoryStep" : TRAJECTORY_TICK_RATE, #From madrona sim, will vary
+        "trajectoryMode" : "ACTION",
+        "msgType" : "Trajectory"
     }
 
     return json.dumps(trajectoryJson)
