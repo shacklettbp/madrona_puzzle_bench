@@ -317,9 +317,9 @@ def sendAction():
     global trajectoryStartTime
 
     # Debugging.
-    print("Observations")
-    for o in obs:
-        print(o)
+    #print("Observations")
+    #for o in obs:
+    #    print(o)
 
     a = actionJson.copy()
 
@@ -480,6 +480,25 @@ serverConfigJson = {
     "MODE" : "LIVE" if not trajectories else "PLAYBACK",
     "msgType" : "Config"
 }
+
+
+NUM_TRIALS = 2
+
+totalTrials = 0
+totalSuccesses = 0
+@app.route("/reportEpisode", methods=['POST'])
+def reportEpisode():
+    global totalTrials
+    global totalSuccesses
+
+    episode = request.get_json()
+    if episode["success"]:
+        totalSuccesses += 1
+    totalTrials += 1
+    if totalTrials == NUM_TRIALS:
+        print("Succeeded in {} / {} trials".format(totalSuccesses, totalTrials))
+        app.exit()
+    return "Reported"
 
 @app.route("/setupServer", methods=['GET'])
 def setupServer():
