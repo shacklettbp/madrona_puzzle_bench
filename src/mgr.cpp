@@ -413,7 +413,7 @@ static void loadRenderObjects(render::RenderManager &render_mgr)
     render_asset_paths[(size_t)SimObject::Block] =
         (std::filesystem::path(DATA_DIR) / "unit_cube_render.obj").string();
     render_asset_paths[(size_t)SimObject::Wall] =
-        (std::filesystem::path(DATA_DIR) / "wall_render.obj").string();
+        (std::filesystem::path(DATA_DIR) / "unit_cube_render.obj").string();
     render_asset_paths[(size_t)SimObject::Door] =
         (std::filesystem::path(DATA_DIR) / "wall_render.obj").string();
     render_asset_paths[(size_t)SimObject::PurpleDoor] =
@@ -522,7 +522,7 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
     asset_paths[(size_t)SimObject::Block] =
         (std::filesystem::path(DATA_DIR) / "unit_cube_collision.obj").string();
     asset_paths[(size_t)SimObject::Wall] =
-        (std::filesystem::path(DATA_DIR) / "wall_collision.obj").string();
+        (std::filesystem::path(DATA_DIR) / "unit_cube_collision.obj").string();
     asset_paths[(size_t)SimObject::Door] =
         (std::filesystem::path(DATA_DIR) / "wall_collision.obj").string();
     asset_paths[(size_t)SimObject::PurpleDoor] =

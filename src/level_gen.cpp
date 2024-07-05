@@ -351,6 +351,7 @@ static Entity makeDoor(Engine &ctx,
 static Entity makeWall(Engine &ctx, Vector3 center, Diag3x3 scale)
 {
     Entity wall = ctx.makeRenderableEntity<PhysicsEntity>();
+    //scale.d2 *= 5.f; // Scale factor from old model.
     setupRigidBodyEntity(
         ctx,
         wall,
@@ -424,7 +425,7 @@ static void makeRoomWalls(Engine &ctx,
         } else {
             assert(false);
         }
-        scale.d2 = 3.f;
+        scale.d2 = 15.f;
 
         Vector3 center = (p0 + p1) / 2.f;
 
@@ -475,7 +476,7 @@ static void makeRoomWalls(Engine &ctx,
         Vector3 before_dims = consts::wallWidth * width_axis + 
             Diag3x3::fromVec(len_axis) * 
                 (before_entrance - p0 + consts::wallWidth / 2.f) +
-            3.f * math::up;
+            15.f * math::up;
 
         before_center -= len_axis * consts::wallWidth / 4.f;
 
@@ -485,7 +486,7 @@ static void makeRoomWalls(Engine &ctx,
         Vector3 after_dims = consts::wallWidth * width_axis + 
             Diag3x3::fromVec(len_axis) *
                 (p1 - after_entrance + consts::wallWidth / 2.f) +
-            3.f * math::up;
+            15.f * math::up;
 
         after_center += len_axis * consts::wallWidth / 4.f;
 
@@ -557,7 +558,7 @@ static void makeSpawn(Engine &ctx, float spawn_size, Vector3 spawn_pos)
         {
             spawn_size + consts::wallWidth,
             consts::wallWidth,
-            2.f,
+            10.f,
         });
 
     makeWall(ctx,
@@ -569,7 +570,7 @@ static void makeSpawn(Engine &ctx, float spawn_size, Vector3 spawn_pos)
         {
             consts::wallWidth,
             spawn_size,
-            2.f,
+            10.f,
         });
 
     makeWall(ctx,
@@ -581,7 +582,7 @@ static void makeSpawn(Engine &ctx, float spawn_size, Vector3 spawn_pos)
         {
             consts::wallWidth,
             spawn_size,
-            2.f,
+            10.f,
         });
 }
 
@@ -619,7 +620,7 @@ static Entity makeExit(Engine &ctx, float room_size, Vector3 exit_pos)
         {
             room_size + consts::wallWidth,
             consts::wallWidth,
-            2.f,
+            10.f,
         });
 
     makeWall(ctx,
@@ -631,7 +632,7 @@ static Entity makeExit(Engine &ctx, float room_size, Vector3 exit_pos)
         {
             consts::wallWidth,
             room_size,
-            2.f,
+            10.f,
         });
 
     makeWall(ctx,
@@ -643,7 +644,7 @@ static Entity makeExit(Engine &ctx, float room_size, Vector3 exit_pos)
         {
             consts::wallWidth,
             room_size,
-            2.f,
+            10.f,
         });
 
     return e;
@@ -741,7 +742,7 @@ static void setupTrainingRoomLevel(Engine &ctx,
         } else {
             assert(false);
         }
-        scale.d2 = 3.f; // 1 higher than num blocks should work
+        scale.d2 = 15.f; // 1 higher than num blocks should work
 
         Vector3 center = (p0 + p1) / 2.f;
 
@@ -880,7 +881,7 @@ static void setupSingleRoomLevel(Engine &ctx,
         } else {
             assert(false);
         }
-        scale.d2 = 3.f; // 1 higher than num blocks should work
+        scale.d2 = 15.f; // 1 higher than num blocks should work
 
         Vector3 center = (p0 + p1) / 2.f;
 
@@ -1340,7 +1341,10 @@ static void lavaLevel(Engine &ctx, bool shouldMakeButton, bool checkerboard) {
 static void jsonLevel(Engine &ctx)
 {
     // Setup the simple level.
-    simpleLocomotionLevel(ctx);
+    //simpleLocomotionLevel(ctx);
+
+    // Assume a ground plane.
+    makeFloor(ctx);
 
     printf("JSON index: %d\n", ctx.singleton<JSONIndex>().index);
     JSONLevel *jsonLevels = ctx.data().jsonLevels;
@@ -1513,7 +1517,7 @@ static void obstructedBlockButtonLevel(Engine &ctx)
         {
             consts::wallWidth,
             block_size + consts::wallWidth * 2.f,
-            2.f,
+            10.f,
         });
 
         makeWall(ctx, {
@@ -1524,7 +1528,7 @@ static void obstructedBlockButtonLevel(Engine &ctx)
         {
             block_size,
             consts::wallWidth,
-            2.f,
+            10.f,
         });
 
         makeWall(ctx, {
@@ -1535,7 +1539,7 @@ static void obstructedBlockButtonLevel(Engine &ctx)
         {
             block_size,
             consts::wallWidth,
-            2.f,
+            10.f,
         });
     }
 }
@@ -1674,14 +1678,11 @@ LevelType generateLevel(Engine &ctx)
     // TODO: restore
     // TODO: restore eventually we'll register a singleton that is the index.
     // TODO: restore, debug value.
-    printf("Generating JSON level: %lu\n", ctx.data().jsonLevels);
-    if (true) {
-        // Simple, load json path. We assume level type aligns
-        // with what's being loaded or is irrelevant.
-        jsonLevel(ctx);
-        // TODO: restore
-        return level_type;
-    }
+    //printf("Generating JSON level: %lu\n", ctx.data().jsonLevels);
+    // Simple, load json path. We assume level type aligns
+    // with what's being loaded or is irrelevant.
+    //jsonLevel(ctx);
+    //return level_type;
 
     switch (level_type) {
     case LevelType::Chase: {
