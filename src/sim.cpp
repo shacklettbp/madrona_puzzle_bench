@@ -1844,6 +1844,8 @@ Sim::Sim(Engine &ctx,
 
     ctx.singleton<CheckpointReset>().reset = 0;
     ctx.singleton<CheckpointSave>().save = 1;
+
+    ctx.singleton<JSONIndex>().index = -1;
 }
 
 // This declaration is needed for the GPU backend in order to generate the

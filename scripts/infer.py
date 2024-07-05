@@ -113,29 +113,29 @@ outfile = args.json_levels[:args.json_levels.index(".json")] + ".out"
 print(outfile)
 with open(outfile, "wb") as f:
     f.write(json_levels.numpy().tobytes())
-exit()
 
-print(json_levels.shape)
-print("Testing")
-# TODO: restore, test export.
-for i in range(64):
-    jsonObj = json_levels[0][i]
-    jsonObj[:3] = torch.tensor([0,0,0])
-    jsonObj[3:6] = torch.tensor([1,1,1])
-    jsonObj[6] = 0 if i > 0 else 9
+#json_indices[:, 0] = 0
+
+# print(json_levels.shape)
+# print("Testing")
+# # TODO: restore, test export.
+# for i in range(64):
+#     jsonObj = json_levels[0][i]
+#     jsonObj[:3] = torch.tensor([0,0,0])
+#     jsonObj[3:6] = torch.tensor([1,1,1])
+#     jsonObj[6] = 0 if i > 0 else 9
 
 
 
-resets[:, 0] = 1
-print("Wrote resets")
-json_indices[:, 0] = 0
+# resets[:, 0] = 1
+# print("Wrote resets")
 
-print("done writing")
+# print("done writing")
 
-for i in range(3):
-    resets[:, 0] = 1
-    json_indices[:, 0] = i
-    sim.step()
+# for i in range(3):
+#     resets[:, 0] = 1
+#     json_indices[:, 0] = i
+#     sim.step()
 #TODO: 
 # 0. Figure out how to switch the goal dynamically within the world.
 # 1. Load multiple sets of weights for different low level controllers.

@@ -1678,11 +1678,13 @@ LevelType generateLevel(Engine &ctx)
     // TODO: restore
     // TODO: restore eventually we'll register a singleton that is the index.
     // TODO: restore, debug value.
-    printf("Generating JSON level: %lu\n", ctx.data().jsonLevels);
     // Simple, load json path. We assume level type aligns
     // with what's being loaded or is irrelevant.
-    jsonLevel(ctx);
-    return level_type;
+    if (ctx.singleton<JSONIndex>().index != -1) {
+        printf("Generating JSON level: %lu\n", ctx.data().jsonLevels);
+        jsonLevel(ctx);
+        return level_type;
+    }
 
     switch (level_type) {
     case LevelType::Chase: {

@@ -933,7 +933,7 @@ void Manager::init()
     for (CountT i = 0; i < num_worlds; i++) {
         triggerReset(i);
         // TODO: restore
-        setJsonIndex(i, 0);
+        //setJsonIndex(i, 0);
     }
 
     impl_->init();
