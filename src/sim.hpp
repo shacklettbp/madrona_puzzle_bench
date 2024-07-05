@@ -34,6 +34,7 @@ enum class ExportID : uint32_t {
     CheckpointSave,
     AgentPolicy,
     EpisodeResult,
+    JsonIndex,
     NumExports,
 };
 
@@ -88,6 +89,7 @@ struct Sim : public madrona::WorldBase {
         madrona::phys::ObjectManager *rigidBodyObjMgr;
         RewardHyperParams *rewardHyperParams;
         const madrona::render::RenderECSBridge *renderBridge;
+        JSONLevel *jsonLevels;
     };
 
     // This class would allow per-world custom data to be passed into
@@ -126,6 +128,9 @@ struct Sim : public madrona::WorldBase {
     float rewardPerDist;
     float slackReward;
     SimFlags simFlags;
+    JSONLevel *jsonLevels;
+
+    
 
     // Are we enabling rendering? (whether with the viewer or not)
     bool enableRender;

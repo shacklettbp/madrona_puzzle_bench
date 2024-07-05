@@ -36,6 +36,7 @@ public:
         float rewardPerDist;
         float slackReward;
         uint32_t numPBTPolicies = 0;
+        uint32_t maxJSONLevels = 0;
     };
 
     Manager(const Config &cfg);
@@ -57,6 +58,9 @@ public:
     madrona::py::Tensor checkpointResetTensor() const;
     madrona::py::Tensor checkpointTensor() const;
     madrona::py::Tensor resetTensor() const;
+    madrona::py::Tensor jsonIndexTensor() const;
+    madrona::py::Tensor jsonLevelDescriptionsTensor() const;
+
     madrona::py::Tensor goalTensor() const;
     madrona::py::Tensor actionTensor() const;
     madrona::py::Tensor rewardTensor() const;
@@ -77,6 +81,7 @@ public:
     // These functions are used by the viewer to control the simulation
     // with keyboard inputs in place of DNN policy actions
     void triggerReset(int32_t world_idx);
+    void setJsonIndex(int32_t world_idx, int32_t index);
     void setSaveCheckpoint(int32_t world_idx, int32_t value);
     void triggerLoadCheckpoint(int32_t world_idx);
     void setAction(int32_t world_idx,
@@ -85,7 +90,6 @@ public:
                    int32_t move_angle,
                    int32_t rotate,
                    int32_t interact);
-
     madrona::render::RenderManager & getRenderManager();
 
     madrona::py::Tensor policyAssignmentsTensor() const;

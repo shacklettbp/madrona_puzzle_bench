@@ -1823,6 +1823,8 @@ Sim::Sim(Engine &ctx,
 
     simFlags = cfg.simFlags;
 
+    jsonLevels = cfg.jsonLevels;
+
     agent = createAgent(ctx);
     resetAgent(ctx, Vector3::zero(), 0.f, Vector3::zero());
 

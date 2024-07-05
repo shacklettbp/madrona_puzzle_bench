@@ -138,8 +138,10 @@ void resetAgent(Engine &ctx,
     spawn_pos.y += randInRangeCentered(ctx, safe_spawn_range);
 
     ctx.get<Position>(agent_entity) = spawn_pos;
+    // TODO: restore
     ctx.get<Rotation>(agent_entity) = Quat::angleAxis(
-        randInRangeCentered(ctx, math::pi / 4.f),
+        0.0f,
+        //randInRangeCentered(ctx, math::pi / 4.f),
         math::up);
 
     auto &grab_state = ctx.get<GrabState>(agent_entity);
@@ -589,7 +591,7 @@ static Entity makeExitEntity(Engine &ctx, Vector3 exit_pos) {
     ctx.get<Rotation>(e) = Quat { 1, 0, 0, 0 };
     ctx.get<Scale>(e) = Diag3x3 { 1, 1, 1 };
     ctx.get<ObjectID>(e) = ObjectID { (int32_t)SimObject::Exit };
-    printf("exit pos: %f, %f, %f\n", exit_pos.x,exit_pos.y,exit_pos.z);
+    //printf("exit pos: %f, %f, %f\n", exit_pos.x,exit_pos.y,exit_pos.z);
     return e;
 }
 
@@ -716,9 +718,10 @@ static void setupTrainingRoomLevel(Engine &ctx,
 
     makeFloor(ctx);
 
+    // TODO: restore
     AABB room_aabb = {
-        .pMin = Vector3 { -level_size / 2.f, 0.f, 0.f },
-        .pMax = Vector3 { level_size / 2.f, level_size, 2.f },
+        .pMin = Vector3 { -level_size / 2.f, -level_size / 2.f, 0.f },
+        .pMax = Vector3 { level_size / 2.f, level_size / 2.f, 2.f },
     };
 
     auto makeSolidWall = [
@@ -1060,7 +1063,6 @@ static void lavaLevel(Engine &ctx, bool shouldMakeButton, bool checkerboard) {
     }
 
     // Visualize the grid.
-    // TODO: restore
     auto debugPrintGrid = [&]()
     {
         for (int j = gridsizeY - 1; j >= 0; --j)
@@ -1333,6 +1335,35 @@ static void lavaLevel(Engine &ctx, bool shouldMakeButton, bool checkerboard) {
 
     // Create the lava blocks from the grid.
     makeLavaFromGrid(ctx, lavaBounds, gridsizeX, gridsizeY, room_aabb, level_scale, lavaWriteIdx);
+}
+
+static void jsonLevel(Engine &ctx)
+{
+    // Setup the simple level.
+    simpleLocomotionLevel(ctx);
+
+    printf("JSON index: %d\n", ctx.singleton<JSONIndex>().index);
+    JSONLevel *jsonLevels = ctx.data().jsonLevels;
+    int32_t jsonIdx = ctx.singleton<JSONIndex>().index;
+    for (int i = 0; i < consts::maxJsonObjects; ++i) {
+        const JSONObject &jsonObj = jsonLevels[jsonIdx].objects[i];
+        EntityType t = EntityType(jsonObj.type);
+
+        switch(t) {
+            case EntityType::Wall: {
+                printf("position: %f, %f, %f\n", jsonObj.position.x, jsonObj.position.y, jsonObj.position.z);
+                printf("extents: %f, %f, %f\n", jsonObj.extents.x, jsonObj.extents.y, jsonObj.extents.z);
+                // TODO: restore
+                //makeWall(ctx, Vector3(0,0,10), Diag3x3::fromVec(Vector3(3,3,1)));
+                makeWall(ctx, jsonObj.position, Diag3x3::fromVec(jsonObj.extents));
+            } break;
+            case EntityType::None: {
+                // No entity here, do nothing
+                break;
+            }
+            default: MADRONA_UNREACHABLE();
+        }
+    }
 }
 
 static void lavaButtonLevel(Engine &ctx)
@@ -1639,6 +1670,18 @@ LevelType generateLevel(Engine &ctx)
     //      3, 5);
     // TODO: restore
     level_type = LevelType::LavaCorridor;
+
+    // TODO: restore
+    // TODO: restore eventually we'll register a singleton that is the index.
+    // TODO: restore, debug value.
+    printf("Generating JSON level: %lu\n", ctx.data().jsonLevels);
+    if (true) {
+        // Simple, load json path. We assume level type aligns
+        // with what's being loaded or is irrelevant.
+        jsonLevel(ctx);
+        // TODO: restore
+        return level_type;
+    }
 
     switch (level_type) {
     case LevelType::Chase: {

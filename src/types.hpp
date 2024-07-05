@@ -76,6 +76,20 @@ enum class EntityType : uint32_t {
     NumTypes,
 };
 
+struct JSONObject {
+    Vector3 position;
+    Vector3 extents;
+    float type;
+};
+
+struct JSONLevel {
+    JSONObject objects[consts::maxJsonObjects];
+};
+
+struct JSONIndex {
+    int32_t index;
+};
+
 struct EpisodeState {
     uint32_t curStep;
     uint32_t curLevel;
@@ -277,6 +291,7 @@ struct EnemyState {
 };
 
 struct Checkpoint {
+    //12 floats
     // Checkpoint structs.
     struct EntityState {
         EntityType entityType;
@@ -291,6 +306,7 @@ struct Checkpoint {
         };
     };
     
+    // 44 floats
     struct AgentState {
         Vector3 position;
         Quat rotation;

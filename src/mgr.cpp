@@ -97,8 +97,10 @@ static inline Optional<render::RenderManager> initRenderManager(
 
 struct Manager::Impl {
     Config cfg;
+    JSONLevel *jsonLevelsBuffer;
     PhysicsLoader physicsLoader;
     WorldReset *worldResetBuffer;
+    JSONIndex *jsonIndexBuffer;
     CheckpointSave *worldSaveCheckpointBuffer;
     CheckpointReset *worldLoadCheckpointBuffer;
     Action *agentActionsBuffer;
@@ -109,6 +111,8 @@ struct Manager::Impl {
     inline Impl(const Manager::Config &mgr_cfg,
                 PhysicsLoader &&phys_loader,
                 WorldReset *reset_buffer,
+                JSONLevel *json_level_buffer,
+                JSONIndex *json_index_buffer,
                 CheckpointSave *checkpoint_save_buffer,
                 CheckpointReset *checkpoint_load_buffer,
                 Action *action_buffer,
@@ -116,8 +120,10 @@ struct Manager::Impl {
                 Optional<RenderGPUState> &&render_gpu_state,
                 Optional<render::RenderManager> &&render_mgr)
         : cfg(mgr_cfg),
+          jsonLevelsBuffer(json_level_buffer),
           physicsLoader(std::move(phys_loader)),
           worldResetBuffer(reset_buffer),
+          jsonIndexBuffer(json_index_buffer),
           worldSaveCheckpointBuffer(checkpoint_save_buffer),
           worldLoadCheckpointBuffer(checkpoint_load_buffer),
           agentActionsBuffer(action_buffer),
@@ -170,6 +176,8 @@ struct Manager::CPUImpl final : Manager::Impl {
     inline CPUImpl(const Manager::Config &mgr_cfg,
                    PhysicsLoader &&phys_loader,
                    WorldReset *reset_buffer,
+                   JSONLevel *json_level_buffer,
+                   JSONIndex *json_index_buffer,
                    CheckpointSave *checkpoint_save_buffer,
                    CheckpointReset *checkpoint_load_buffer,
                    Action *action_buffer,
@@ -178,8 +186,8 @@ struct Manager::CPUImpl final : Manager::Impl {
                    Optional<render::RenderManager> &&render_mgr,
                    TaskGraphT &&cpu_exec)
         : Impl(mgr_cfg, std::move(phys_loader),
-               reset_buffer, checkpoint_save_buffer,
-               checkpoint_load_buffer, action_buffer,
+               reset_buffer, json_level_buffer, json_index_buffer,
+               checkpoint_save_buffer, checkpoint_load_buffer, action_buffer,
                reward_hyper_params,
                std::move(render_gpu_state), std::move(render_mgr)),
           cpuExec(std::move(cpu_exec))
@@ -253,6 +261,8 @@ struct Manager::CUDAImpl final : Manager::Impl {
     inline CUDAImpl(const Manager::Config &mgr_cfg,
                    PhysicsLoader &&phys_loader,
                    WorldReset *reset_buffer,
+                   JSONLevel *json_level_buffer,
+                   JSONIndex *json_index_buffer,
                    CheckpointSave *checkpoint_save_buffer,
                    CheckpointReset *checkpoint_load_buffer,
                    Action *action_buffer,
@@ -261,7 +271,7 @@ struct Manager::CUDAImpl final : Manager::Impl {
                    Optional<render::RenderManager> &&render_mgr,
                    MWCudaExecutor &&gpu_exec)
         : Impl(mgr_cfg, std::move(phys_loader),
-               reset_buffer, checkpoint_save_buffer,
+               reset_buffer, json_level_buffer, json_index_buffer, checkpoint_save_buffer,
                checkpoint_load_buffer, action_buffer, reward_hyper_params,
                std::move(render_gpu_state), std::move(render_mgr)),
           gpuExec(std::move(gpu_exec)),
@@ -754,6 +764,10 @@ Manager::Impl * Manager::Impl::init(
                 cudaMemcpyHostToDevice));
         }
 
+        sim_cfg.jsonLevels = (JSONLevel *)cu::allocGPU(
+            sizeof(JSONLevel) * consts::maxJsonLevelDescriptions
+        );
+
         Optional<RenderGPUState> render_gpu_state =
             initRenderGPUState(mgr_cfg);
 
@@ -797,10 +811,15 @@ Manager::Impl * Manager::Impl::init(
         Action *agent_actions_buffer = 
             (Action *)gpu_exec.getExported((uint32_t)ExportID::Action);
 
+        JSONIndex *json_index_buffer =
+            (JSONIndex *)gpu_exec.getExported((uint32_t)ExportID::JsonIndex);
+
         return new CUDAImpl {
             mgr_cfg,
             std::move(phys_loader),
             world_reset_buffer,
+            sim_cfg.jsonLevels,
+            json_index_buffer,
             checkpoint_save_buffer,
             checkpoint_load_buffer,
             agent_actions_buffer,
@@ -832,6 +851,12 @@ Manager::Impl * Manager::Impl::init(
                 .distToExitScale = mgr_cfg.rewardPerDist,
             };
         }
+
+        sim_cfg.jsonLevels = (JSONLevel *)malloc(
+            sizeof(JSONLevel) * consts::maxJsonLevelDescriptions
+        );
+
+        printf("Allocated JSON level: %lu\n", (long)sim_cfg.jsonLevels);
 
         Optional<RenderGPUState> render_gpu_state =
             initRenderGPUState(mgr_cfg);
@@ -870,10 +895,15 @@ Manager::Impl * Manager::Impl::init(
         Action *agent_actions_buffer = 
             (Action *)cpu_exec.getExported((uint32_t)ExportID::Action);
 
+        JSONIndex *json_index_buffer = 
+            (JSONIndex *)cpu_exec.getExported((uint32_t)ExportID::JsonIndex);
+
         auto cpu_impl = new CPUImpl {
             mgr_cfg,
             std::move(phys_loader),
             world_reset_buffer,
+            sim_cfg.jsonLevels,
+            json_index_buffer,
             checkpoint_save_buffer,
             checkpoint_load_buffer,
             agent_actions_buffer,
@@ -902,6 +932,8 @@ void Manager::init()
     // Force reset and step so obs are populated at beginning of fresh episode
     for (CountT i = 0; i < num_worlds; i++) {
         triggerReset(i);
+        // TODO: restore
+        setJsonIndex(i, 0);
     }
 
     impl_->init();
@@ -977,6 +1009,29 @@ Tensor Manager::resetTensor() const
                                    impl_->cfg.numWorlds,
                                    sizeof(WorldReset) / sizeof(int32_t)
                                });
+}
+
+Tensor Manager::jsonIndexTensor() const
+{
+    return impl_->exportTensor(ExportID::JsonIndex,
+                               TensorElementType::Int32,
+                               {
+                                   impl_->cfg.numWorlds,
+                                   sizeof(JSONIndex) / sizeof(int32_t)
+                               });
+}
+
+Tensor Manager::jsonLevelDescriptionsTensor() const {
+    // Export the JSON Level descriptions to the training code.
+    // The training code writes these once. They are not part
+    // of the ECS, and are only referenced during level loading.
+    return Tensor(impl_->jsonLevelsBuffer,
+                  TensorElementType::Float32,
+                  {consts::maxJsonLevelDescriptions,
+                  consts::maxJsonObjects,
+                   sizeof(JSONObject) / sizeof(float)},
+                  Optional<int>::none());
+
 }
 
 Tensor Manager::goalTensor() const
@@ -1161,6 +1216,25 @@ void Manager::triggerReset(int32_t world_idx)
 #endif
     }  else {
         *reset_ptr = reset;
+    }
+}
+
+void Manager::setJsonIndex(int32_t world_idx,
+                           int32_t index)
+                           {
+    JSONIndex jsonIndex {
+        index,
+    };
+
+    auto *json_index_ptr = impl_->jsonIndexBuffer + world_idx;
+
+    if (impl_->cfg.execMode == ExecMode::CUDA) {
+#ifdef MADRONA_CUDA_SUPPORT
+        cudaMemcpy(json_index_ptr, &jsonIndex, sizeof(JSONIndex),
+                   cudaMemcpyHostToDevice);
+#endif
+    }  else {
+        *json_index_ptr = jsonIndex;
     }
 }
 

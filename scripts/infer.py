@@ -61,11 +61,45 @@ sim = madrona_puzzle_bench.SimManager(
     reward_per_dist = 0.05,
     slack_reward = -0.005,
 )
+print("started init")
+
 sim.init()
+
+print("finished init")
 
 obs, num_obs_features = setup_obs(sim, args.no_level_obs)
 policy = make_policy(num_obs_features, None, args.num_channels, args.separate_value)
 
+json_indices = sim.json_index_tensor().to_torch()
+json_levels = sim.json_level_descriptions_tensor().to_torch()
+resets = sim.reset_tensor().to_torch()
+
+# Trigger a reset.
+
+
+
+print(json_levels.shape)
+print("Testing")
+# TODO: restore, test export.
+for i in range(64):
+    jsonObj = json_levels[0][i]
+    jsonObj[:3] = torch.tensor([0,0,0])
+    jsonObj[3:6] = torch.tensor([1,1,1])
+    jsonObj[6] = 0 if i > 0 else 9
+
+#with open("jsonLevels.out", "wb") as f:
+#    f.write(json_levels.numpy().tobytes())
+
+resets[:, 0] = 1
+print("Wrote resets")
+json_indices[:, 0] = 0
+
+print("done writing")
+
+for i in range(3):
+    resets[:, 0] = 1
+    json_indices[:, 0] = i
+    sim.step()
 #TODO: 
 # 0. Figure out how to switch the goal dynamically within the world.
 # 1. Load multiple sets of weights for different low level controllers.
@@ -84,6 +118,9 @@ rewards = sim.reward_tensor().to_torch()
 goals = sim.goal_tensor().to_torch()
 
 ckpts = sim.checkpoint_tensor().to_torch()
+
+
+
 
 cur_rnn_states = []
 
@@ -174,6 +211,7 @@ for i in range(args.num_steps):
     print("Values:\n", values.cpu().numpy())
     '''
 
+    sim.step()
 
     print("Sim Step Time:", end - start)
     print("Rewards:\n", rewards)

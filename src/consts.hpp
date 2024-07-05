@@ -6,6 +6,13 @@ namespace madPuzzle {
 using CountT = madrona::CountT;
 
 namespace consts {
+
+
+// JSON level constants
+inline constexpr CountT maxJsonLevelDescriptions = 8;
+inline constexpr CountT maxJsonObjects = 64; // includes walls.
+
+
 // Give the agents more observation space than the number of room
 // entities in case they push cubes into other rooms.
 inline constexpr CountT maxObservationsPerAgent = 9;

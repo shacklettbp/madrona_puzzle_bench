@@ -61,6 +61,9 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
     registry.registerSingleton<Level>();
     registry.registerSingleton<EpisodeState>();
     registry.registerSingleton<EpisodeResult>();
+    
+    // which JSON description to load.
+    registry.registerSingleton<JSONIndex>();
 
     // Checkpoint state.
     registry.registerSingleton<Checkpoint>();
@@ -92,6 +95,8 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
         (uint32_t)ExportID::CheckpointSave);
     registry.exportSingleton<WorldReset>(
         (uint32_t)ExportID::Reset);
+    registry.exportSingleton<JSONIndex>(
+        (uint32_t)ExportID::JsonIndex);
     registry.exportSingleton<GoalType>(
         (uint32_t)ExportID::Goal);
     registry.exportSingleton<EpisodeResult>(

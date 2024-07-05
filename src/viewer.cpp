@@ -61,6 +61,7 @@ int main(int argc, char *argv[])
     char *record_log_path = nullptr;
     char *replay_log_path = nullptr;
     char *load_ckpt_path = nullptr;
+    char *json_level_path = nullptr;
     bool start_frozen = false;
     bool print_obs = false;
     uint32_t seed = 10; 
@@ -134,6 +135,18 @@ int main(int argc, char *argv[])
                 }
 
                 seed = (uint32_t)atoi(argv[i]);
+            } else if (!strcmp("json-levels", arg)) {
+                if (json_level_path != nullptr) {
+                    usageErr();
+                }
+
+                i += 1;
+
+                if (i == argc) {
+                    usageErr();
+                }
+
+                json_level_path = argv[i];
             } else {
                 usageErr();
             }
@@ -213,6 +226,9 @@ int main(int argc, char *argv[])
     auto ckpt_reset_tensor = mgr.checkpointResetTensor();
     auto ckpt_tensor = mgr.checkpointTensor();
 
+    // TODO: restore, do we need to expose this.
+    auto json_level_descriptions_tensor = mgr.jsonLevelDescriptionsTensor();
+
     auto lidar_depth_tensor = mgr.lidarDepthTensor();
     auto lidar_hit_type_tensor = mgr.lidarHitTypeTensor();
     
@@ -273,6 +289,33 @@ int main(int argc, char *argv[])
         loadCheckpoints(debug_ckpts.data());
     }
 
+    auto loadJsonLevels = [&](const JSONLevel *src) {
+        if (exec_mode == ExecMode::CUDA) {
+#ifdef MADRONA_CUDA_SUPPORT
+            cudaMemcpyAsync(json_level_descriptions_tensor.devicePtr(), src,
+                sizeof(JSONLevel) * consts::maxJsonLevelDescriptions,
+                cudaMemcpyHostToDevice, copy_strm);
+
+            REQ_CUDA(cudaStreamSynchronize(copy_strm));
+#endif
+        } else {
+            memcpy(json_level_descriptions_tensor.devicePtr(), src,
+                   sizeof(JSONLevel) * consts::maxJsonLevelDescriptions);
+        }
+    };
+
+    if (json_level_path != nullptr) {
+        std::ifstream json_desc_file(json_level_path, std::ios::binary);
+        assert(json_desc_file.is_open());
+        HeapArray<JSONLevel> debug_json_desc(consts::maxJsonLevelDescriptions);
+        json_desc_file.read((char *)debug_json_desc.data(),
+                       sizeof(JSONLevel) * consts::maxJsonLevelDescriptions);
+
+        loadJsonLevels(debug_json_desc.data());
+    }
+
+
+    // Reset triggered here
     mgr.init();
 
     float camera_move_speed = 10.f;

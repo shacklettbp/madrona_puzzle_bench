@@ -81,6 +81,8 @@ NB_MODULE(madrona_puzzle_bench, m) {
         .def("checkpoint_reset_tensor", &Manager::checkpointResetTensor)
         .def("checkpoint_tensor", &Manager::checkpointTensor)
         .def("reset_tensor", &Manager::resetTensor)
+        .def("json_index_tensor", &Manager::jsonIndexTensor)
+        .def("json_level_descriptions_tensor", &Manager::jsonLevelDescriptionsTensor)
         .def("goal_tensor", &Manager::goalTensor)
         .def("action_tensor", &Manager::actionTensor)
         .def("reward_tensor", &Manager::rewardTensor)
