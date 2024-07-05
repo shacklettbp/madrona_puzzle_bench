@@ -14,6 +14,7 @@ from pathlib import Path
 import warnings
 warnings.filterwarnings("error")
 
+import os
 import json
 
 torch.manual_seed(0)
@@ -39,6 +40,8 @@ arg_parser.add_argument('--use-complex-level', action='store_true')
 
 # Architecture args
 arg_parser.add_argument('--entity-network', action='store_true')
+
+arg_parser.add_argument('--json-levels', type=str, default="", help="JSON level description or folder of JSON level descriptions.")
 
 args = arg_parser.parse_args()
 
@@ -74,9 +77,43 @@ json_indices = sim.json_index_tensor().to_torch()
 json_levels = sim.json_level_descriptions_tensor().to_torch()
 resets = sim.reset_tensor().to_torch()
 
-# Trigger a reset.
+print(json_levels.shape)
 
+def jsonFileToTensor(jsonFile):
+    jsonLevel = []
+    with open(jsonFile, "r") as f:
+        jsonString = f.read()
+        jsonLevel = json.loads(jsonString)
+    print(jsonLevel)
+    print(type(jsonLevel))
+    # Single level has max 64 objects, 7 floats/object
+    out_tensor = torch.zeros(64, 7)
+    for idx, objDesc in enumerate(jsonLevel.values()):
+        if len(objDesc["tags"]) != 0:
+            # TODO: only process normal walls.
+            continue
+        out_tensor[idx][:3] = torch.tensor(objDesc["position"])
+        out_tensor[idx][3:6] = torch.tensor(objDesc["size"])
+        out_tensor[idx][6] = 9 # TODO: everything is a wall for now.
+    return out_tensor
 
+# Read JSON levels from a file
+if args.json_levels != "":
+    if os.path.isfile(args.json_levels):
+        json_levels[0] = jsonFileToTensor(args.json_levels)
+    else:
+        levelIdx = 0
+        for jsonFile in os.path.listdir(args.json_levels):
+            if jsonFile.endswith(".json"):
+                json_levels[levelIdx] = jsonFileToTensor(os.path.join(args.json_levels, jsonFile))
+                levelIdx += 1
+
+print(json_levels[0])
+outfile = args.json_levels[:args.json_levels.index(".json")] + ".out"
+print(outfile)
+with open(outfile, "wb") as f:
+    f.write(json_levels.numpy().tobytes())
+exit()
 
 print(json_levels.shape)
 print("Testing")
@@ -87,8 +124,7 @@ for i in range(64):
     jsonObj[3:6] = torch.tensor([1,1,1])
     jsonObj[6] = 0 if i > 0 else 9
 
-#with open("jsonLevels.out", "wb") as f:
-#    f.write(json_levels.numpy().tobytes())
+
 
 resets[:, 0] = 1
 print("Wrote resets")
