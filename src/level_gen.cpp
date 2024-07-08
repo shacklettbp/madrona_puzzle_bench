@@ -1146,11 +1146,11 @@ static void lavaLevel(Engine &ctx, bool shouldMakeButton, bool checkerboard) {
        }
     };
 
-    auto writeColumn = [&]()
+    auto writeColumn = [&](int columnIdx)
     {
         for (int i = gridsizeX - 1; i >= 0; --i) {
            for (int j = gridsizeY - 1; j >= 0; --j) {
-               if (j != 2 && i != 0 && i != gridsizeX - 1) {
+               if (j != columnIdx && i != 0 && i != gridsizeX - 1) {
                     grid[i][j] = PATH;
                }
            }
@@ -1232,7 +1232,7 @@ static void lavaLevel(Engine &ctx, bool shouldMakeButton, bool checkerboard) {
 
     Vector2Int32 branchCoord = Vector2Int32{-1, -1};
     if (checkerboard) {
-        writeColumn();
+        writeColumn(int(randBetween(ctx, 0.0f, 5.0f)));
         //writeCheckerboard();
     } else {
         writeShortestPath(entranceCoord, exitCoord, branchStep, branchCoord);

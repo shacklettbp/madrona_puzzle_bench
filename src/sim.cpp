@@ -386,7 +386,7 @@ inline void jumpSystem(Engine &ctx,
     }
 
     // Jump!
-    external_force.z += rot.rotateVec({ 0.0f, 0.0f, 3000.0f }).z;
+    external_force.z += rot.rotateVec({ 0.0f, 0.0f, 125.0f }).z;
 }
 
 // Translates discrete actions from the Action component to forces
@@ -404,9 +404,9 @@ inline void movementSystem(Engine &ctx,
     constexpr float turn_max = 240; //320;
 
     // TODO: restore
-    if (!onGround(ctx, pos, rot, s)) {
-        move_max = 500;
-    }
+    // if (!onGround(ctx, pos, rot, s)) {
+    //     move_max = 500;
+    // }
 
     float move_amount = action.moveAmount *
         (move_max / (consts::numMoveAmountBuckets - 1));
@@ -839,11 +839,15 @@ inline void lavaSystem(Engine &ctx, Position lava_pos, EntityExtents lava_extent
 // after each step.
 inline void agentZeroVelSystem(Engine &,
                                Velocity &vel,
-                               Action &)
+                               Action &action)
 {
     vel.linear.x = 0;
     vel.linear.y = 0;
-    vel.linear.z = fminf(vel.linear.z, 0);
+    // TODO: restore
+    //if (action.interact != 1) {
+    //    vel.linear.z = fminf(vel.linear.z, 0);
+    //};
+
 
     vel.angular = Vector3::zero();
     return;

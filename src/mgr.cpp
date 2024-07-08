@@ -932,8 +932,6 @@ void Manager::init()
     // Force reset and step so obs are populated at beginning of fresh episode
     for (CountT i = 0; i < num_worlds; i++) {
         triggerReset(i);
-        // TODO: restore
-        //setJsonIndex(i, 0);
     }
 
     impl_->init();

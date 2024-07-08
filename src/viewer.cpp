@@ -312,6 +312,10 @@ int main(int argc, char *argv[])
                        sizeof(JSONLevel) * consts::maxJsonLevelDescriptions);
 
         loadJsonLevels(debug_json_desc.data());
+        // Set all worlds to point to the first JSON level.
+        for (int i = 0; i < (int)num_worlds; ++i) {
+            mgr.setJsonIndex(i, 0);
+        }
     }
 
 

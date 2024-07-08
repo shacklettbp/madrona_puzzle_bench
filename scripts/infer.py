@@ -108,11 +108,11 @@ if args.json_levels != "":
                 json_levels[levelIdx] = jsonFileToTensor(os.path.join(args.json_levels, jsonFile))
                 levelIdx += 1
 
-print(json_levels[0])
-outfile = args.json_levels[:args.json_levels.index(".json")] + ".out"
-print(outfile)
-with open(outfile, "wb") as f:
-    f.write(json_levels.numpy().tobytes())
+    print(json_levels[0])
+    outfile = args.json_levels[:args.json_levels.index(".json")] + ".out"
+    print(outfile)
+    with open(outfile, "wb") as f:
+        f.write(json_levels.numpy().tobytes())
 
 #json_indices[:, 0] = 0
 
@@ -172,6 +172,8 @@ else:
 
 if args.trajectory_log:
     trajectory_log = open(args.trajectory_log, 'w')
+else:
+    trajectory_log = None
 
 
 count = 0
