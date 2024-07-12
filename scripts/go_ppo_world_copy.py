@@ -18,6 +18,55 @@ import numpy as np
 import time
 import os
 
+# Import the obby functions
+from obby.grammar.part import *
+from obby.grammar.obstacles import *
+from obby.grammar.obby import *
+
+def path_jump_path():
+    obby = GridObbyV1(name="path_jump_path")
+    # Spawn.
+    obby.spawn((0, 0, 0), 3)
+
+    # Make maze.
+    obby.part('Block', (0, 4, 0), (1, 5))
+    obby.part('Block', (0, 10.5, 0), (1, 5))
+
+    obby.checkpoint((0, 14.5, 0), 3)
+
+    return obby
+
+SPAWN_TYPE = 14 # new "Spawn" type, just signals to make the spawn restraints there.
+CHECKPOINT_TYPE = 13 # Corresponds to "Goal" in types.hpp
+WALL_TYPE = 9
+
+def jsonStringToTensor(jsonString):
+    jsonLevel = json.loads(jsonString)
+    print(jsonLevel)
+    print(type(jsonLevel))
+    # Single level has max 64 objects, 7 floats/object
+    out_tensor = torch.zeros(64, 7)
+    for idx, objName in enumerate(jsonLevel.keys()):
+        objDesc = jsonLevel[objName]
+        objType = -1
+        if "Spawn" in objName:
+            objType = SPAWN_TYPE
+        elif "Checkpoint" in objName:
+            objType = CHECKPOINT_TYPE
+        else:
+            objType = WALL_TYPE
+
+        print(objName)
+        #if len(objDesc["tags"]) != 0:
+        #    # TODO: only process normal walls.
+        #    continue
+        out_tensor[idx][:3] = torch.tensor(objDesc["position"])
+        out_tensor[idx][3:6] = torch.tensor(objDesc["size"])
+        out_tensor[idx][6] = objType
+    return out_tensor
+
+
+
 torch.manual_seed(0)
 
 arg_parser = argparse.ArgumentParser()
@@ -175,6 +224,12 @@ class GoExplore:
             slack_reward = -0.005,
         )
         self.worlds.init()
+
+        # Set the json levels.
+        json_levels = self.worlds.json_level_descriptions_tensor().to_torch()
+        json_levels[0] = jsonStringToTensor(path_jump_path().jsonify("path_jump_path.json")).to(device)
+        json_indices = self.worlds.json_index_tensor().to_torch()
+        json_indices[:, 0] = 0 # Initialize all the json world indices.
 
         self.num_worlds = num_worlds
         self.num_agents = 1

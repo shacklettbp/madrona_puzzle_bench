@@ -21,10 +21,13 @@ inline constexpr CountT maxObjectsPerLevel = 20;
 // Various world / entity size parameters
 inline constexpr float wallWidth = 1.f;
 
+inline constexpr float gravity = 196.2; // 9.8f
+
 inline constexpr float worldLength = 40.0f;
 inline constexpr float worldWidth = 20.f;
 inline constexpr float keyWidth = 0.5f;
-inline constexpr float agentRadius = 1.f;
+inline constexpr float agentRadius = 2.55f;
+inline constexpr madrona::math::Vector3 agentExtents = {4.0f, 1.2f, 5.10f};
 inline constexpr float roomLength = worldLength / 3.f;
 
 // How many discrete options for actions

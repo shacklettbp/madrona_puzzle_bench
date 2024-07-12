@@ -79,6 +79,10 @@ resets = sim.reset_tensor().to_torch()
 
 print(json_levels.shape)
 
+SPAWN_TYPE = 14 # new "Spawn" type, just signals to make the spawn restraints there.
+CHECKPOINT_TYPE = 13 # Corresponds to "Goal" in types.hpp
+WALL_TYPE = 9
+
 def jsonFileToTensor(jsonFile):
     jsonLevel = []
     with open(jsonFile, "r") as f:
@@ -88,13 +92,23 @@ def jsonFileToTensor(jsonFile):
     print(type(jsonLevel))
     # Single level has max 64 objects, 7 floats/object
     out_tensor = torch.zeros(64, 7)
-    for idx, objDesc in enumerate(jsonLevel.values()):
-        if len(objDesc["tags"]) != 0:
-            # TODO: only process normal walls.
-            continue
+    for idx, objName in enumerate(jsonLevel.keys()):
+        objDesc = jsonLevel[objName]
+        objType = -1
+        if "Spawn" in objName:
+            objType = SPAWN_TYPE
+        elif "Checkpoint" in objName:
+            objType = CHECKPOINT_TYPE
+        else:
+            objType = WALL_TYPE
+
+        print(objName)
+        #if len(objDesc["tags"]) != 0:
+        #    # TODO: only process normal walls.
+        #    continue
         out_tensor[idx][:3] = torch.tensor(objDesc["position"])
         out_tensor[idx][3:6] = torch.tensor(objDesc["size"])
-        out_tensor[idx][6] = 9 # TODO: everything is a wall for now.
+        out_tensor[idx][6] = objType
     return out_tensor
 
 # Read JSON levels from a file
@@ -114,7 +128,7 @@ if args.json_levels != "":
     with open(outfile, "wb") as f:
         f.write(json_levels.numpy().tobytes())
 
-#json_indices[:, 0] = 0
+json_indices[:, 0] = 0
 
 # print(json_levels.shape)
 # print("Testing")

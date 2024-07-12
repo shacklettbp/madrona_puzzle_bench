@@ -352,9 +352,8 @@ inline bool onGround(Engine &ctx, const Position &pos, const Rotation &rot, cons
     Vector3 ray_o = pos + halfHeight * rot.rotateVec(math::up);
     Vector3 ray_d = rot.rotateVec(-math::up);
 
-    // TODO: restore to halfheight
     // Need extra to compensate for slight lava lift...
-    const float max_t = halfHeight + 0.001f;
+    const float max_t = halfHeight;// + 0.001f;
 
     Entity grab_entity = bvh.traceRay(ray_o, ray_d, &hit_t, &hit_normal, max_t);
 
@@ -386,7 +385,8 @@ inline void jumpSystem(Engine &ctx,
     }
 
     // Jump!
-    external_force.z += rot.rotateVec({ 0.0f, 0.0f, 125.0f }).z;
+    external_force.z += rot.rotateVec({ 0.0f, 0.0f, 2500.0f }).z;
+    //external_force.z += rot.rotateVec({ 0.0f, 0.0f, 125.0f }).z;
 }
 
 // Translates discrete actions from the Action component to forces
@@ -400,13 +400,12 @@ inline void movementSystem(Engine &ctx,
                            ExternalTorque &external_torque)
 {
     Quat cur_rot = rot;
-    float move_max = 800; //1000;
+    float move_max = 6250 * 0.25f; //800; //1000;
     constexpr float turn_max = 240; //320;
 
-    // TODO: restore
-    // if (!onGround(ctx, pos, rot, s)) {
-    //     move_max = 500;
-    // }
+    if (!onGround(ctx, pos, rot, s)) {
+        move_max = 3500 * 0.25f; //500;
+    }
 
     float move_amount = action.moveAmount *
         (move_max / (consts::numMoveAmountBuckets - 1));
@@ -820,7 +819,7 @@ inline void lavaSystem(Engine &ctx, Position lava_pos, EntityExtents lava_extent
     //};
 
     // TODO: restore
-    const float lavaExpansion = 0.0f;
+    const float lavaExpansion = 0.001f;
 
     // Expand lava hit zone.
     AABB lava_aabb = {
@@ -850,6 +849,21 @@ inline void agentZeroVelSystem(Engine &,
 
 
     vel.angular = Vector3::zero();
+    return;
+}
+
+
+// Check if the agents have fallen (just below the ground plane for now).
+inline void agentFallSystem(Engine &ctx,
+                               Position &pos,
+                               Action &action)
+{
+
+    // Check if agent has fallen a full bodylength in world space.
+  if (pos.z < -2.0f * consts::agentRadius) {
+    ctx.singleton<EpisodeState>().isDead = true;
+  }
+    
     return;
 }
 
@@ -1058,7 +1072,7 @@ inline void lidarSystem(Engine &ctx,
             bvh.traceRay(pos + 0.5f * math::up, ray_dir, &hit_t,
                          &hit_normal, 200.f);
 
-        // TODO: restore
+        // TODO: restore, better way to turn off LIDAR
         if (hit_entity == Entity::none() || true) {
             lidar_depth.samples[idx] = 0.f;
             lidar_hit_type.samples[idx] = EntityType::None;
@@ -1111,7 +1125,7 @@ inline void dense1RewardSystem(Engine &ctx,
     }
 
     if (episode_state.isDead) {
-        reward -= 1.f;
+        reward -= 10.f; // TODO: restore
     }
 
     if (episode_state.reachedExit) {
@@ -1558,9 +1572,14 @@ static TaskGraphNodeID setupSimTasks(TaskGraphBuilder &builder,
     auto phys_done = PhysicsSystem::setupCleanupTasks(
         builder, {agent_zero_vel});
 
+    // Check if the agent has fallen off the level
+    auto agent_fall_sys = builder.addToGraph<ParallelForNode<Engine,
+        agentFallSystem, Position, Action>>(
+            {phys_done});
+
     auto enemy_post_phys_sys = builder.addToGraph<ParallelForNode<Engine,
         enemyPostPhysicsSystem, Position, Velocity, EnemyState>>(
-            {phys_done});
+            {agent_fall_sys});
 
     // Check buttons
     auto button_sys = builder.addToGraph<ParallelForNode<Engine,
@@ -1804,7 +1823,7 @@ Sim::Sim(Engine &ctx,
         consts::maxObjectsPerLevel + 10;
 
     PhysicsSystem::init(ctx, cfg.rigidBodyObjMgr,
-        consts::deltaT, consts::numPhysicsSubsteps, -9.8f * math::up,
+        consts::deltaT, consts::numPhysicsSubsteps, -consts::gravity * math::up,
         max_total_entities);
 
     initRandKey = cfg.initRandKey;

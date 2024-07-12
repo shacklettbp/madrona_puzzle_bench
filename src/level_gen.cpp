@@ -110,7 +110,7 @@ Entity createAgent(Engine &ctx)
                 1.5f * math::up);
     }
 
-    ctx.get<Scale>(agent) = Diag3x3 { 1, 1, 1 };
+    ctx.get<Scale>(agent) = Diag3x3 { consts::agentExtents.x / 2, consts::agentExtents.y / 2, consts::agentExtents.z / 2 };
     ctx.get<ObjectID>(agent) = ObjectID { (int32_t)SimObject::Agent };
     ctx.get<ResponseType>(agent) = ResponseType::Dynamic;
     ctx.get<GrabState>(agent).constraintEntity = Entity::none();
@@ -1344,21 +1344,55 @@ static void jsonLevel(Engine &ctx)
     //simpleLocomotionLevel(ctx);
 
     // Assume a ground plane.
-    makeFloor(ctx);
+  //    makeFloor(ctx);
 
-    printf("JSON index: %d\n", ctx.singleton<JSONIndex>().index);
+    // Spawn parameters
+    Vector3 spawn_pos(0,0,0);
+    float spawn_size = 0.0f;
+    Vector3 exit_pos(0, 30, 0);
+
+    AABB obs_aabb;
+    bool aabb_init = false;
+    Level &level = ctx.singleton<Level>();
+    RoomList room_list = RoomList::init(&level.rooms);
+
+
     JSONLevel *jsonLevels = ctx.data().jsonLevels;
     int32_t jsonIdx = ctx.singleton<JSONIndex>().index;
     for (int i = 0; i < consts::maxJsonObjects; ++i) {
         const JSONObject &jsonObj = jsonLevels[jsonIdx].objects[i];
         EntityType t = EntityType(jsonObj.type);
 
+        // Extend bounding box for this object
+        AABB objAABB = {
+            .pMin = jsonObj.position - jsonObj.extents / 2, 
+            .pMax = jsonObj.position + jsonObj.extents / 2
+        };
+        if (!aabb_init) {
+            obs_aabb = objAABB;
+            aabb_init = true;
+        }
+        obs_aabb = AABB::merge(obs_aabb, objAABB);
+
         switch(t) {
+            case EntityType::Spawn: {
+                // Set the spawn parameters.
+                spawn_pos = jsonObj.position;
+                spawn_size = fmin(jsonObj.extents.x, jsonObj.extents.y);
+
+                makeWall(ctx, jsonObj.position, Diag3x3::fromVec(jsonObj.extents));
+            } break;
             case EntityType::Wall: {
-                printf("position: %f, %f, %f\n", jsonObj.position.x, jsonObj.position.y, jsonObj.position.z);
-                printf("extents: %f, %f, %f\n", jsonObj.extents.x, jsonObj.extents.y, jsonObj.extents.z);
-                // TODO: restore
-                //makeWall(ctx, Vector3(0,0,10), Diag3x3::fromVec(Vector3(3,3,1)));
+                makeWall(ctx, jsonObj.position, Diag3x3::fromVec(jsonObj.extents));
+            } break;
+            case EntityType::Goal: {
+                // Make a wall and put the exit entity on top of it.
+                // We could make the entire block the entity, but then
+                // the agent might learn to graze it while falling (this is
+                // a legitimate strategy).
+                exit_pos = jsonObj.position + Vector3(0, 0, jsonObj.extents.z / 2);
+                level.exit = makeExitEntity(ctx, exit_pos);
+
                 makeWall(ctx, jsonObj.position, Diag3x3::fromVec(jsonObj.extents));
             } break;
             case EntityType::None: {
@@ -1368,6 +1402,11 @@ static void jsonLevel(Engine &ctx)
             default: MADRONA_UNREACHABLE();
         }
     }
+
+    Entity room = room_list.add(ctx);
+    ctx.get<RoomAABB>(room) = obs_aabb;
+
+    resetAgent(ctx, spawn_pos, spawn_size, exit_pos);
 }
 
 static void lavaButtonLevel(Engine &ctx)
@@ -1676,12 +1715,10 @@ LevelType generateLevel(Engine &ctx)
     level_type = LevelType::LavaCorridor;
 
     // TODO: restore
-    // TODO: restore eventually we'll register a singleton that is the index.
     // TODO: restore, debug value.
     // Simple, load json path. We assume level type aligns
     // with what's being loaded or is irrelevant.
     if (ctx.singleton<JSONIndex>().index != -1) {
-        printf("Generating JSON level: %lu\n", ctx.data().jsonLevels);
         jsonLevel(ctx);
         return level_type;
     }

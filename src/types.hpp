@@ -73,6 +73,7 @@ enum class EntityType : uint32_t {
     Coop,
     FixedBlock,
     Goal,
+    Spawn,
     NumTypes,
 };
 
