@@ -361,6 +361,11 @@ static Entity makeWall(Engine &ctx, Vector3 center, Diag3x3 scale)
         EntityType::Wall,
         ResponseType::Static,
         scale);
+    ctx.get<EntityExtents>(wall) = Vector3 {
+        .x = scale.d0,
+        .y = scale.d1,
+        .z = scale.d2,
+    };
     registerRigidBodyEntity(ctx, wall, SimObject::Wall);
     // printf("Wall pos: %f, %f, %f scale: %f, %f, %fs\n", 
     // center.x * 4, center.y * 4, center.z * 4,
@@ -1356,6 +1361,12 @@ static void jsonLevel(Engine &ctx)
     Level &level = ctx.singleton<Level>();
     RoomList room_list = RoomList::init(&level.rooms);
 
+    // TODO: do the randomization in the python script.
+    const bool DEBUG_RANDOMIZE = true;
+    float gapWidth = 0.0f;
+    float startGapPos = 0.0f;
+    float endGapPos = 0.0f;
+    Vector3 wallExtents;
 
     JSONLevel *jsonLevels = ctx.data().jsonLevels;
     int32_t jsonIdx = ctx.singleton<JSONIndex>().index;
@@ -1376,14 +1387,25 @@ static void jsonLevel(Engine &ctx)
 
         switch(t) {
             case EntityType::Spawn: {
-                // Set the spawn parameters.
-                spawn_pos = jsonObj.position;
+                // Spawn the agent on top of the spawn block.
+                spawn_pos = jsonObj.position + jsonObj.extents.z * 0.5f;
                 spawn_size = fmin(jsonObj.extents.x, jsonObj.extents.y);
+
+                startGapPos = jsonObj.position.y + jsonObj.extents.y * 0.5f;
 
                 makeWall(ctx, jsonObj.position, Diag3x3::fromVec(jsonObj.extents));
             } break;
             case EntityType::Wall: {
-                makeWall(ctx, jsonObj.position, Diag3x3::fromVec(jsonObj.extents));
+                if (!DEBUG_RANDOMIZE) {
+                    makeWall(ctx, jsonObj.position, Diag3x3::fromVec(jsonObj.extents));
+                } else {
+                    wallExtents = jsonObj.extents;
+                    if (gapWidth == 0.0f) {
+                        gapWidth -= jsonObj.position.y + jsonObj.extents.y * 0.5f;
+                    } else {
+                        gapWidth += jsonObj.position.y - jsonObj.extents.y * 0.5f;
+                    }
+                }
             } break;
             case EntityType::Goal: {
                 // Make a wall and put the exit entity on top of it.
@@ -1392,6 +1414,8 @@ static void jsonLevel(Engine &ctx)
                 // a legitimate strategy).
                 exit_pos = jsonObj.position + Vector3(0, 0, jsonObj.extents.z / 2);
                 level.exit = makeExitEntity(ctx, exit_pos);
+
+                endGapPos = jsonObj.position.y - jsonObj.extents.y * 0.5f;
 
                 makeWall(ctx, jsonObj.position, Diag3x3::fromVec(jsonObj.extents));
             } break;
@@ -1402,6 +1426,18 @@ static void jsonLevel(Engine &ctx)
             default: MADRONA_UNREACHABLE();
         }
     }
+
+
+    // Deal with randomized gap width
+    if (DEBUG_RANDOMIZE) {
+        float gapStart = randBetween(ctx, startGapPos,
+            endGapPos - gapWidth);
+        float gapEnd = gapStart + gapWidth;
+
+        makeWall(ctx, Vector3(0, 0.5 * (gapStart + startGapPos), 0), Diag3x3::fromVec(Vector3(wallExtents.x, gapStart - startGapPos, wallExtents.z)));
+        makeWall(ctx, Vector3(0, 0.5 * (endGapPos + gapEnd), 0), Diag3x3::fromVec(Vector3(wallExtents.x, endGapPos - gapEnd, wallExtents.z)));
+    }
+
 
     Entity room = room_list.add(ctx);
     ctx.get<RoomAABB>(room) = obs_aabb;

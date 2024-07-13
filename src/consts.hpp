@@ -12,6 +12,8 @@ namespace consts {
 inline constexpr CountT maxJsonLevelDescriptions = 8;
 inline constexpr CountT maxJsonObjects = 64; // includes walls.
 
+inline constexpr bool disableLidar = true;
+
 
 // Give the agents more observation space than the number of room
 // entities in case they push cubes into other rooms.

@@ -954,9 +954,9 @@ inline void collectObservationsSystem(
 
         EntityType type = ctx.get<EntityType>(e);
 
+        // Walls are considered platformer entities to make observation easier for platformer levels.
         if (type == EntityType::None ||
-                type == EntityType::Agent ||
-                type == EntityType::Wall) {
+                type == EntityType::Agent) {
             return;
         }
 
@@ -1072,8 +1072,7 @@ inline void lidarSystem(Engine &ctx,
             bvh.traceRay(pos + 0.5f * math::up, ray_dir, &hit_t,
                          &hit_normal, 200.f);
 
-        // TODO: restore, better way to turn off LIDAR
-        if (hit_entity == Entity::none() || true) {
+        if (hit_entity == Entity::none() || consts::disableLidar) {
             lidar_depth.samples[idx] = 0.f;
             lidar_hit_type.samples[idx] = EntityType::None;
         } else {
@@ -1125,7 +1124,7 @@ inline void dense1RewardSystem(Engine &ctx,
     }
 
     if (episode_state.isDead) {
-        reward -= 10.f; // TODO: restore
+        reward -= 7.5f;
     }
 
     if (episode_state.reachedExit) {
@@ -1734,6 +1733,7 @@ static TaskGraphNodeID setupPostGenTasks(TaskGraphBuilder &builder,
                                          const Sim::Config &cfg,
                                          Span<const TaskGraphNodeID> deps)
 {
+
     // The lidar system
 #ifdef MADRONA_GPU_MODE
     // Note the use of CustomParallelForNode to create a taskgraph node
@@ -1751,10 +1751,10 @@ static TaskGraphNodeID setupPostGenTasks(TaskGraphBuilder &builder,
             LidarHitType
         >>(deps);
 
+
     if (cfg.renderBridge) {
         RenderingSystem::setupTasks(builder, deps);
     }
-
 
 #ifndef MADRONA_GPU_MODE
     // Already sorted above.
