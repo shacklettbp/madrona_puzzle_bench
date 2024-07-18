@@ -80,6 +80,7 @@ enum class EntityType : uint32_t {
 struct JSONObject {
     Vector3 position;
     Vector3 extents;
+    Vector3 orientation;
     float type;
 };
 

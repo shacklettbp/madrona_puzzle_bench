@@ -17,6 +17,10 @@ warnings.filterwarnings("error")
 import os
 import json
 
+import obby
+from obby.examples.example_generator import *
+from obby.examples.distribution_generators import *
+
 torch.manual_seed(0)
 
 arg_parser = argparse.ArgumentParser()
@@ -42,6 +46,7 @@ arg_parser.add_argument('--use-complex-level', action='store_true')
 arg_parser.add_argument('--entity-network', action='store_true')
 
 arg_parser.add_argument('--json-levels', type=str, default="", help="JSON level description or folder of JSON level descriptions.")
+arg_parser.add_argument('--write-json', action='store_true', help="Write a binary .out file from the json file and exit.")
 
 args = arg_parser.parse_args()
 
@@ -82,53 +87,84 @@ print(json_levels.shape)
 SPAWN_TYPE = 14 # new "Spawn" type, just signals to make the spawn restraints there.
 CHECKPOINT_TYPE = 13 # Corresponds to "Goal" in types.hpp
 WALL_TYPE = 9
+LAVA_TYPE = 5
+
+def jsonTableToTensor(jsonLevel):
+    print(jsonLevel)
+    # Single level has max 64 objects, 7 floats/object
+    out_tensor = torch.zeros(64, 10)
+    idx = 0
+    unit = 1
+    for name in jsonLevel.keys():
+        objDesc = jsonLevel[name]
+
+        objType = WALL_TYPE
+
+        for behaviorDict in objDesc["behaviors"]:
+            objTypeName = behaviorDict["name"]
+            if "Spawn" in objTypeName:
+                objType = SPAWN_TYPE
+            elif "Goal" in objTypeName or "Checkpoint" in objTypeName:
+                objType = CHECKPOINT_TYPE
+            elif "Damage" in objTypeName:
+                objType = LAVA_TYPE
+
+        #if len(objDesc["tags"]) != 0:
+        #    # TODO: only process normal walls.
+        #    continue
+        out_tensor[idx][:3] = torch.tensor(objDesc["position"])
+        out_tensor[idx][3:6] = torch.tensor(objDesc["size"])
+        out_tensor[idx][6:9] = torch.tensor(objDesc["orientation"])
+        out_tensor[idx][9] = objType
+        idx += 1
+    return out_tensor
 
 def jsonFileToTensor(jsonFile):
     jsonLevel = []
     with open(jsonFile, "r") as f:
         jsonString = f.read()
         jsonLevel = json.loads(jsonString)
-    print(jsonLevel)
-    print(type(jsonLevel))
-    # Single level has max 64 objects, 7 floats/object
-    out_tensor = torch.zeros(64, 7)
-    for idx, objName in enumerate(jsonLevel.keys()):
-        objDesc = jsonLevel[objName]
-        objType = -1
-        if "Spawn" in objName:
-            objType = SPAWN_TYPE
-        elif "Checkpoint" in objName:
-            objType = CHECKPOINT_TYPE
-        else:
-            objType = WALL_TYPE
+        return jsonTableToTensor(jsonLevel)
 
-        print(objName)
-        #if len(objDesc["tags"]) != 0:
-        #    # TODO: only process normal walls.
-        #    continue
-        out_tensor[idx][:3] = torch.tensor(objDesc["position"])
-        out_tensor[idx][3:6] = torch.tensor(objDesc["size"])
-        out_tensor[idx][6] = objType
-    return out_tensor
+jsonLevelList = [
+    "path_jump_path",
+    "test_platform",
+    "lilypads",
+    "lava_tightrope",
+    "lava_pattern",
+    "lava_checkerboard"
+]
+
+
+
+for i in range(args.num_worlds):
+    u1 = Uniform(1.0, 3.0, i)
+    u2 = Uniform(3.0, 9.0, i)
+    json_levels[i] = jsonTableToTensor(json.loads(random_path_jump_path_generator(f"path_jump_path_s{i}_{0}", u1, u2).jsonify()))
+    json_indices[i, 0] = i
+
 
 # Read JSON levels from a file
-if args.json_levels != "":
-    if os.path.isfile(args.json_levels):
-        json_levels[0] = jsonFileToTensor(args.json_levels)
-    else:
-        levelIdx = 0
-        for jsonFile in os.path.listdir(args.json_levels):
-            if jsonFile.endswith(".json"):
-                json_levels[levelIdx] = jsonFileToTensor(os.path.join(args.json_levels, jsonFile))
-                levelIdx += 1
+#if args.json_levels != "":
+#    if os.path.isfile(args.json_levels):
+#        json_levels[0] = jsonFileToTensor(args.json_levels)
+#    else:
+#        levelIdx = 0
+#        for jsonFile in os.path.listdir(args.json_levels):
+#            if jsonFile.endswith(".json"):
+#                json_levels[levelIdx] = jsonFileToTensor(os.path.join(args.json_levels, jsonFile))
+#                levelIdx += 1
 
-    print(json_levels[0])
-    outfile = args.json_levels[:args.json_levels.index(".json")] + ".out"
+if args.write_json:
+    print(json_levels)
+    outfile = args.json_levels + ".out"
     print(outfile)
     with open(outfile, "wb") as f:
         f.write(json_levels.numpy().tobytes())
+    exit()
 
-json_indices[:, 0] = 0
+
+#json_indices[:, 0] = 0
 
 # print(json_levels.shape)
 # print("Testing")
@@ -168,9 +204,6 @@ rewards = sim.reward_tensor().to_torch()
 goals = sim.goal_tensor().to_torch()
 
 ckpts = sim.checkpoint_tensor().to_torch()
-
-
-
 
 cur_rnn_states = []
 

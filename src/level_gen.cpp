@@ -9,6 +9,30 @@ using namespace madrona::phys;
 
 namespace {
 
+
+static inline Quat PYRToQuat(Vector3 rot) {
+
+    float pitchRad = toRadians(rot.x) * 0.5f;
+    float cp = cosf(pitchRad);
+    float sp = sinf(pitchRad);
+
+    float yawRad = toRadians(rot.y) * 0.5f;
+    float cy = cosf(yawRad);
+    float sy = sinf(yawRad);
+
+    float rollRad = toRadians(rot.z) * 0.5f;
+    float cr = cosf(rollRad);
+    float sr = sinf(rollRad);
+
+    Quat q;
+    q.w = cr * cp * cy + sr * sp * sy;
+    q.x = sr * cp * cy - cr * sp * sy;
+    q.y = cr * sp * cy + sr * cp * sy;
+    q.z = cr * cp * sy - sr * sp * cy;
+
+    return q;
+}    
+
 enum class WallType : uint32_t {
     None,
     Solid,
@@ -133,7 +157,9 @@ void resetAgent(Engine &ctx,
     Entity agent_entity = ctx.data().agent;
     registerRigidBodyEntity(ctx, agent_entity, SimObject::Agent);
 
-    float safe_spawn_range = spawn_size / 2.f - consts::agentRadius;
+    // Don't bring in agent radius, give the full spawn.
+    // TODO: restore
+    float safe_spawn_range = spawn_size;// / 2.f;// - consts::agentRadius;
     spawn_pos.x += randInRangeCentered(ctx, safe_spawn_range);
     spawn_pos.y += randInRangeCentered(ctx, safe_spawn_range);
 
@@ -348,7 +374,7 @@ static Entity makeDoor(Engine &ctx,
     return door;
 }
 
-static Entity makeWall(Engine &ctx, Vector3 center, Diag3x3 scale)
+static Entity makeWall(Engine &ctx, Vector3 center, Quat rotation, Diag3x3 scale)
 {
     Entity wall = ctx.makeRenderableEntity<PhysicsEntity>();
     //scale.d2 *= 5.f; // Scale factor from old model.
@@ -356,7 +382,7 @@ static Entity makeWall(Engine &ctx, Vector3 center, Diag3x3 scale)
         ctx,
         wall,
         center,
-        Quat { 1, 0, 0, 0 },
+        rotation,
         SimObject::Wall, 
         EntityType::Wall,
         ResponseType::Static,
@@ -434,7 +460,7 @@ static void makeRoomWalls(Engine &ctx,
 
         Vector3 center = (p0 + p1) / 2.f;
 
-        makeWall(ctx, center, scale);
+        makeWall(ctx, center, Quat {1,0,0,0}, scale);
     };
 
     auto makeEntranceWall = [
@@ -485,7 +511,7 @@ static void makeRoomWalls(Engine &ctx,
 
         before_center -= len_axis * consts::wallWidth / 4.f;
 
-        makeWall(ctx, before_center, Diag3x3::fromVec(before_dims));
+        makeWall(ctx, before_center, Quat {1,0,0,0}, Diag3x3::fromVec(before_dims));
 
         Vector3 after_center = (after_entrance + p1) / 2.f;
         Vector3 after_dims = consts::wallWidth * width_axis + 
@@ -495,7 +521,7 @@ static void makeRoomWalls(Engine &ctx,
 
         after_center += len_axis * consts::wallWidth / 4.f;
 
-        makeWall(ctx, after_center, Diag3x3::fromVec(after_dims));
+        makeWall(ctx, after_center, Quat {1,0,0,0}, Diag3x3::fromVec(after_dims));
     };
 
     const Vector3 corners[4] {
@@ -560,6 +586,7 @@ static void makeSpawn(Engine &ctx, float spawn_size, Vector3 spawn_pos)
             -spawn_size / 2.f,
             0.f,
         },
+        Quat {1,0,0,0},
         {
             spawn_size + consts::wallWidth,
             consts::wallWidth,
@@ -572,6 +599,7 @@ static void makeSpawn(Engine &ctx, float spawn_size, Vector3 spawn_pos)
             0.f,
             0.f,
         },
+        Quat {1,0,0,0},
         {
             consts::wallWidth,
             spawn_size,
@@ -584,6 +612,7 @@ static void makeSpawn(Engine &ctx, float spawn_size, Vector3 spawn_pos)
             0.f,
             0.f,
         },
+        Quat {1,0,0,0},
         {
             consts::wallWidth,
             spawn_size,
@@ -622,6 +651,7 @@ static Entity makeExit(Engine &ctx, float room_size, Vector3 exit_pos)
             room_size / 2.f,
             0.f,
         },
+        Quat {1,0,0,0},
         {
             room_size + consts::wallWidth,
             consts::wallWidth,
@@ -634,6 +664,7 @@ static Entity makeExit(Engine &ctx, float room_size, Vector3 exit_pos)
             0.f,
             0.f,
         },
+        Quat {1,0,0,0},
         {
             consts::wallWidth,
             room_size,
@@ -646,6 +677,7 @@ static Entity makeExit(Engine &ctx, float room_size, Vector3 exit_pos)
             0.f,
             0.f,
         },
+        Quat {1,0,0,0},
         {
             consts::wallWidth,
             room_size,
@@ -655,7 +687,8 @@ static Entity makeExit(Engine &ctx, float room_size, Vector3 exit_pos)
     return e;
 }
 
-static Entity makeLava(Engine &ctx, Vector3 position, 
+static Entity makeLava(Engine &ctx, Vector3 position,
+                        Quat rotation = {1,0,0,0},
                         Scale scale = Diag3x3{1.0f, 1.0f, 0.01f})
 {
     Entity lava = ctx.makeRenderableEntity<LavaEntity>();
@@ -663,7 +696,7 @@ static Entity makeLava(Engine &ctx, Vector3 position,
         ctx,
         lava,
         position,
-        Quat { 1, 0, 0, 0 },
+        rotation,
         SimObject::Lava,
         EntityType::Lava,
         ResponseType::Static,
@@ -751,7 +784,7 @@ static void setupTrainingRoomLevel(Engine &ctx,
 
         Vector3 center = (p0 + p1) / 2.f;
 
-        makeWall(ctx, center, scale);
+        makeWall(ctx, center, Quat {1,0,0,0}, scale);
     };
 
     makeRoomWalls(ctx, room_aabb,
@@ -890,7 +923,7 @@ static void setupSingleRoomLevel(Engine &ctx,
 
         Vector3 center = (p0 + p1) / 2.f;
 
-        makeWall(ctx, center, scale);
+        makeWall(ctx, center, Quat {1,0,0,0}, scale);
     };
 
     if (hop_wall){
@@ -1021,7 +1054,7 @@ int lavaWriteIdx)
             0.001f
         };
 
-        makeLava(ctx, lavaCenter, lavaScale);
+        makeLava(ctx, lavaCenter, Quat{1,0,0,0}, lavaScale);
     }
 }
 
@@ -1362,7 +1395,7 @@ static void jsonLevel(Engine &ctx)
     RoomList room_list = RoomList::init(&level.rooms);
 
     // TODO: do the randomization in the python script.
-    const bool DEBUG_RANDOMIZE = true;
+    const bool DEBUG_RANDOMIZE = false;
     float gapWidth = 0.0f;
     float startGapPos = 0.0f;
     float endGapPos = 0.0f;
@@ -1393,11 +1426,11 @@ static void jsonLevel(Engine &ctx)
 
                 startGapPos = jsonObj.position.y + jsonObj.extents.y * 0.5f;
 
-                makeWall(ctx, jsonObj.position, Diag3x3::fromVec(jsonObj.extents));
+                makeWall(ctx, jsonObj.position, PYRToQuat(jsonObj.orientation), Diag3x3::fromVec(jsonObj.extents));
             } break;
             case EntityType::Wall: {
                 if (!DEBUG_RANDOMIZE) {
-                    makeWall(ctx, jsonObj.position, Diag3x3::fromVec(jsonObj.extents));
+                    makeWall(ctx, jsonObj.position, PYRToQuat(jsonObj.orientation), Diag3x3::fromVec(jsonObj.extents));
                 } else {
                     wallExtents = jsonObj.extents;
                     if (gapWidth == 0.0f) {
@@ -1410,14 +1443,17 @@ static void jsonLevel(Engine &ctx)
             case EntityType::Goal: {
                 // Make a wall and put the exit entity on top of it.
                 // We could make the entire block the entity, but then
-                // the agent might learn to graze it while falling (this is
-                // a legitimate strategy).
+                // the agent might learn to graze it while falling (which we
+                // avoid for now, though it is a legitimate strategy).
                 exit_pos = jsonObj.position + Vector3(0, 0, jsonObj.extents.z / 2);
                 level.exit = makeExitEntity(ctx, exit_pos);
 
                 endGapPos = jsonObj.position.y - jsonObj.extents.y * 0.5f;
 
-                makeWall(ctx, jsonObj.position, Diag3x3::fromVec(jsonObj.extents));
+                makeWall(ctx, jsonObj.position, PYRToQuat(jsonObj.orientation), Diag3x3::fromVec(jsonObj.extents));
+            } break;
+            case EntityType::Lava: {
+                makeLava(ctx, jsonObj.position, PYRToQuat(jsonObj.orientation), Diag3x3::fromVec(jsonObj.extents));
             } break;
             case EntityType::None: {
                 // No entity here, do nothing
@@ -1434,8 +1470,8 @@ static void jsonLevel(Engine &ctx)
             endGapPos - gapWidth);
         float gapEnd = gapStart + gapWidth;
 
-        makeWall(ctx, Vector3(0, 0.5 * (gapStart + startGapPos), 0), Diag3x3::fromVec(Vector3(wallExtents.x, gapStart - startGapPos, wallExtents.z)));
-        makeWall(ctx, Vector3(0, 0.5 * (endGapPos + gapEnd), 0), Diag3x3::fromVec(Vector3(wallExtents.x, endGapPos - gapEnd, wallExtents.z)));
+        makeWall(ctx, Vector3(0, 0.5 * (gapStart + startGapPos), 0), Quat{1,0,0,0}, Diag3x3::fromVec(Vector3(wallExtents.x, gapStart - startGapPos, wallExtents.z)));
+        makeWall(ctx, Vector3(0, 0.5 * (endGapPos + gapEnd), 0), Quat{1,0,0,0}, Diag3x3::fromVec(Vector3(wallExtents.x, endGapPos - gapEnd, wallExtents.z)));
     }
 
 
@@ -1589,6 +1625,7 @@ static void obstructedBlockButtonLevel(Engine &ctx)
             block_y,
             0.f,
         },
+        Quat {1,0,0,0},
         {
             consts::wallWidth,
             block_size + consts::wallWidth * 2.f,
@@ -1600,6 +1637,7 @@ static void obstructedBlockButtonLevel(Engine &ctx)
             block_y + block_size / 2.f + consts::wallWidth / 2.f,
             0.f,
         },
+        Quat {1,0,0,0},
         {
             block_size,
             consts::wallWidth,
@@ -1611,6 +1649,7 @@ static void obstructedBlockButtonLevel(Engine &ctx)
             block_y - block_size / 2.f - consts::wallWidth / 2.f,
             0.f,
         },
+        Quat {1,0,0,0},
         {
             block_size,
             consts::wallWidth,
@@ -1750,11 +1789,14 @@ LevelType generateLevel(Engine &ctx)
     // TODO: restore
     level_type = LevelType::LavaCorridor;
 
+    //ctx.singleton<JSONIndex>().index = int32_t(ctx.data().rng.sampleUniform() * consts::maxJsonLevelDescriptions);
+
     // TODO: restore
     // TODO: restore, debug value.
     // Simple, load json path. We assume level type aligns
     // with what's being loaded or is irrelevant.
     if (ctx.singleton<JSONIndex>().index != -1) {
+        ctx.singleton<JSONIndex>().index = int32_t(ctx.data().rng.sampleUniform() * consts::maxJsonLevelDescriptions);
         jsonLevel(ctx);
         return level_type;
     }

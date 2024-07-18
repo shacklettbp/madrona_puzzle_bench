@@ -353,11 +353,11 @@ inline bool onGround(Engine &ctx, const Position &pos, const Rotation &rot, cons
     Vector3 ray_d = rot.rotateVec(-math::up);
 
     // Need extra to compensate for slight lava lift...
-    const float max_t = halfHeight;// + 0.001f;
+    const float max_t = halfHeight + 0.001f;
 
-    Entity grab_entity = bvh.traceRay(ray_o, ray_d, &hit_t, &hit_normal, max_t);
+    Entity floor_entity = bvh.traceRay(ray_o, ray_d, &hit_t, &hit_normal, max_t);
 
-    if (grab_entity == Entity::none()) {
+    if (floor_entity == Entity::none()) {
         return false;
     }
 
@@ -385,7 +385,8 @@ inline void jumpSystem(Engine &ctx,
     }
 
     // Jump!
-    external_force.z += rot.rotateVec({ 0.0f, 0.0f, 2500.0f }).z;
+    //external_force.z += rot.rotateVec({ 0.0f, 0.0f, 2500.0f }).z;
+    external_force.z += rot.rotateVec({ 0.0f, 0.0f, 1400.0f }).z;
     //external_force.z += rot.rotateVec({ 0.0f, 0.0f, 125.0f }).z;
 }
 
@@ -400,11 +401,11 @@ inline void movementSystem(Engine &ctx,
                            ExternalTorque &external_torque)
 {
     Quat cur_rot = rot;
-    float move_max = 6250 * 0.25f; //800; //1000;
+    float move_max = 2400.0f; //800; //1000;
     constexpr float turn_max = 240; //320;
 
     if (!onGround(ctx, pos, rot, s)) {
-        move_max = 3500 * 0.25f; //500;
+        move_max *= 0.7f; //0.675f; //500;
     }
 
     float move_amount = action.moveAmount *

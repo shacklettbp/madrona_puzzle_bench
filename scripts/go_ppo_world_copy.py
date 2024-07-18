@@ -2,11 +2,15 @@ import madrona_puzzle_bench
 from madrona_puzzle_bench import SimFlags, RewardMode
 
 from madrona_puzzle_bench_learn import (
-    train, profile, TrainConfig, PPOConfig, SimInterface,
+    train, profile, TrainConfig, PPOConfig, SimInterface, LearningState
 )
+
+from obby.examples.example_generator import *
+from obby.examples.distribution_generators import *
 
 from policy import make_policy, setup_obs
 
+import json
 import torch
 import wandb
 import argparse
@@ -18,51 +22,39 @@ import numpy as np
 import time
 import os
 
-# Import the obby functions
-from obby.grammar.part import *
-from obby.grammar.obstacles import *
-from obby.grammar.obby import *
-
-def path_jump_path():
-    obby = GridObbyV1(name="path_jump_path")
-    # Spawn.
-    obby.spawn((0, 0, 0), 3)
-
-    # Make maze.
-    obby.part('Block', (0, 4, 0), (1, 5))
-    obby.part('Block', (0, 10.5, 0), (1, 5))
-
-    obby.checkpoint((0, 14.5, 0), 3)
-
-    return obby
-
 SPAWN_TYPE = 14 # new "Spawn" type, just signals to make the spawn restraints there.
 CHECKPOINT_TYPE = 13 # Corresponds to "Goal" in types.hpp
 WALL_TYPE = 9
+LAVA_TYPE = 5
 
-def jsonStringToTensor(jsonString):
-    jsonLevel = json.loads(jsonString)
+def jsonTableToTensor(jsonLevel):
     print(jsonLevel)
-    print(type(jsonLevel))
     # Single level has max 64 objects, 7 floats/object
-    out_tensor = torch.zeros(64, 7)
-    for idx, objName in enumerate(jsonLevel.keys()):
-        objDesc = jsonLevel[objName]
-        objType = -1
-        if "Spawn" in objName:
-            objType = SPAWN_TYPE
-        elif "Checkpoint" in objName:
-            objType = CHECKPOINT_TYPE
-        else:
-            objType = WALL_TYPE
+    out_tensor = torch.zeros(64, 10)
+    idx = 0
+    unit = 1
+    for name in jsonLevel.keys():
+        objDesc = jsonLevel[name]
 
-        print(objName)
+        objType = WALL_TYPE
+
+        for behaviorDict in objDesc["behaviors"]:
+            objTypeName = behaviorDict["name"]
+            if "Spawn" in objTypeName:
+                objType = SPAWN_TYPE
+            elif "Goal" in objTypeName or "Checkpoint" in objTypeName:
+                objType = CHECKPOINT_TYPE
+            elif "Damage" in objTypeName:
+                objType = LAVA_TYPE
+
         #if len(objDesc["tags"]) != 0:
         #    # TODO: only process normal walls.
         #    continue
         out_tensor[idx][:3] = torch.tensor(objDesc["position"])
         out_tensor[idx][3:6] = torch.tensor(objDesc["size"])
-        out_tensor[idx][6] = objType
+        out_tensor[idx][6:9] = torch.tensor(objDesc["orientation"])
+        out_tensor[idx][9] = objType
+        idx += 1
     return out_tensor
 
 
@@ -107,6 +99,7 @@ arg_parser.add_argument('--use-intrinsic-loss', action='store_true')
 arg_parser.add_argument('--no-onehot', action='store_true')
 
 # Architecture args
+arg_parser.add_argument('--starting-policy', type=str, default=None, help="Start this training from an existing policy.")
 arg_parser.add_argument('--num-channels', type=int, default=256)
 arg_parser.add_argument('--separate-value', action='store_true')
 arg_parser.add_argument('--entity-network', action='store_true')
@@ -227,9 +220,18 @@ class GoExplore:
 
         # Set the json levels.
         json_levels = self.worlds.json_level_descriptions_tensor().to_torch()
-        json_levels[0] = jsonStringToTensor(path_jump_path().jsonify("path_jump_path.json")).to(device)
+
+        #self.json_level_store = torch.zeros([1024, json_levels.shape[1], json_levels.shape[2]])
+
+        #Generate 1024 random levels
+        for i in range(json_levels.shape[0]):
+            u1 = Uniform(1.0, 3.0, i)
+            u2 = Uniform(3.0, 9.0, i)
+            json_levels[i] = jsonTableToTensor(json.loads(random_path_jump_path_generator(f"path_jump_path_s{i}_{0}", u1, u2).jsonify())).to(device)
+
         json_indices = self.worlds.json_index_tensor().to_torch()
-        json_indices[:, 0] = 0 # Initialize all the json world indices.
+        for i in range(json_indices.shape[0]):
+            json_indices[i, 0] = i // (num_worlds // json_levels.shape[0]) # Initialize all the json world indices.
 
         self.num_worlds = num_worlds
         self.num_agents = 1
@@ -250,6 +252,11 @@ class GoExplore:
         else:
             self.obs, num_obs_features = setup_obs(self.worlds, args.no_level_obs)
             self.policy = make_policy(num_obs_features, None, args.num_channels, args.separate_value, intrinsic=args.use_intrinsic_loss)
+
+        if args.starting_policy:
+            weights = LearningState.load_policy_weights(args.starting_policy)
+            self.policy.load_state_dict(weights, strict=False)
+
         self.actions = self.worlds.action_tensor().to_torch()
         self.dones = self.worlds.done_tensor().to_torch()
         self.rewards = self.worlds.reward_tensor().to_torch()
@@ -1382,64 +1389,65 @@ class GoExplore:
 #   3. Run diagnostic if desired
 #   4. Select next state for next rollout
 
-# Now run the train loop from the other script
-# Create GoExplore object from args
-goExplore = GoExplore(args.num_worlds, dev)
+if __name__ == "__main__":
+    # Now run the train loop from the other script
+    # Create GoExplore object from args
+    goExplore = GoExplore(args.num_worlds, dev)
 
-if args.restore:
-    restore_ckpt = ckpt_dir / f"{args.restore}.pth"
-else:
-    restore_ckpt = None
+    if args.restore:
+        restore_ckpt = ckpt_dir / f"{args.restore}.pth"
+    else:
+        restore_ckpt = None
 
-run = wandb.init(
-    # Set the project where this run will be logged
-    #project="puzzle-bench-counts",
-    project="escape-room-complex",
-    # Track hyperparameters and run metadata
-    config=args
-)
+    run = wandb.init(
+        # Set the project where this run will be logged
+        #project="puzzle-bench-counts",
+        project="escape-room-complex",
+        # Track hyperparameters and run metadata
+        config=args
+    )
 
-# TODO: restore, make steps per action robust.
-# [goExplore.worlds.step() for _ in range(5)],
-train(
-    dev,
-    SimInterface(
-            step = lambda: goExplore.worlds.step(),
-            obs = goExplore.obs,
-            actions = goExplore.actions,
-            dones = goExplore.dones,
-            rewards = goExplore.rewards,
-            resets = goExplore.resets,
-            checkpoints = goExplore.checkpoints,
-            checkpoint_resets = goExplore.checkpoint_resets
-    ),
-    TrainConfig(
-        run_name = args.run_name,
-        num_updates = args.num_updates,
-        steps_per_update = args.steps_per_update,
-        num_bptt_chunks = args.num_bptt_chunks,
-        lr = args.lr,
-        gamma = args.gamma,
-        gae_lambda = 0.95,
-        ppo = PPOConfig(
-            num_mini_batches=1, # VISHNU: WAS 1
-            clip_coef=0.2,
-            value_loss_coef=args.value_loss_coef,
-            use_intrinsic_loss=args.use_intrinsic_loss, 
-            value_loss_intrinsic_coef=0.5, # TODO: Need to set
-            intrinsic_loss_coef=0.5, # TODO: Need to set
-            entropy_coef=args.entropy_loss_coef,
-            max_grad_norm=0.5,
-            num_epochs=2,
-            clip_value_loss=args.clip_value_loss,
-            no_advantages=args.no_advantages,
+    # TODO: restore, make steps per action robust.
+    # [goExplore.worlds.step() for _ in range(5)],
+    train(
+        dev,
+        SimInterface(
+                step = lambda: goExplore.worlds.step(),
+                obs = goExplore.obs,
+                actions = goExplore.actions,
+                dones = goExplore.dones,
+                rewards = goExplore.rewards,
+                resets = goExplore.resets,
+                checkpoints = goExplore.checkpoints,
+                checkpoint_resets = goExplore.checkpoint_resets
         ),
-        value_normalizer_decay = args.value_normalizer_decay,
-        mixed_precision = args.fp16,
-        normalize_advantages = normalize_advantages,
-        normalize_values = normalize_values,
-    ),
-    goExplore.policy,
-    goExplore,
-    restore_ckpt
-)
+        TrainConfig(
+            run_name = args.run_name,
+            num_updates = args.num_updates,
+            steps_per_update = args.steps_per_update,
+            num_bptt_chunks = args.num_bptt_chunks,
+            lr = args.lr,
+            gamma = args.gamma,
+            gae_lambda = 0.95,
+            ppo = PPOConfig(
+                num_mini_batches=1, # VISHNU: WAS 1
+                clip_coef=0.2,
+                value_loss_coef=args.value_loss_coef,
+                use_intrinsic_loss=args.use_intrinsic_loss, 
+                value_loss_intrinsic_coef=0.5, # TODO: Need to set
+                intrinsic_loss_coef=0.5, # TODO: Need to set
+                entropy_coef=args.entropy_loss_coef,
+                max_grad_norm=0.5,
+                num_epochs=2,
+                clip_value_loss=args.clip_value_loss,
+                no_advantages=args.no_advantages,
+            ),
+            value_normalizer_decay = args.value_normalizer_decay,
+            mixed_precision = args.fp16,
+            normalize_advantages = normalize_advantages,
+            normalize_values = normalize_values,
+        ),
+        goExplore.policy,
+        goExplore,
+        restore_ckpt
+    )
