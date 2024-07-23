@@ -28,6 +28,7 @@ arg_parser.add_argument('--gpu-id', type=int, default=0)
 arg_parser.add_argument('--ckpt-path', type=str, required=True)
 arg_parser.add_argument('--record-log', type=str)
 arg_parser.add_argument('--trajectory-log', type=str)
+arg_parser.add_argument('--action-replay', type=str, help="Binary with a tensor of actions to take along with starting position.")
 
 arg_parser.add_argument('--use-fixed-world', action='store_true')
 
@@ -90,7 +91,7 @@ WALL_TYPE = 9
 LAVA_TYPE = 5
 
 def jsonTableToTensor(jsonLevel):
-    print(jsonLevel)
+    #print(jsonLevel)
     # Single level has max 64 objects, 7 floats/object
     out_tensor = torch.zeros(64, 10)
     idx = 0
@@ -136,11 +137,14 @@ jsonLevelList = [
 ]
 
 
+n_blocks = UniformInt(2, 2, seed=10)
+#gap_length = Uniform(1, 1, seed=10)
+gap_length = Uniform(0, 2, seed=10)
+block_length = Uniform(1.0, 6.0, seed=10)
+for i in range(1024):
+    json_levels[i] = jsonTableToTensor(json.loads(random_path_jump_path_generator(f"path_jump_path_s{10}_{i}", n_blocks, gap_length, block_length).jsonify()))
 
 for i in range(args.num_worlds):
-    u1 = Uniform(1.0, 3.0, i)
-    u2 = Uniform(3.0, 9.0, i)
-    json_levels[i] = jsonTableToTensor(json.loads(random_path_jump_path_generator(f"path_jump_path_s{i}_{0}", u1, u2).jsonify()))
     json_indices[i, 0] = i
 
 
@@ -156,12 +160,11 @@ for i in range(args.num_worlds):
 #                levelIdx += 1
 
 if args.write_json:
-    print(json_levels)
+    print(json_levels[0])
     outfile = args.json_levels + ".out"
     print(outfile)
     with open(outfile, "wb") as f:
         f.write(json_levels.numpy().tobytes())
-    exit()
 
 
 #json_indices[:, 0] = 0
@@ -229,7 +232,8 @@ timings = 0
 trajectory_step = {
     "observations" : {},
     "action" : {},
-    "action_probs" : {}
+    "action_probs" : {},
+    "worldIdx" : -1
 }
 
 trajectories = []
@@ -237,11 +241,13 @@ trajectories = []
 for i in range(args.num_steps):
 
 
-    print("Observations")
-    for o in obs:
-        print(o)
+    #print("Observations")
+    #for o in obs:
+    #    print(o)
 
-    print(obs[-3]) # Steps remaining
+    #print(obs[-3]) # Steps remaining
+
+    print(obs[0])
 
     trajectory_step["observations"] = [o.tolist() for o in obs]
 
@@ -260,6 +266,12 @@ for i in range(args.num_steps):
         probs = action_dists.probs()
         trajectory_step["action_probs"] = [p.tolist() for p in probs]
     end = time.time()
+
+    # TODO: restore
+    #actions[:] = torch.tensor([3, 0, 4, 1]).unsqueeze(0)
+
+    # For trajectory playback we assume only world 0 is active.
+    trajectory_step["worldIdx"] = int(json_indices[:, 0])
 
     if trajectory_log:
         trajectories.append(trajectory_step.copy())

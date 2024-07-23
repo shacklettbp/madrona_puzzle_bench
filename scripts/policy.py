@@ -101,7 +101,7 @@ def setup_obs(sim, no_level_obs = False, use_onehot = True, separate_entity = Fa
         entity_attr_obs_tensor_onehot if use_onehot else entity_attr_obs_tensor.view(entity_attr_obs_tensor.shape[0], entity_attr_obs_tensor.shape[1], -1),
     ], dim=2)
 
-    num_obs_features = obs_tensor.shape[1] 
+    num_obs_features = obs_tensor.shape[1]
     num_entity_features = entity_tensor.shape[2]
 
     '''

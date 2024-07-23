@@ -28,11 +28,10 @@ WALL_TYPE = 9
 LAVA_TYPE = 5
 
 def jsonTableToTensor(jsonLevel):
-    print(jsonLevel)
+    #print(jsonLevel)
     # Single level has max 64 objects, 7 floats/object
     out_tensor = torch.zeros(64, 10)
     idx = 0
-    unit = 1
     for name in jsonLevel.keys():
         objDesc = jsonLevel[name]
 
@@ -50,14 +49,18 @@ def jsonTableToTensor(jsonLevel):
         #if len(objDesc["tags"]) != 0:
         #    # TODO: only process normal walls.
         #    continue
+        # TODO: restore
+        # 0.0749 s
         out_tensor[idx][:3] = torch.tensor(objDesc["position"])
+        
+        # 0.083 s
+        #for i in range(3):
+        #    out_tensor[idx][i] = objDesc["position"][i]
         out_tensor[idx][3:6] = torch.tensor(objDesc["size"])
         out_tensor[idx][6:9] = torch.tensor(objDesc["orientation"])
         out_tensor[idx][9] = objType
         idx += 1
     return out_tensor
-
-
 
 torch.manual_seed(0)
 
@@ -131,6 +134,23 @@ arg_parser.add_argument('--bin-diagnostic', action='store_true')
 arg_parser.add_argument('--seeds-per-checkpoint', type=int, default=16)
 
 args = arg_parser.parse_args()
+
+
+
+
+n_blocks = UniformInt(2, 2, seed=args.seed)
+#gap_length = Uniform(1, 1, seed=args.seed) # simple to train
+gap_length = Uniform(1.0, 2.0, seed=args.seed) # actual challenge
+block_length = Uniform(1.0, 6.0, seed=args.seed)
+def regenerateJsonLevels(json_levels_shape):
+    global n_blocks
+    global gap_length
+    global block_length
+
+    json_levels_cpu = torch.zeros(json_levels_shape)
+    for i in range(json_levels_cpu.shape[0]):
+        json_levels_cpu[i] = jsonTableToTensor(json.loads(random_path_jump_path_generator(f"path_jump_path_s{args.seed}_{i}", n_blocks, gap_length, block_length).jsonify()))
+    return json_levels_cpu
 
 #args.num_updates = args.num_updates // 2 # Temporary change for script, will need to roll back
 
@@ -220,19 +240,13 @@ class GoExplore:
 
         # Set the json levels.
         json_levels = self.worlds.json_level_descriptions_tensor().to_torch()
-
-        #self.json_level_store = torch.zeros([1024, json_levels.shape[1], json_levels.shape[2]])
-
-        #Generate 1024 random levels
-        for i in range(json_levels.shape[0]):
-            u1 = Uniform(1.0, 3.0, i)
-            u2 = Uniform(3.0, 9.0, i)
-            json_levels[i] = jsonTableToTensor(json.loads(random_path_jump_path_generator(f"path_jump_path_s{i}_{0}", u1, u2).jsonify())).to(device)
+        json_levels[:] = regenerateJsonLevels(json_levels.shape).to(device)
 
         json_indices = self.worlds.json_index_tensor().to_torch()
         for i in range(json_indices.shape[0]):
             json_indices[i, 0] = i // (num_worlds // json_levels.shape[0]) # Initialize all the json world indices.
 
+        self.best_mean_return = 0
         self.num_worlds = num_worlds
         self.num_agents = 1
         self.curr_returns = torch.zeros(num_worlds, device = device) # For tracking cumulative return of each state/bin
@@ -994,6 +1008,12 @@ class GoExplore:
 
         ppo = update_results.ppo_stats
 
+        with torch.no_grad():
+            reward_mean = update_results.rewards.mean().cpu().item()
+            if reward_mean > self.best_mean_return:
+                learning_state.save(update_idx, self.ckpt_dir / f"Best{update_id}.pth")
+                self.best_mean_return = reward_mean
+
         if not skip_log:
             # Only log stuff from the worlds where we're not setting state
             desired_samples = int(self.num_worlds*args.new_frac)*self.num_agents#*((10001 - update_id) / 10000))*self.num_agents
@@ -1311,6 +1331,10 @@ class GoExplore:
                 profile.report()
 
             if update_id % 100 == 0:
+                # Save and regenerate worlds
+                json_levels = self.worlds.json_level_descriptions_tensor().to_torch()
+                json_levels[:] = regenerateJsonLevels(json_levels.shape).to(self.device)
+                # Save network
                 learning_state.save(update_idx, self.ckpt_dir / f"{update_id}.pth")
 
         #if update_id % 5 != 0:

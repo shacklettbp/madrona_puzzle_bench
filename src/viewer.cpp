@@ -325,12 +325,16 @@ int main(int argc, char *argv[])
     float camera_move_speed = 10.f;
 
     // TODO: restore
-    math::Vector3 initial_camera_position = { 0, consts::worldWidth / 2.f, 30 };
+    math::Vector3 initial_camera_position = {-18.673185f, 9.947714f, 24.566645f};
+    //, consts::worldWidth / 2.f, 30 };
 
-    
     math::Quat initial_camera_rotation =
         (math::Quat::angleAxis(-math::pi / 2.f, math::up) *
-        math::Quat::angleAxis(-math::pi / 2.f, math::right)).normalize();
+        math::Quat::angleAxis(-math::pi / 4.f, math::right)).normalize();
+    
+    // math::Quat initial_camera_rotation =
+    //     (math::Quat::angleAxis(-math::pi / 2.f, math::up) *
+    //     math::Quat::angleAxis(-math::pi / 2.f, math::right)).normalize();
 
     // Camera position for behind agent view.
     //math::Vector3 initial_camera_position = { 0, -5, 1 };
@@ -341,7 +345,8 @@ int main(int argc, char *argv[])
     // Create the viewer viewer
     viz::Viewer viewer(mgr.getRenderManager(), window.get(), {
         .numWorlds = num_worlds,
-        .simTickRate = start_frozen ? 0_u32 : 20_u32,
+        // TODO: restore
+        .simTickRate = start_frozen ? 0_u32 : 10_u32,
         .cameraMoveSpeed = camera_move_speed,
         .cameraPosition = initial_camera_position,
         .cameraRotation = initial_camera_rotation,

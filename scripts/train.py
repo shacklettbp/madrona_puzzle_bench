@@ -74,6 +74,7 @@ class LearningCallback:
         self.mean_fps = 0
         self.ckpt_dir = ckpt_dir
         self.profile_report = profile_report
+        self.best_mean = 0
 
     def __call__(self, update_idx, update_time, update_results, learning_state):
         update_id = update_idx + 1
@@ -83,7 +84,7 @@ class LearningCallback:
         if update_id != 1 and  update_id % 10 != 0:
             return
 
-        ppo = update_results.ppo_stats
+        ppo = update_results.ppo_stats                
 
         with torch.no_grad():
             reward_mean = update_results.rewards.mean().cpu().item()

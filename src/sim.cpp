@@ -401,11 +401,11 @@ inline void movementSystem(Engine &ctx,
                            ExternalTorque &external_torque)
 {
     Quat cur_rot = rot;
-    float move_max = 2400.0f; //800; //1000;
+    float move_max = 617.424f; //2400 //800; //1000;
     constexpr float turn_max = 240; //320;
 
     if (!onGround(ctx, pos, rot, s)) {
-        move_max *= 0.7f; //0.675f; //500;
+        move_max = 617.424f; //0.675f; //500;
     }
 
     float move_amount = action.moveAmount *
@@ -1124,9 +1124,9 @@ inline void dense1RewardSystem(Engine &ctx,
         progress.minDistToExit = dist_to_exit;
     }
 
-    if (episode_state.isDead) {
-        reward -= 7.5f;
-    }
+    //if (episode_state.isDead) {
+    //    reward -= 1.0f;//7.5f;
+    //}
 
     if (episode_state.reachedExit) {
         reward += 10.f; // TODO: restore, 1.0f
@@ -1337,13 +1337,13 @@ inline void endOnlyRewardSystem(Engine &ctx,
 
     float reward = 0.f;
 
-    if (episode_state.isDead) {
-        reward -= 1.f;
-    }
+    //if (episode_state.isDead) {
+    //    reward -= 1.0f; //1.f;
+    //}
 
-    if (episode_state.reachedExit && 
-            episode_state.curLevel == ctx.data().levelsPerEpisode) {
-        reward += 10.f;
+    if (episode_state.reachedExit 
+    /*&& episode_state.curLevel == ctx.data().levelsPerEpisode*/) {
+        reward += 1.f;
     }
 
     out_reward.v = reward;

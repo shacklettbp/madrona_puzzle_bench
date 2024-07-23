@@ -160,6 +160,7 @@ void resetAgent(Engine &ctx,
     // Don't bring in agent radius, give the full spawn.
     // TODO: restore
     float safe_spawn_range = spawn_size;// / 2.f;// - consts::agentRadius;
+
     spawn_pos.x += randInRangeCentered(ctx, safe_spawn_range);
     spawn_pos.y += randInRangeCentered(ctx, safe_spawn_range);
 
@@ -1791,11 +1792,10 @@ LevelType generateLevel(Engine &ctx)
 
     //ctx.singleton<JSONIndex>().index = int32_t(ctx.data().rng.sampleUniform() * consts::maxJsonLevelDescriptions);
 
-    // TODO: restore
-    // TODO: restore, debug value.
     // Simple, load json path. We assume level type aligns
     // with what's being loaded or is irrelevant.
     if (ctx.singleton<JSONIndex>().index != -1) {
+        // TODO: figure out how to use this when the entire level description tensor is not filled i.e. for the viewer.
         ctx.singleton<JSONIndex>().index = int32_t(ctx.data().rng.sampleUniform() * consts::maxJsonLevelDescriptions);
         jsonLevel(ctx);
         return level_type;
