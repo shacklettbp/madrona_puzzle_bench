@@ -431,7 +431,7 @@ static void loadRenderObjects(render::RenderManager &render_mgr)
     render_asset_paths[(size_t)SimObject::Lava] =
         (std::filesystem::path(DATA_DIR) / "unit_cube_render.obj").string();
     render_asset_paths[(size_t)SimObject::Exit] =
-        (std::filesystem::path(DATA_DIR) / "exit.obj").string();
+        (std::filesystem::path(DATA_DIR) / "unit_cube_render.obj").string();
     render_asset_paths[(size_t)SimObject::Goal] =
         (std::filesystem::path(DATA_DIR) / "cube_render.obj").string();
     render_asset_paths[(size_t)SimObject::Plane] =
@@ -540,7 +540,7 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
     asset_paths[(size_t)SimObject::Lava] =
         (std::filesystem::path(DATA_DIR) / "unit_cube_collision.obj").string();
     asset_paths[(size_t)SimObject::Exit] =
-        (std::filesystem::path(DATA_DIR) / "cube_collision.obj").string();
+        (std::filesystem::path(DATA_DIR) / "unit_cube_collision.obj").string();
     asset_paths[(size_t)SimObject::Goal] =
         (std::filesystem::path(DATA_DIR) / "cube_collision.obj").string();
     asset_paths[(size_t)SimObject::Key] =

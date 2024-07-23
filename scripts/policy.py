@@ -199,7 +199,7 @@ def process_obs(agent_txfm_obs_tensor, agent_interact_obs_tensor, agent_level_ty
     else:
         return combined_tensor
 
-def make_policy(num_obs_features, num_entity_features, num_channels, separate_value, intrinsic=False, separate_entity=False):
+def make_policy(num_obs_features, num_entity_features, num_channels, separate_value, action_dims, intrinsic=False, separate_entity=False):
     #encoder = RecurrentBackboneEncoder(
     #    net = MLP(
     #        input_dim = num_obs_features,
@@ -272,7 +272,7 @@ def make_policy(num_obs_features, num_entity_features, num_channels, separate_va
     return ActorCritic(
         backbone = backbone,
         actor = LinearLayerDiscreteActor(
-            [4, 8, 5, 2],
+            action_dims,
             num_channels,
         ),
         critic = LinearLayerCritic(num_channels),

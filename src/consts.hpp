@@ -36,9 +36,9 @@ inline constexpr madrona::math::Vector3 agentExtents = {0.5f, 0.5f, 5.1f};
 inline constexpr float roomLength = worldLength / 3.f;
 
 // How many discrete options for actions
-inline constexpr madrona::CountT numMoveAmountBuckets = 4;
+inline constexpr madrona::CountT numMoveAmountBuckets = 2;
 inline constexpr madrona::CountT numMoveAngleBuckets = 8;
-inline constexpr madrona::CountT numTurnBuckets = 5;
+inline constexpr madrona::CountT numTurnBuckets = 1;
 
 // Number of lidar samples, arranged in circle around agent
 inline constexpr madrona::CountT numLidarSamples = 30;

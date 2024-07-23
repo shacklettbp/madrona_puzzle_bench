@@ -30,10 +30,13 @@ arg_parser.add_argument('--record-log', type=str)
 arg_parser.add_argument('--trajectory-log', type=str)
 arg_parser.add_argument('--action-replay', type=str, help="Binary with a tensor of actions to take along with starting position.")
 
+arg_parser.add_argument('--seed', type=int, default=10)
+
+
 arg_parser.add_argument('--use-fixed-world', action='store_true')
 
 arg_parser.add_argument('--num-worlds', type=int, required=True)
-arg_parser.add_argument('--num-steps', type=int, required=True)
+arg_parser.add_argument('--num-trials', type=int, required=True)
 arg_parser.add_argument('--no-level-obs', action='store_true')
 
 arg_parser.add_argument('--num-channels', type=int, default=256)
@@ -76,8 +79,10 @@ sim.init()
 
 print("finished init")
 
+action_dims = [2, 8, 1, 2]
+
 obs, num_obs_features = setup_obs(sim, args.no_level_obs)
-policy = make_policy(num_obs_features, None, args.num_channels, args.separate_value)
+policy = make_policy(num_obs_features, None, args.num_channels, args.separate_value, action_dims)
 
 json_indices = sim.json_index_tensor().to_torch()
 json_levels = sim.json_level_descriptions_tensor().to_torch()
@@ -137,12 +142,12 @@ jsonLevelList = [
 ]
 
 
-n_blocks = UniformInt(2, 2, seed=10)
-#gap_length = Uniform(1, 1, seed=10)
-gap_length = Uniform(0, 2, seed=10)
-block_length = Uniform(1.0, 6.0, seed=10)
+n_blocks = UniformInt(2, 2, seed=args.seed)
+gap_length = Uniform(1, 1, seed=args.seed)
+#gap_length = Uniform(0, 2, seed=10)
+block_length = Uniform(1.0, 6.0, seed=args.seed)
 for i in range(1024):
-    json_levels[i] = jsonTableToTensor(json.loads(random_path_jump_path_generator(f"path_jump_path_s{10}_{i}", n_blocks, gap_length, block_length).jsonify()))
+    json_levels[i] = jsonTableToTensor(json.loads(random_path_jump_path_generator(f"path_jump_path_s{args.seed}_{i}", n_blocks, gap_length, block_length).jsonify()))
 
 for i in range(args.num_worlds):
     json_indices[i, 0] = i
@@ -238,7 +243,9 @@ trajectory_step = {
 
 trajectories = []
 
-for i in range(args.num_steps):
+remainingTrials = args.num_trials
+successes = 0
+while True:
 
 
     #print("Observations")
@@ -247,7 +254,7 @@ for i in range(args.num_steps):
 
     #print(obs[-3]) # Steps remaining
 
-    print(obs[0])
+    #print(obs[0][..., :3])
 
     trajectory_step["observations"] = [o.tolist() for o in obs]
 
@@ -268,7 +275,7 @@ for i in range(args.num_steps):
     end = time.time()
 
     # TODO: restore
-    #actions[:] = torch.tensor([3, 0, 4, 1]).unsqueeze(0)
+    #actions[:] = torch.tensor([1, 0, 0, 1]).unsqueeze(0)
 
     # For trajectory playback we assume only world 0 is active.
     trajectory_step["worldIdx"] = int(json_indices[:, 0])
@@ -310,9 +317,17 @@ for i in range(args.num_steps):
 
     sim.step()
 
-    print("Sim Step Time:", end - start)
-    print("Rewards:\n", rewards)
-    print("Goals:\n", goals)
+    #print("Sim Step Time:", end - start)
+    #print("Rewards:\n", rewards)
+    if rewards[..., 0] >= 10.0:
+        successes += 1
+    #print("Goals:\n", goals)
+
+    if dones[0, 0] == 1:
+        remainingTrials -= 1
+
+    if remainingTrials == 0:
+        break
 
     # If the reward is positive, update the goal to the next Object ID
     # ONLY WORKS with sparse reward.
@@ -327,7 +342,7 @@ for i in range(args.num_steps):
 
 
 print("Average Time:", 1000 * timings / count, "ms")
-
+print(f"Succeeded in {successes} / {args.num_trials}")
 
 if record_log:
     record_log.close()

@@ -158,14 +158,12 @@ void resetAgent(Engine &ctx,
     registerRigidBodyEntity(ctx, agent_entity, SimObject::Agent);
 
     // Don't bring in agent radius, give the full spawn.
-    // TODO: restore
     float safe_spawn_range = spawn_size;// / 2.f;// - consts::agentRadius;
 
     spawn_pos.x += randInRangeCentered(ctx, safe_spawn_range);
     spawn_pos.y += randInRangeCentered(ctx, safe_spawn_range);
 
     ctx.get<Position>(agent_entity) = spawn_pos;
-    // TODO: restore
     ctx.get<Rotation>(agent_entity) = Quat::angleAxis(
         0.0f,
         //randInRangeCentered(ctx, math::pi / 4.f),
@@ -631,6 +629,16 @@ static Entity makeExitEntity(Engine &ctx, Vector3 exit_pos) {
     return e;
 }
 
+static Entity makeExitPlatformEntity(Engine &ctx, Vector3 center, Quat rotation, Diag3x3 scale) {
+    Entity e = ctx.makeRenderableEntity<ExitEntity>();
+    ctx.get<Position>(e) = center;
+    ctx.get<Rotation>(e) = rotation;
+    ctx.get<Scale>(e) = scale;
+    ctx.get<ObjectID>(e) = ObjectID { (int32_t)SimObject::Exit };
+    //printf("exit pos: %f, %f, %f\n", exit_pos.x,exit_pos.y,exit_pos.z);
+    return e;
+}
+
 static Entity makeGoalEntity(Engine &ctx, Vector3 goal_pos) {
     Entity g = ctx.makeRenderableEntity<GoalEntity>();
     ctx.get<Position>(g) = goal_pos;
@@ -758,7 +766,6 @@ static void setupTrainingRoomLevel(Engine &ctx,
 
     makeFloor(ctx);
 
-    // TODO: restore
     AABB room_aabb = {
         .pMin = Vector3 { -level_size / 2.f, -level_size / 2.f, 0.f },
         .pMax = Vector3 { level_size / 2.f, level_size / 2.f, 2.f },
@@ -809,7 +816,7 @@ static void setupTrainingRoomLevel(Engine &ctx,
         randBetween(ctx, safe_aabb.pMin.y, safe_aabb.pMax.y),
         0.0f
     );
-    // TODO: restore for random goal placement.
+    // TODO: re-enable for random goal placement.
     Vector3 goal_pos = Vector3(
         randBetween(ctx, safe_aabb.pMin.x, safe_aabb.pMax.x),
         randBetween(ctx, safe_aabb.pMin.y, safe_aabb.pMax.y),
@@ -823,7 +830,7 @@ static void setupTrainingRoomLevel(Engine &ctx,
 
 
 
-    // TODO: restore, hack for testing policy
+    // TODO: re-examine, simple hack for testing policy
     const float button_width = ctx.data().buttonWidth;
     const float half_button_width = button_width / 2.f;
 
@@ -1015,7 +1022,6 @@ static void chaseLevel(Engine &ctx)
 }
 
 static void simpleLocomotionLevel(Engine &ctx) {
-    // TODO: Restore
     const float level_size = 20.f;
     AABB room_aabb;
     setupTrainingRoomLevel(ctx, 
@@ -1137,7 +1143,6 @@ static void lavaLevel(Engine &ctx, bool shouldMakeButton, bool checkerboard) {
     entrance_coord.x *= gridsizeX / level_scale.x;
     entrance_coord.y *= gridsizeY / level_scale.y;
 
-    // TODO: Restore
     //printf("exit: %f, %f, %f\n", exit_coord.x, exit_coord.y, exit_coord.z);
     //printf("spawn: %f, %f, %f\n", entrance_coord.x, entrance_coord.y, entrance_coord.z);
 
@@ -1395,13 +1400,6 @@ static void jsonLevel(Engine &ctx)
     Level &level = ctx.singleton<Level>();
     RoomList room_list = RoomList::init(&level.rooms);
 
-    // TODO: do the randomization in the python script.
-    const bool DEBUG_RANDOMIZE = false;
-    float gapWidth = 0.0f;
-    float startGapPos = 0.0f;
-    float endGapPos = 0.0f;
-    Vector3 wallExtents;
-
     JSONLevel *jsonLevels = ctx.data().jsonLevels;
     int32_t jsonIdx = ctx.singleton<JSONIndex>().index;
     for (int i = 0; i < consts::maxJsonObjects; ++i) {
@@ -1425,33 +1423,14 @@ static void jsonLevel(Engine &ctx)
                 spawn_pos = jsonObj.position + jsonObj.extents.z * 0.5f;
                 spawn_size = fmin(jsonObj.extents.x, jsonObj.extents.y);
 
-                startGapPos = jsonObj.position.y + jsonObj.extents.y * 0.5f;
-
                 makeWall(ctx, jsonObj.position, PYRToQuat(jsonObj.orientation), Diag3x3::fromVec(jsonObj.extents));
             } break;
             case EntityType::Wall: {
-                if (!DEBUG_RANDOMIZE) {
                     makeWall(ctx, jsonObj.position, PYRToQuat(jsonObj.orientation), Diag3x3::fromVec(jsonObj.extents));
-                } else {
-                    wallExtents = jsonObj.extents;
-                    if (gapWidth == 0.0f) {
-                        gapWidth -= jsonObj.position.y + jsonObj.extents.y * 0.5f;
-                    } else {
-                        gapWidth += jsonObj.position.y - jsonObj.extents.y * 0.5f;
-                    }
-                }
             } break;
             case EntityType::Goal: {
-                // Make a wall and put the exit entity on top of it.
-                // We could make the entire block the entity, but then
-                // the agent might learn to graze it while falling (which we
-                // avoid for now, though it is a legitimate strategy).
-                exit_pos = jsonObj.position + Vector3(0, 0, jsonObj.extents.z / 2);
-                level.exit = makeExitEntity(ctx, exit_pos);
-
-                endGapPos = jsonObj.position.y - jsonObj.extents.y * 0.5f;
-
-                makeWall(ctx, jsonObj.position, PYRToQuat(jsonObj.orientation), Diag3x3::fromVec(jsonObj.extents));
+                // Goal is also the level exit.
+                level.exit = makeExitPlatformEntity(ctx, jsonObj.position, PYRToQuat(jsonObj.orientation), Diag3x3::fromVec(jsonObj.extents));
             } break;
             case EntityType::Lava: {
                 makeLava(ctx, jsonObj.position, PYRToQuat(jsonObj.orientation), Diag3x3::fromVec(jsonObj.extents));
@@ -1462,17 +1441,6 @@ static void jsonLevel(Engine &ctx)
             }
             default: MADRONA_UNREACHABLE();
         }
-    }
-
-
-    // Deal with randomized gap width
-    if (DEBUG_RANDOMIZE) {
-        float gapStart = randBetween(ctx, startGapPos,
-            endGapPos - gapWidth);
-        float gapEnd = gapStart + gapWidth;
-
-        makeWall(ctx, Vector3(0, 0.5 * (gapStart + startGapPos), 0), Quat{1,0,0,0}, Diag3x3::fromVec(Vector3(wallExtents.x, gapStart - startGapPos, wallExtents.z)));
-        makeWall(ctx, Vector3(0, 0.5 * (endGapPos + gapEnd), 0), Quat{1,0,0,0}, Diag3x3::fromVec(Vector3(wallExtents.x, endGapPos - gapEnd, wallExtents.z)));
     }
 
 
@@ -1520,7 +1488,6 @@ static void singleButtonLevel(Engine &ctx)
 
         Entity button = makeButton(ctx, button_x, button_y);
 
-        // TODO: restore
         Vector3 goal_pos = 
         //ctx.get<Position>(ctx.singleton<Level>().exit);
         ctx.get<Position>(button);
@@ -1530,7 +1497,6 @@ static void singleButtonLevel(Engine &ctx)
         terminateButtonList(ctx,
             addButtonToList(ctx, exit_door, button));
     }
-    // TODO: restore
     ctx.singleton<GoalType>().type = int32_t(EntityType::Button);
     ctx.singleton<GoalType>().reached = 0;
 }
@@ -1787,7 +1753,6 @@ LevelType generateLevel(Engine &ctx)
     LevelType level_type = (LevelType)ctx.data().rng.sampleI32(
         0, (uint32_t)LevelType::NumTypes);
     //      3, 5);
-    // TODO: restore
     level_type = LevelType::LavaCorridor;
 
     //ctx.singleton<JSONIndex>().index = int32_t(ctx.data().rng.sampleUniform() * consts::maxJsonLevelDescriptions);

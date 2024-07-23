@@ -419,8 +419,8 @@ inline void movementSystem(Engine &ctx,
     float f_x = move_amount * sinf(move_angle);
     float f_y = move_amount * cosf(move_angle);
 
-    constexpr float turn_delta_per_bucket = 
-        turn_max / (consts::numTurnBuckets / 2);
+    constexpr float turn_delta_per_bucket = 0.0f;
+        //turn_max / (consts::numTurnBuckets / 2);
     float t_z =
         turn_delta_per_bucket * (action.rotate - consts::numTurnBuckets / 2);
 

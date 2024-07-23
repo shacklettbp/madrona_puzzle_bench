@@ -21,6 +21,7 @@ warnings.filterwarnings("error")
 import numpy as np
 import time
 import os
+import glob
 
 SPAWN_TYPE = 14 # new "Spawn" type, just signals to make the spawn restraints there.
 CHECKPOINT_TYPE = 13 # Corresponds to "Goal" in types.hpp
@@ -140,8 +141,9 @@ args = arg_parser.parse_args()
 
 n_blocks = UniformInt(2, 2, seed=args.seed)
 #gap_length = Uniform(1, 1, seed=args.seed) # simple to train
-gap_length = Uniform(1.0, 2.0, seed=args.seed) # actual challenge
+gap_length = Uniform(1, 1, seed=args.seed) # actual challenge
 block_length = Uniform(1.0, 6.0, seed=args.seed)
+
 def regenerateJsonLevels(json_levels_shape):
     global n_blocks
     global gap_length
@@ -244,7 +246,8 @@ class GoExplore:
 
         json_indices = self.worlds.json_index_tensor().to_torch()
         for i in range(json_indices.shape[0]):
-            json_indices[i, 0] = i // (num_worlds // json_levels.shape[0]) # Initialize all the json world indices.
+            # These will be reset when the world first resets.
+            json_indices[i, 0] = 0 #i // (num_worlds // json_levels.shape[0]) # Initialize all the json world indices.
 
         self.best_mean_return = 0
         self.num_worlds = num_worlds
@@ -260,12 +263,17 @@ class GoExplore:
         self.max_return = 0
         self.max_progress = -1000
 
+        # TODO: map this to jump.
+        self.actions_num_buckets = [2, 8, 1, 2]
+        self.action_space = Box(-float('inf'),float('inf'),(sum(self.actions_num_buckets),))
+
+
         if args.entity_network:
             self.obs, num_obs_features, num_entity_features = setup_obs(self.worlds, args.no_level_obs, use_onehot=False, separate_entity=True)
-            self.policy = make_policy(num_obs_features, num_entity_features, args.num_channels, args.separate_value, intrinsic=args.use_intrinsic_loss)
+            self.policy = make_policy(num_obs_features, num_entity_features, args.num_channels, args.separate_value, self.actions_num_buckets, intrinsic=args.use_intrinsic_loss)
         else:
             self.obs, num_obs_features = setup_obs(self.worlds, args.no_level_obs)
-            self.policy = make_policy(num_obs_features, None, args.num_channels, args.separate_value, intrinsic=args.use_intrinsic_loss)
+            self.policy = make_policy(num_obs_features, None, args.num_channels, args.separate_value, self.actions_num_buckets, intrinsic=args.use_intrinsic_loss)
 
         if args.starting_policy:
             weights = LearningState.load_policy_weights(args.starting_policy)
@@ -308,9 +316,7 @@ class GoExplore:
         #start_bins = self.map_states_to_bins(self.obs)[0,:]
         #self.start_bin_steps[start_bins] = 0
 
-        # TODO: map this to jump.
-        self.actions_num_buckets = [4, 8, 5, 2]
-        self.action_space = Box(-float('inf'),float('inf'),(sum(self.actions_num_buckets),))
+
 
         # If we want to fully discretize the MDP then we also extract a graph of the transitions
         if args.make_graph:
@@ -1011,6 +1017,9 @@ class GoExplore:
         with torch.no_grad():
             reward_mean = update_results.rewards.mean().cpu().item()
             if reward_mean > self.best_mean_return:
+                # Remove the previous best
+                for f in glob.glob(os.path.join(self.ckpt_dir, f"Best*.pth")):
+                    os.remove(f)
                 learning_state.save(update_idx, self.ckpt_dir / f"Best{update_id}.pth")
                 self.best_mean_return = reward_mean
 
@@ -1331,7 +1340,7 @@ class GoExplore:
                 profile.report()
 
             if update_id % 100 == 0:
-                # Save and regenerate worlds
+                # Regenerate worlds
                 json_levels = self.worlds.json_level_descriptions_tensor().to_torch()
                 json_levels[:] = regenerateJsonLevels(json_levels.shape).to(self.device)
                 # Save network
