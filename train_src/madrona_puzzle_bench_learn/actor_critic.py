@@ -285,6 +285,7 @@ class RecurrentBackboneEncoder(nn.Module):
         return rnn_out, new_rnn_states
 
     def fwd_inplace(self, rnn_states_out, rnn_states_in, *inputs):
+        print("RecurrentBackBoneEncoder fwd_inplace")
         features = self.net(*inputs)
         rnn_out, new_rnn_states = self.rnn(features, rnn_states_in)
 
@@ -314,6 +315,8 @@ class BackboneShared(Backbone):
         self.process_obs = process_obs
         self.encoder = encoder 
 
+        self.debugCounter = 0
+
         if encoder.rnn_state_shape:
             self.recurrent_cfg = RecurrentStateConfig([encoder.rnn_state_shape])
             self.extract_rnn_state = lambda x: x[0] if x != None else None
@@ -335,6 +338,7 @@ class BackboneShared(Backbone):
         with torch.no_grad():
             processed_obs = self.process_obs(*obs_in)
 
+        self.debugCounter += 1
         return self.encoder.fwd_inplace(
             self.extract_rnn_state(rnn_states_out),
             self.extract_rnn_state(rnn_states_in),

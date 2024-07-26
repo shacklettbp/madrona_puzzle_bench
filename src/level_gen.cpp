@@ -631,10 +631,23 @@ static Entity makeExitEntity(Engine &ctx, Vector3 exit_pos) {
 
 static Entity makeExitPlatformEntity(Engine &ctx, Vector3 center, Quat rotation, Diag3x3 scale) {
     Entity e = ctx.makeRenderableEntity<ExitEntity>();
-    ctx.get<Position>(e) = center;
-    ctx.get<Rotation>(e) = rotation;
-    ctx.get<Scale>(e) = scale;
-    ctx.get<ObjectID>(e) = ObjectID { (int32_t)SimObject::Exit };
+    //ctx.get<ObjectID>(e) = ObjectID { (int32_t)SimObject::Exit };
+
+    setupRigidBodyEntity(
+    ctx,
+    e,
+    center,
+    rotation,
+    SimObject::Exit, 
+    EntityType::Wall,
+    ResponseType::Static,
+    scale);
+    ctx.get<EntityExtents>(e) = Vector3 {
+        .x = scale.d0,
+        .y = scale.d1,
+        .z = scale.d2,
+    };
+    registerRigidBodyEntity(ctx, e, SimObject::Exit);
     //printf("exit pos: %f, %f, %f\n", exit_pos.x,exit_pos.y,exit_pos.z);
     return e;
 }
@@ -652,7 +665,7 @@ static Entity makeGoalEntity(Engine &ctx, Vector3 goal_pos) {
 static Entity makeExit(Engine &ctx, float room_size, Vector3 exit_pos)
 {
 
-    Entity e = makeExitEntity(ctx, exit_pos);
+    Entity e = makeExitPlatformEntity(ctx, exit_pos, Quat{1,0,0,0}, Diag3x3{1,1,1});
 
     makeWall(ctx,
         exit_pos + Vector3 {
@@ -845,7 +858,7 @@ static void setupTrainingRoomLevel(Engine &ctx,
     //Entity button = makeButton(ctx, button_x, button_y);
 
     Level &level = ctx.singleton<Level>();
-    level.exit = makeExitEntity(ctx, exit_pos);
+    level.exit = makeExitPlatformEntity(ctx, exit_pos, Quat{1,0,0,0}, Diag3x3{1,1,1});
     goal_pos = exit_pos;
     //ctx.get<Position>(button);
     level.goal = makeGoalEntity(ctx, goal_pos);
@@ -1384,12 +1397,6 @@ static void lavaLevel(Engine &ctx, bool shouldMakeButton, bool checkerboard) {
 
 static void jsonLevel(Engine &ctx)
 {
-    // Setup the simple level.
-    //simpleLocomotionLevel(ctx);
-
-    // Assume a ground plane.
-  //    makeFloor(ctx);
-
     // Spawn parameters
     Vector3 spawn_pos(0,0,0);
     float spawn_size = 0.0f;
@@ -1429,7 +1436,9 @@ static void jsonLevel(Engine &ctx)
                     makeWall(ctx, jsonObj.position, PYRToQuat(jsonObj.orientation), Diag3x3::fromVec(jsonObj.extents));
             } break;
             case EntityType::Goal: {
-                // Goal is also the level exit.
+                // Goal is the level exit.
+                exit_pos = jsonObj.position;
+                //makeWall(ctx, jsonObj.position, PYRToQuat(jsonObj.orientation), Diag3x3::fromVec(jsonObj.extents));
                 level.exit = makeExitPlatformEntity(ctx, jsonObj.position, PYRToQuat(jsonObj.orientation), Diag3x3::fromVec(jsonObj.extents));
             } break;
             case EntityType::Lava: {
@@ -1446,6 +1455,8 @@ static void jsonLevel(Engine &ctx)
 
     Entity room = room_list.add(ctx);
     ctx.get<RoomAABB>(room) = obs_aabb;
+    //printf("spawn pos %f, %f, %f\n", spawn_pos.x, spawn_pos.y, spawn_pos.z);
+    //printf("exit pos %f, %f, %f\n", exit_pos.x, exit_pos.y, exit_pos.z);
 
     resetAgent(ctx, spawn_pos, spawn_size, exit_pos);
 }
@@ -1761,7 +1772,7 @@ LevelType generateLevel(Engine &ctx)
     // with what's being loaded or is irrelevant.
     if (ctx.singleton<JSONIndex>().index != -1) {
         // TODO: figure out how to use this when the entire level description tensor is not filled i.e. for the viewer.
-        ctx.singleton<JSONIndex>().index = int32_t(ctx.data().rng.sampleUniform() * consts::maxJsonLevelDescriptions);
+        //ctx.singleton<JSONIndex>().index = int32_t(ctx.data().rng.sampleUniform() * consts::maxJsonLevelDescriptions);
         jsonLevel(ctx);
         return level_type;
     }
@@ -1847,7 +1858,8 @@ void destroyLevel(Engine &ctx)
         ctx.get<DeferredDelete>(l).e = e;
     });
 
-    ctx.destroyRenderableEntity(lvl.exit);
+    // Exit is now physical, so it will be destroyed above in deferred deletion.
+    //ctx.destroyRenderableEntity(lvl.exit);
     //if (lvl.goal != Entity::none()) {
     //    ctx.destroyRenderableEntity(lvl.goal);
     //}

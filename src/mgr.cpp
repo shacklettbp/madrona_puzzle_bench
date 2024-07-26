@@ -98,6 +98,7 @@ static inline Optional<render::RenderManager> initRenderManager(
 struct Manager::Impl {
     Config cfg;
     JSONLevel *jsonLevelsBuffer;
+    int32_t* enumCountsBuffer;
     PhysicsLoader physicsLoader;
     WorldReset *worldResetBuffer;
     JSONIndex *jsonIndexBuffer;
@@ -112,6 +113,7 @@ struct Manager::Impl {
                 PhysicsLoader &&phys_loader,
                 WorldReset *reset_buffer,
                 JSONLevel *json_level_buffer,
+                int32_t *enum_counts_buffer,
                 JSONIndex *json_index_buffer,
                 CheckpointSave *checkpoint_save_buffer,
                 CheckpointReset *checkpoint_load_buffer,
@@ -121,6 +123,7 @@ struct Manager::Impl {
                 Optional<render::RenderManager> &&render_mgr)
         : cfg(mgr_cfg),
           jsonLevelsBuffer(json_level_buffer),
+          enumCountsBuffer(enum_counts_buffer),
           physicsLoader(std::move(phys_loader)),
           worldResetBuffer(reset_buffer),
           jsonIndexBuffer(json_index_buffer),
@@ -177,6 +180,7 @@ struct Manager::CPUImpl final : Manager::Impl {
                    PhysicsLoader &&phys_loader,
                    WorldReset *reset_buffer,
                    JSONLevel *json_level_buffer,
+                   int32_t *enum_count_buffer,
                    JSONIndex *json_index_buffer,
                    CheckpointSave *checkpoint_save_buffer,
                    CheckpointReset *checkpoint_load_buffer,
@@ -186,7 +190,7 @@ struct Manager::CPUImpl final : Manager::Impl {
                    Optional<render::RenderManager> &&render_mgr,
                    TaskGraphT &&cpu_exec)
         : Impl(mgr_cfg, std::move(phys_loader),
-               reset_buffer, json_level_buffer, json_index_buffer,
+               reset_buffer, json_level_buffer, enum_count_buffer, json_index_buffer,
                checkpoint_save_buffer, checkpoint_load_buffer, action_buffer,
                reward_hyper_params,
                std::move(render_gpu_state), std::move(render_mgr)),
@@ -262,6 +266,7 @@ struct Manager::CUDAImpl final : Manager::Impl {
                    PhysicsLoader &&phys_loader,
                    WorldReset *reset_buffer,
                    JSONLevel *json_level_buffer,
+                   int32_t *enum_count_buffer,
                    JSONIndex *json_index_buffer,
                    CheckpointSave *checkpoint_save_buffer,
                    CheckpointReset *checkpoint_load_buffer,
@@ -271,7 +276,7 @@ struct Manager::CUDAImpl final : Manager::Impl {
                    Optional<render::RenderManager> &&render_mgr,
                    MWCudaExecutor &&gpu_exec)
         : Impl(mgr_cfg, std::move(phys_loader),
-               reset_buffer, json_level_buffer, json_index_buffer, checkpoint_save_buffer,
+               reset_buffer, json_level_buffer, enum_count_buffer, json_index_buffer, checkpoint_save_buffer,
                checkpoint_load_buffer, action_buffer, reward_hyper_params,
                std::move(render_gpu_state), std::move(render_mgr)),
           gpuExec(std::move(gpu_exec)),
@@ -604,8 +609,8 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
     });
 
     setupHull(SimObject::Wall, 0.f, {
-        .muS = 0.0f, //0.5f, // TODO: restore 0.5
-        .muD = 0.0f, //0.5f, // TODO: restore, walls have 0 friction
+        .muS = 0.5f,
+        .muD = 0.5f,
     });
 
     setupHull(SimObject::Door, 0.f, {
@@ -627,8 +632,8 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
     });
 
     setupHull(SimObject::Agent, 1.f, {
-        .muS = 0.0f, //0.5f, // TODO: restore
-        .muD = 0.0f, //0.5f, // TODO: restore
+        .muS = 0.5f,
+        .muD = 0.5f,
     });
 
     setupHull(SimObject::Enemy, 1.f, {
@@ -768,6 +773,17 @@ Manager::Impl * Manager::Impl::init(
             sizeof(JSONLevel) * consts::maxJsonLevelDescriptions
         );
 
+        // Allocate storage for EntityTypes::NumTypes and LevelTypes::NumTypes
+        sim_cfg.enumCounts = (int32_t *)cu::allocGPU(
+            sizeof(int32_t) * 2
+        );
+
+        int32_t enum_counts[2] = {(int32_t)LevelType::NumTypes, (int32_t)EntityType::NumTypes};
+
+        REQ_CUDA(cudaMemcpy(sim_cfg.enumCounts,
+            &enum_counts[0], sizeof(int32_t) * 2,
+            cudaMemcpyHostToDevice));
+
         Optional<RenderGPUState> render_gpu_state =
             initRenderGPUState(mgr_cfg);
 
@@ -819,6 +835,7 @@ Manager::Impl * Manager::Impl::init(
             std::move(phys_loader),
             world_reset_buffer,
             sim_cfg.jsonLevels,
+            sim_cfg.enumCounts,
             json_index_buffer,
             checkpoint_save_buffer,
             checkpoint_load_buffer,
@@ -856,7 +873,13 @@ Manager::Impl * Manager::Impl::init(
             sizeof(JSONLevel) * consts::maxJsonLevelDescriptions
         );
 
-        printf("Allocated JSON level: %lu\n", (long)sim_cfg.jsonLevels);
+        sim_cfg.enumCounts = (int32_t *)malloc(
+            sizeof(int32_t) * 2
+        );
+
+        // Export the number of level types and entity types to training code.
+        sim_cfg.enumCounts[0] = (int32_t)LevelType::NumTypes;
+        sim_cfg.enumCounts[1] = (int32_t)EntityType::NumTypes;
 
         Optional<RenderGPUState> render_gpu_state =
             initRenderGPUState(mgr_cfg);
@@ -903,6 +926,7 @@ Manager::Impl * Manager::Impl::init(
             std::move(phys_loader),
             world_reset_buffer,
             sim_cfg.jsonLevels,
+            sim_cfg.enumCounts,
             json_index_buffer,
             checkpoint_save_buffer,
             checkpoint_load_buffer,
@@ -1030,6 +1054,13 @@ Tensor Manager::jsonLevelDescriptionsTensor() const {
                    sizeof(JSONObject) / sizeof(float)},
                   Optional<int>::none());
 
+}
+
+Tensor Manager::enumCountsTensor() const {
+    return Tensor(impl_->enumCountsBuffer,
+                  TensorElementType::Int32,
+                  {(CountT)2},
+                  Optional<int>::none());
 }
 
 Tensor Manager::goalTensor() const

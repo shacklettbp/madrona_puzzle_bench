@@ -149,6 +149,7 @@ struct AgentLevelTypeObs {
 struct AgentExitObs {
     PolarObs toExitPolar;
     //PolarObs toGoalPolar;
+    float minDistToExit;
 };
 
 // Per-agent egocentric observations for the interactable entities
@@ -448,8 +449,10 @@ struct PhysicsEntity : public madrona::Archetype<
 // Archetype for the button objects that open the doors
 // Buttons don't have collision but are rendered
 struct ExitEntity : public madrona::Archetype<
-    ObjectInstance,
+    RigidBody,
 
+    EntityType,
+    EntityExtents,
     madrona::render::Renderable,
     IsExit
 > {};

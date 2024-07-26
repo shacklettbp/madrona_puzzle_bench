@@ -60,6 +60,7 @@ public:
     madrona::py::Tensor resetTensor() const;
     madrona::py::Tensor jsonIndexTensor() const;
     madrona::py::Tensor jsonLevelDescriptionsTensor() const;
+    madrona::py::Tensor enumCountsTensor() const;
 
     madrona::py::Tensor goalTensor() const;
     madrona::py::Tensor actionTensor() const;

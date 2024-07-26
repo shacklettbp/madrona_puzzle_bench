@@ -14,28 +14,25 @@ from madrona_puzzle_bench_learn.rnn import LSTM
 import math
 import torch
 
-def setup_obs(sim, no_level_obs = False, use_onehot = True, separate_entity = False, need_torch_conversion=True):
+NUM_LEVEL_TYPES = -1
+NUM_ENTITY_TYPES = -1
+
+def setup_obs(sim, enum_counts_tensor, no_level_obs = False, use_onehot = True, separate_entity = False, need_torch_conversion=True):
+
+    global NUM_LEVEL_TYPES
+    global NUM_ENTITY_TYPES
+
     # First define all the observation tensors
     agent_txfm_obs_tensor = sim.agent_txfm_obs_tensor().to_torch() # Scalars
-    print(type(sim.agent_txfm_obs_tensor()))
     agent_interact_obs_tensor = sim.agent_interact_obs_tensor().to_torch() # Bool, whether or not grabbing
-    print(agent_interact_obs_tensor.shape)
     agent_level_type_obs_tensor = sim.agent_level_type_obs_tensor().to_torch() # Enum
-    print(agent_level_type_obs_tensor.shape)
     agent_exit_obs_tensor = sim.agent_exit_obs_tensor().to_torch() # Scalars
-    print(agent_exit_obs_tensor.shape)
     entity_physics_state_obs_tensor = sim.entity_physics_state_obs_tensor().to_torch() # Scalars
-    print(entity_physics_state_obs_tensor.shape)
     entity_type_obs_tensor = sim.entity_type_obs_tensor().to_torch() # Enum
-    print(entity_type_obs_tensor.shape)
     entity_attr_obs_tensor = sim.entity_attr_obs_tensor().to_torch() # Enum, but I don't know max
-    print(entity_attr_obs_tensor.shape)
     lidar_depth_tensor = sim.lidar_depth_tensor().to_torch() # Scalars
-    print(lidar_depth_tensor.shape)
     lidar_hit_type_tensor = sim.lidar_hit_type().to_torch() # Enum (EntityType)
-    print(lidar_hit_type_tensor.shape)
     steps_remaining_tensor = sim.steps_remaining_tensor().to_torch() # Int but dont' need to convert
-    print(steps_remaining_tensor.shape)
 
     if no_level_obs:
         agent_level_type_obs_tensor = torch.zeros_like(agent_level_type_obs_tensor)
@@ -53,13 +50,15 @@ def setup_obs(sim, no_level_obs = False, use_onehot = True, separate_entity = Fa
     print("Lidar hit type", lidar_hit_type_tensor.shape)
     print("Steps remaining", steps_remaining_tensor.shape)
     '''
+    NUM_LEVEL_TYPES  = int(enum_counts_tensor[0])
+    NUM_ENTITY_TYPES = int(enum_counts_tensor[1])
 
     # Now process the tensors into a form good for the policy
     # Convert enums to one-hot
-    agent_level_type_obs_tensor_onehot = torch.nn.functional.one_hot(agent_level_type_obs_tensor.to(torch.int64), num_classes=11)
-    entity_type_obs_tensor_onehot = torch.nn.functional.one_hot(entity_type_obs_tensor.to(torch.int64), num_classes=13)
+    agent_level_type_obs_tensor_onehot = torch.nn.functional.one_hot(agent_level_type_obs_tensor.to(torch.int64), num_classes=NUM_LEVEL_TYPES)
+    entity_type_obs_tensor_onehot = torch.nn.functional.one_hot(entity_type_obs_tensor.to(torch.int64), num_classes=NUM_ENTITY_TYPES)
     entity_attr_obs_tensor_onehot = entity_attr_obs_tensor #torch.nn.functional.one_hot(entity_attr_obs_tensor.to(torch.int64), num_classes=2) # TODO: correct
-    lidar_hit_type_tensor_onehot = torch.nn.functional.one_hot(lidar_hit_type_tensor.to(torch.int64), num_classes=13)
+    lidar_hit_type_tensor_onehot = torch.nn.functional.one_hot(lidar_hit_type_tensor.to(torch.int64), num_classes=NUM_ENTITY_TYPES)
 
     # Print all the changed object shapes
     '''
@@ -108,7 +107,7 @@ def setup_obs(sim, no_level_obs = False, use_onehot = True, separate_entity = Fa
     print("Obs tensor", obs_tensor.shape)
     print("Entity tensor", entity_tensor.shape)
     '''
-
+    # All per-world tensors, no shared information between worlds.
     obs_list = [
         agent_txfm_obs_tensor,
         agent_interact_obs_tensor,
@@ -130,13 +129,16 @@ def setup_obs(sim, no_level_obs = False, use_onehot = True, separate_entity = Fa
         return obs_list, num_obs_features + num_entity_features*entity_tensor.shape[1]
 
 def process_obs(agent_txfm_obs_tensor, agent_interact_obs_tensor, agent_level_type_obs_tensor, agent_exit_obs_tensor, entity_physics_state_obs_tensor, entity_type_obs_tensor, entity_attr_obs_tensor, lidar_depth_tensor, lidar_hit_type_tensor, steps_remaining_tensor, use_onehot, separate_entity):
+    global NUM_LEVEL_TYPES
+    global NUM_ENTITY_TYPES
+
     use_onehot = use_onehot.sum() > 0
     separate_entity = separate_entity.sum() > 0
 
-    agent_level_type_obs_tensor_onehot = torch.nn.functional.one_hot(agent_level_type_obs_tensor.to(torch.int64), num_classes=11)
-    entity_type_obs_tensor_onehot = torch.nn.functional.one_hot(entity_type_obs_tensor.to(torch.int64), num_classes=13)
+    agent_level_type_obs_tensor_onehot = torch.nn.functional.one_hot(agent_level_type_obs_tensor.to(torch.int64), num_classes=NUM_LEVEL_TYPES)
+    entity_type_obs_tensor_onehot = torch.nn.functional.one_hot(entity_type_obs_tensor.to(torch.int64), num_classes=NUM_ENTITY_TYPES)
     entity_attr_obs_tensor_onehot = entity_attr_obs_tensor*0 + 1 #torch.nn.functional.one_hot(entity_attr_obs_tensor.to(torch.int64), num_classes=2) # TODO: correct
-    lidar_hit_type_tensor_onehot = torch.nn.functional.one_hot(lidar_hit_type_tensor.to(torch.int64), num_classes=13)
+    lidar_hit_type_tensor_onehot = torch.nn.functional.one_hot(lidar_hit_type_tensor.to(torch.int64), num_classes=NUM_ENTITY_TYPES)
 
     # Print all the changed object shapes
     '''

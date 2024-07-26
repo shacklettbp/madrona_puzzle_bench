@@ -792,13 +792,21 @@ inline void checkGoalSystem(Engine &ctx, Position &goal_pos, IsGoal) {
     ctx.singleton<GoalType>().reached = 1;
 }
 
-inline void checkExitSystem(Engine &ctx, Position exit_pos, IsExit)
+inline void checkExitSystem(Engine &ctx, Position exit_pos, EntityExtents exit_extents, IsExit)
 {
     Vector3 agent_pos = ctx.get<Position>(ctx.data().agent);
 
-    const float exit_tolerance = consts::agentRadius;
+    AABB agent_aabb = {
+        .pMin = agent_pos - (consts::agentExtents * 0.5f),
+        .pMax = agent_pos + (consts::agentExtents * 0.5f),
+    };
 
-    if (agent_pos.distance2(exit_pos) > exit_tolerance * exit_tolerance) {
+    AABB exit_aabb = {
+        .pMin = exit_pos - (exit_extents * 0.5f),
+        .pMax = exit_pos + (exit_extents * 0.5f),
+    };
+
+    if (!agent_aabb.intersects(exit_aabb)) {
         return;
     }
 
@@ -874,6 +882,7 @@ inline void collectObservationsSystem(
     Engine &ctx,
     Position pos,
     Rotation rot,
+    Progress progress,
     const GrabState &grab,
     AgentTxfmObs &agent_txfm_obs,
     AgentInteractObs &agent_interact_obs,
@@ -940,6 +949,7 @@ inline void collectObservationsSystem(
     agent_exit_obs = {
         .toExitPolar = xyzToPolar(to_view.rotateVec(to_exit)),
         //.toGoalPolar = xyzToPolar(to_view.rotateVec(to_goal)),
+        .minDistToExit = progress.minDistToExit
     };
 
     steps_remaining_obs.t = 
@@ -1111,7 +1121,20 @@ inline void dense1RewardSystem(Engine &ctx,
     const auto &lvl = ctx.singleton<Level>();
     const auto &episode_state = ctx.singleton<EpisodeState>();
 
-    float dist_to_exit = pos.distance(ctx.get<Position>(lvl.exit));
+    AABB agent_aabb = {
+        .pMin = pos - (consts::agentExtents * 0.5f),
+        .pMax = pos + (consts::agentExtents * 0.5f),
+    };
+
+    Vector3 exit_pos = ctx.get<Position>(lvl.exit);
+    Vector3 exit_extents = ctx.get<EntityExtents>(lvl.exit);
+
+    AABB exit_aabb = {
+        .pMin = exit_pos - (exit_extents * 0.5f),
+        .pMax = exit_pos + (exit_extents * 0.5f),
+    };
+
+    float dist_to_exit = sqrtf(agent_aabb.distance2(exit_aabb));
 
     float min_dist = progress.minDistToExit;
 
@@ -1616,6 +1639,7 @@ static TaskGraphNodeID setupSimTasks(TaskGraphBuilder &builder,
     auto check_exit_sys = builder.addToGraph<ParallelForNode<Engine,
         checkExitSystem,
             Position,
+            EntityExtents,
             IsExit 
         >>({door_open_sys});
 
@@ -1767,6 +1791,7 @@ static TaskGraphNodeID setupPostGenTasks(TaskGraphBuilder &builder,
         collectObservationsSystem,
             Position,
             Rotation,
+            Progress,
             GrabState,
             AgentTxfmObs,
             AgentInteractObs,

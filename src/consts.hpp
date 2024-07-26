@@ -17,8 +17,8 @@ inline constexpr bool disableLidar = true;
 
 // Give the agents more observation space than the number of room
 // entities in case they push cubes into other rooms.
-// TODO: restore
-inline constexpr CountT maxObservationsPerAgent = 72; //9;
+// 72 is the max for the current training with 8192 worlds.
+inline constexpr CountT maxObservationsPerAgent = 36; //9;
 inline constexpr CountT maxObjectsPerLevel = 20;
 
 // Various world / entity size parameters
@@ -31,8 +31,8 @@ inline constexpr float worldWidth = 20.f;
 inline constexpr float keyWidth = 0.5f;
 inline constexpr float agentRadius = 2.55f;
 // TODO: restore
-inline constexpr madrona::math::Vector3 agentExtents = {0.5f, 0.5f, 5.1f};
-//inline constexpr madrona::math::Vector3 agentExtents = {4.0f, 1.2f, 5.10f};
+//inline constexpr madrona::math::Vector3 agentExtents = {0.5f, 0.5f, 5.1f};
+inline constexpr madrona::math::Vector3 agentExtents = {4.0f, 1.2f, 5.10f};
 inline constexpr float roomLength = worldLength / 3.f;
 
 // How many discrete options for actions

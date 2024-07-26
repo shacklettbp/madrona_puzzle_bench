@@ -93,7 +93,7 @@ class RolloutManager:
         self.obs = []
 
         for obs_tensor in sim.obs:
-            print("Appending an obs tensor")
+            #print("Appending an obs tensor")
             self.obs.append(torch.zeros(
                 (num_bptt_chunks, num_bptt_steps, *obs_tensor.shape),
                 dtype=obs_tensor.dtype, device=dev))
@@ -131,6 +131,7 @@ class RolloutManager:
         self.rnn_alt_states = tuple(self.rnn_alt_states)
         self.rnn_start_states = tuple(self.rnn_start_states)
 
+
     def collect(
             self,
             amp : AMPState,
@@ -144,6 +145,7 @@ class RolloutManager:
 
         curr_returns = torch.clone(self.returns[0,0]) # Last bptt chunk, last step
         #print("Starting returns", curr_returns.mean())
+
 
         for bptt_chunk in range(0, self.num_bptt_chunks):
             with profile("Cache RNN state"):
@@ -161,7 +163,9 @@ class RolloutManager:
 
                     cur_actions_store = self.actions[bptt_chunk, slot]
 
-                    #print("len(cur_obs_buffers)", len(cur_obs_buffers))
+                    # Prepend the enum_counts tensor in order to correctly
+                    # initialize the onehot buffers for leveltype and entitytype
+                    #cur_obs_buffers = [sim.enum_counts] + cur_obs_buffers
 
                     with amp.enable():
                         actor_critic.fwd_rollout(
@@ -193,8 +197,11 @@ class RolloutManager:
                     # a CPU synchronization
                     sim.actions.copy_(cur_actions_store)
 
+
                 with profile('Simulator Step'):
                     sim.step()
+
+                
 
                 with profile('Post Step Copy'):
                     self.rewards[bptt_chunk, slot].copy_(
@@ -215,6 +222,7 @@ class RolloutManager:
                 returns_store = self.returns[bptt_chunk, slot]
                 returns_store.copy_(curr_returns)
                 curr_returns = curr_returns*(1 - self.dones[bptt_chunk, slot].float()) + self.rewards[bptt_chunk, slot]
+        
         self.returns[0, 0].copy_(curr_returns) # For tracking the next rollout's returns
 
         if self.need_obs_copy:
@@ -233,6 +241,8 @@ class RolloutManager:
             actor_critic.fwd_critic(
                 self.bootstrap_values, None, self.rnn_end_states, *final_obs)
             self.bootstrap_values = value_normalizer.invert(amp, self.bootstrap_values)
+
+
 
         # Right now this just returns the rollout manager's pointers,
         # but in the future could return only one set of buffers from a

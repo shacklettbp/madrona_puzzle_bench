@@ -141,7 +141,7 @@ args = arg_parser.parse_args()
 
 n_blocks = UniformInt(2, 2, seed=args.seed)
 #gap_length = Uniform(1, 1, seed=args.seed) # simple to train
-gap_length = Uniform(1, 1, seed=args.seed) # actual challenge
+gap_length = Uniform(2, 2, seed=args.seed) # actual challenge
 block_length = Uniform(1.0, 6.0, seed=args.seed)
 
 def regenerateJsonLevels(json_levels_shape):
@@ -247,7 +247,7 @@ class GoExplore:
         json_indices = self.worlds.json_index_tensor().to_torch()
         for i in range(json_indices.shape[0]):
             # These will be reset when the world first resets.
-            json_indices[i, 0] = 0 #i // (num_worlds // json_levels.shape[0]) # Initialize all the json world indices.
+            json_indices[i, 0] = (i // (num_worlds // json_levels.shape[0])) if num_worlds > json_levels.shape[0] else i
 
         self.best_mean_return = 0
         self.num_worlds = num_worlds
@@ -263,16 +263,15 @@ class GoExplore:
         self.max_return = 0
         self.max_progress = -1000
 
-        # TODO: map this to jump.
+        # TODO: Export this from the sim alongside enum_counts
         self.actions_num_buckets = [2, 8, 1, 2]
         self.action_space = Box(-float('inf'),float('inf'),(sum(self.actions_num_buckets),))
 
-
         if args.entity_network:
-            self.obs, num_obs_features, num_entity_features = setup_obs(self.worlds, args.no_level_obs, use_onehot=False, separate_entity=True)
+            self.obs, num_obs_features, num_entity_features = f(self.worlds, self.worlds.enum_counts_tensor().to_torch().to(device), args.no_level_obs, use_onehot=False, separate_entity=True)
             self.policy = make_policy(num_obs_features, num_entity_features, args.num_channels, args.separate_value, self.actions_num_buckets, intrinsic=args.use_intrinsic_loss)
         else:
-            self.obs, num_obs_features = setup_obs(self.worlds, args.no_level_obs)
+            self.obs, num_obs_features = setup_obs(self.worlds, self.worlds.enum_counts_tensor().to_torch().to(device), args.no_level_obs)
             self.policy = make_policy(num_obs_features, None, args.num_channels, args.separate_value, self.actions_num_buckets, intrinsic=args.use_intrinsic_loss)
 
         if args.starting_policy:
@@ -437,7 +436,7 @@ class GoExplore:
 
     def apply_binning_function(self, states):
         if self.binning == "none":
-            return states
+            return torch.zeros(size=(states[0].shape[1], self.num_worlds,), device=self.device).int()
         elif self.binning == "random":
             return torch.randint(0, self.num_bins, size=(states[0].shape[1], self.num_worlds,), device=self.device)
         elif self.binning == "y_pos":
@@ -912,6 +911,7 @@ class GoExplore:
     def map_states_to_bins(self, states, max_bin = True):
         # Apply binning function to define bin for new states
         bins = self.apply_binning_function(states)
+
         # Apply mod to bring below num_bins
         if max_bin:
             bins = bins % self.num_bins
@@ -1134,6 +1134,7 @@ class GoExplore:
 
                 # Now let's compute a bunch of metrics per stage-level bin
                 all_bins = self.map_states_to_bins(update_results.obs, max_bin=False)
+
                 # Let's do bin-counts here for now, TODO have to reverse this
                 new_bin_counts = torch.bincount(all_bins.flatten(), minlength=self.num_bins)# > 0).int()
                 self.bin_count += torch.clone(new_bin_counts)
@@ -1452,7 +1453,7 @@ if __name__ == "__main__":
                 rewards = goExplore.rewards,
                 resets = goExplore.resets,
                 checkpoints = goExplore.checkpoints,
-                checkpoint_resets = goExplore.checkpoint_resets
+                checkpoint_resets = goExplore.checkpoint_resets,
         ),
         TrainConfig(
             run_name = args.run_name,

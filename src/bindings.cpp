@@ -83,6 +83,7 @@ NB_MODULE(madrona_puzzle_bench, m) {
         .def("reset_tensor", &Manager::resetTensor)
         .def("json_index_tensor", &Manager::jsonIndexTensor)
         .def("json_level_descriptions_tensor", &Manager::jsonLevelDescriptionsTensor)
+        .def("enum_counts_tensor", &Manager::enumCountsTensor)
         .def("goal_tensor", &Manager::goalTensor)
         .def("action_tensor", &Manager::actionTensor)
         .def("reward_tensor", &Manager::rewardTensor)

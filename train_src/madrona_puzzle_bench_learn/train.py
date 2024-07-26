@@ -457,6 +457,7 @@ def _update_iter(cfg : TrainConfig,
                  replay_buffer: NStepReplay,
                  user_cb,
             ):
+
     with torch.no_grad():
         actor_critic.eval()
         value_normalizer.eval()
@@ -525,7 +526,9 @@ def _update_iter(cfg : TrainConfig,
 
             prev_bins = torch.clone(rollout_mgr.obs[2][0][-1])
 
+
             rollouts = rollout_mgr.collect(amp, sim, actor_critic, value_normalizer, value_normalizer_intrinsic)
+
             #print("Testing: adding to buffer")
             #replay_buffer.add_to_buffer(rollouts)
             #print("Testing: load oldest thing in buffer")
@@ -711,6 +714,8 @@ def _update_loop(update_iter_fn : Callable,
                  replay_buffer: NStepReplay):
     num_train_seqs = num_agents * cfg.num_bptt_chunks
     assert(num_train_seqs % cfg.ppo.num_mini_batches == 0)
+
+
 
     advantages = torch.zeros_like(rollout_mgr.rewards)
     advantages_intrinsic = torch.zeros_like(rollout_mgr.rewards)

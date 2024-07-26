@@ -90,6 +90,7 @@ struct Sim : public madrona::WorldBase {
         RewardHyperParams *rewardHyperParams;
         const madrona::render::RenderECSBridge *renderBridge;
         JSONLevel *jsonLevels;
+        int32_t *enumCounts;
     };
 
     // This class would allow per-world custom data to be passed into

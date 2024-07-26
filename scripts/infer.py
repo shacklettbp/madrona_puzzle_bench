@@ -73,15 +73,11 @@ sim = madrona_puzzle_bench.SimManager(
     reward_per_dist = 0.05,
     slack_reward = -0.005,
 )
-print("started init")
 
 sim.init()
 
-print("finished init")
-
 action_dims = [2, 8, 1, 2]
-
-obs, num_obs_features = setup_obs(sim, args.no_level_obs)
+obs, num_obs_features = setup_obs(sim, sim.enum_counts_tensor().to_torch(), args.no_level_obs)
 policy = make_policy(num_obs_features, None, args.num_channels, args.separate_value, action_dims)
 
 json_indices = sim.json_index_tensor().to_torch()
@@ -141,13 +137,13 @@ jsonLevelList = [
     "lava_checkerboard"
 ]
 
-
 n_blocks = UniformInt(2, 2, seed=args.seed)
-gap_length = Uniform(1, 1, seed=args.seed)
+gap_length = Uniform(2, 2, seed=args.seed)
 #gap_length = Uniform(0, 2, seed=10)
 block_length = Uniform(1.0, 6.0, seed=args.seed)
 for i in range(1024):
-    json_levels[i] = jsonTableToTensor(json.loads(random_path_jump_path_generator(f"path_jump_path_s{args.seed}_{i}", n_blocks, gap_length, block_length).jsonify()))
+    jsonString = random_path_jump_path_generator(f"path_jump_path_s{args.seed}_{i}", n_blocks, gap_length, block_length).jsonify()
+    json_levels[i] = jsonTableToTensor(json.loads(jsonString))
 
 for i in range(args.num_worlds):
     json_indices[i, 0] = i
@@ -247,7 +243,6 @@ remainingTrials = args.num_trials
 successes = 0
 while True:
 
-
     #print("Observations")
     #for o in obs:
     #    print(o)
@@ -274,8 +269,7 @@ while True:
         trajectory_step["action_probs"] = [p.tolist() for p in probs]
     end = time.time()
 
-    # TODO: restore
-    #actions[:] = torch.tensor([1, 0, 0, 1]).unsqueeze(0)
+    #actions[:] = torch.tensor([1, 0, 0, 0]).unsqueeze(0)
 
     # For trajectory playback we assume only world 0 is active.
     trajectory_step["worldIdx"] = int(json_indices[:, 0])
@@ -288,6 +282,7 @@ while True:
     if record_log:
         ckpts.cpu().numpy().tofile(record_log)
 
+    #print(obs[0])
     '''
     print()
     print("Self:", obs[0])
@@ -316,7 +311,6 @@ while True:
     '''
 
     sim.step()
-
     #print("Sim Step Time:", end - start)
     #print("Rewards:\n", rewards)
     if rewards[..., 0] >= 10.0:
@@ -339,7 +333,6 @@ while True:
     #        goals[..., 0] = 2
     #    elif goals[..., 0] == 2:
     #        goals[..., 0] = 0 # 0 encodes the nonetype which causes the goal marker to switch to the exit.
-
 
 print("Average Time:", 1000 * timings / count, "ms")
 print(f"Succeeded in {successes} / {args.num_trials}")
