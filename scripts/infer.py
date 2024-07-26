@@ -138,11 +138,12 @@ jsonLevelList = [
 ]
 
 n_blocks = UniformInt(2, 2, seed=args.seed)
-gap_length = Uniform(2, 2, seed=args.seed)
+gap_length = Uniform(1, 1, seed=args.seed)
 #gap_length = Uniform(0, 2, seed=10)
 block_length = Uniform(1.0, 6.0, seed=args.seed)
+orientation = 0.0
 for i in range(1024):
-    jsonString = random_path_jump_path_generator(f"path_jump_path_s{args.seed}_{i}", n_blocks, gap_length, block_length).jsonify()
+    jsonString = random_path_jump_path_generator(f"path_jump_path_s{args.seed}_{i}", orientation, n_blocks, gap_length, block_length).jsonify()
     json_levels[i] = jsonTableToTensor(json.loads(jsonString))
 
 for i in range(args.num_worlds):
@@ -269,7 +270,8 @@ while True:
         trajectory_step["action_probs"] = [p.tolist() for p in probs]
     end = time.time()
 
-    #actions[:] = torch.tensor([1, 0, 0, 0]).unsqueeze(0)
+    
+    #actions[:] = torch.tensor([0, 0, 0, 1]).unsqueeze(0)
 
     # For trajectory playback we assume only world 0 is active.
     trajectory_step["worldIdx"] = int(json_indices[:, 0])

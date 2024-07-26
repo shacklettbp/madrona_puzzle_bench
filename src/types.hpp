@@ -99,6 +99,7 @@ struct EpisodeState {
     bool reachedExit;
     bool episodeFinished;
     bool reachedGoal;
+    float deltaT;
 };
 
 // Discrete action component. Ranges are defined by consts::numMoveBuckets (5),
@@ -136,6 +137,7 @@ struct AgentTxfmObs {
     Vector3 localRoomPos;
     AABB roomAABB;
     float theta;
+    float deltaT;
 };
 
 struct AgentInteractObs {

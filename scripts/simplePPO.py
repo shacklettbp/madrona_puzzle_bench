@@ -141,7 +141,7 @@ args = arg_parser.parse_args()
 
 n_blocks = UniformInt(2, 2, seed=args.seed)
 #gap_length = Uniform(1, 1, seed=args.seed) # simple to train
-gap_length = Uniform(2, 2, seed=args.seed) # actual challenge
+gap_length = Uniform(1, 1, seed=args.seed) # actual challenge
 block_length = Uniform(1.0, 6.0, seed=args.seed)
 
 def regenerateJsonLevels(json_levels_shape):
@@ -150,8 +150,9 @@ def regenerateJsonLevels(json_levels_shape):
     global block_length
 
     json_levels_cpu = torch.zeros(json_levels_shape)
+    orientation = 0.0
     for i in range(json_levels_cpu.shape[0]):
-        json_levels_cpu[i] = jsonTableToTensor(json.loads(random_path_jump_path_generator(f"path_jump_path_s{args.seed}_{i}", n_blocks, gap_length, block_length).jsonify()))
+        json_levels_cpu[i] = jsonTableToTensor(json.loads(random_path_jump_path_generator(f"path_jump_path_s{args.seed}_{i}", orientation, n_blocks, gap_length, block_length).jsonify()))
     return json_levels_cpu
 
 #args.num_updates = args.num_updates // 2 # Temporary change for script, will need to roll back

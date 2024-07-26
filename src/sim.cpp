@@ -99,6 +99,7 @@ static EpisodeState initEpisodeState()
         .reachedExit = false,
         .episodeFinished = true,
         .reachedGoal = false,
+        .deltaT = 0
     };
 }
 
@@ -310,6 +311,13 @@ inline void newEpisodeSystem(Engine &ctx, EpisodeState &episode_state)
     episode_state.reachedExit = true;
 
     initEpisodeRNG(ctx);
+
+    // Choose the physics parameters for this episode.
+    episode_state.deltaT = consts::minDeltaT + 
+    ctx.data().rng.sampleUniform() * (consts::deltaT - consts::minDeltaT);
+
+    PhysicsSystem::updatePhysicsStepParameters(ctx,
+    episode_state.deltaT, consts::numPhysicsSubsteps, consts::gravity);
 }
 
 inline void cleanupLevelSystem(Engine &ctx, const EpisodeState &episode_state)
@@ -385,8 +393,9 @@ inline void jumpSystem(Engine &ctx,
     }
 
     // Jump!
+    float jumpForce = 55.0f / ctx.singleton<EpisodeState>().deltaT;
     //external_force.z += rot.rotateVec({ 0.0f, 0.0f, 2500.0f }).z;
-    external_force.z += rot.rotateVec({ 0.0f, 0.0f, 1400.0f }).z;
+    external_force.z += rot.rotateVec({ 0.0f, 0.0f, jumpForce }).z;
     //external_force.z += rot.rotateVec({ 0.0f, 0.0f, 125.0f }).z;
 }
 
@@ -856,7 +865,6 @@ inline void agentZeroVelSystem(Engine &,
     //    vel.linear.z = fminf(vel.linear.z, 0);
     //};
 
-
     vel.angular = Vector3::zero();
     return;
 }
@@ -919,6 +927,7 @@ inline void collectObservationsSystem(
         .localRoomPos = local_room_pos,
         .roomAABB = room_aabb,
         .theta = computeZAngle(rot),
+        .deltaT = ctx.singleton<EpisodeState>().deltaT
     };
 
     // printf("agent_txfm_obs:\n");
