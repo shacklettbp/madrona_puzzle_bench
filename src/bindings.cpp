@@ -129,14 +129,13 @@ enum class LevelType : uint32_t {
         .def("depth_tensor", &Manager::depthTensor)
         .def("jax", JAXInterface::buildEntry<
                 &Manager::trainInterface,
-                &Manager::init,
-                &Manager::step
+                &Manager::cpuStreamInit,
+                &Manager::cpuStreamStep
 #ifdef MADRONA_CUDA_SUPPORT
                 ,
                 &Manager::gpuStreamInit,
-                &Manager::gpuStreamStep,
-                &Manager::gpuStreamLoadCheckpoints,
-                &Manager::gpuStreamGetCheckpoints
+                &Manager::gpuStreamStep//,
+                //&Manager::gpuStreamGetCheckpoints
 #endif
              >())
     ;

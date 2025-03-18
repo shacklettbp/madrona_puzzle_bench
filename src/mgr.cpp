@@ -85,6 +85,7 @@ static inline Optional<render::RenderManager> initRenderManager(
 
     return render::RenderManager(render_api, render_dev, {
         .enableBatchRenderer = mgr_cfg.enableBatchRenderer,
+        .renderMode = render::RenderManager::Config::RenderMode::RGBD,
         .agentViewWidth = mgr_cfg.batchRenderViewWidth,
         .agentViewHeight = mgr_cfg.batchRenderViewHeight,
         .numWorlds = mgr_cfg.numWorlds,
@@ -103,6 +104,7 @@ struct Manager::Impl {
     CheckpointReset *worldLoadCheckpointBuffer;
     Action *agentActionsBuffer;
     RewardHyperParams *rewardHyperParams;
+    SimControl *simCtrl;
     Optional<RenderGPUState> renderGPUState;
     Optional<render::RenderManager> renderMgr;
 
@@ -113,6 +115,7 @@ struct Manager::Impl {
                 CheckpointReset *checkpoint_load_buffer,
                 Action *action_buffer,
                 RewardHyperParams *reward_hyper_params,
+                SimControl *sim_ctrl,
                 Optional<RenderGPUState> &&render_gpu_state,
                 Optional<render::RenderManager> &&render_mgr)
         : cfg(mgr_cfg),
@@ -122,6 +125,7 @@ struct Manager::Impl {
           worldLoadCheckpointBuffer(checkpoint_load_buffer),
           agentActionsBuffer(action_buffer),
           rewardHyperParams(reward_hyper_params),
+          simCtrl(sim_ctrl),
           renderGPUState(std::move(render_gpu_state)),
           renderMgr(std::move(render_mgr))
     {}
@@ -156,6 +160,8 @@ struct Manager::Impl {
         TensorElementType type,
         madrona::Span<const int64_t> dimensions) const = 0;
 
+    virtual Tensor simControlTensor() const = 0;
+
     virtual Tensor rewardHyperParamsTensor() const = 0;
 
     static inline Impl * init(const Config &cfg);
@@ -174,13 +180,14 @@ struct Manager::CPUImpl final : Manager::Impl {
                    CheckpointReset *checkpoint_load_buffer,
                    Action *action_buffer,
                    RewardHyperParams *reward_hyper_params,
+                   SimControl *sim_ctrl,
                    Optional<RenderGPUState> &&render_gpu_state,
                    Optional<render::RenderManager> &&render_mgr,
                    TaskGraphT &&cpu_exec)
         : Impl(mgr_cfg, std::move(phys_loader),
                reset_buffer, checkpoint_save_buffer,
                checkpoint_load_buffer, action_buffer,
-               reward_hyper_params,
+               reward_hyper_params, sim_ctrl,
                std::move(render_gpu_state), std::move(render_mgr)),
           cpuExec(std::move(cpu_exec))
     {}
@@ -226,6 +233,14 @@ struct Manager::CPUImpl final : Manager::Impl {
     }
 #endif
 
+    virtual Tensor simControlTensor() const final
+    {
+        return Tensor(simCtrl, TensorElementType::Int32,
+                      {
+                          sizeof(SimControl) / sizeof(int32_t),
+                      }, Optional<int>::none());
+    }
+
     virtual Tensor rewardHyperParamsTensor() const final
     {
         return Tensor(rewardHyperParams, TensorElementType::Float32,
@@ -257,12 +272,14 @@ struct Manager::CUDAImpl final : Manager::Impl {
                    CheckpointReset *checkpoint_load_buffer,
                    Action *action_buffer,
                    RewardHyperParams *reward_hyper_params,
+                   SimControl *sim_ctrl,
                    Optional<RenderGPUState> &&render_gpu_state,
                    Optional<render::RenderManager> &&render_mgr,
                    MWCudaExecutor &&gpu_exec)
         : Impl(mgr_cfg, std::move(phys_loader),
                reset_buffer, checkpoint_save_buffer,
-               checkpoint_load_buffer, action_buffer, reward_hyper_params,
+               checkpoint_load_buffer, action_buffer,
+               reward_hyper_params, sim_ctrl,
                std::move(render_gpu_state), std::move(render_mgr)),
           gpuExec(std::move(gpu_exec)),
           initGraph(gpuExec.buildLaunchGraph(TaskGraphID::Init)),
@@ -343,10 +360,8 @@ struct Manager::CUDAImpl final : Manager::Impl {
         copyToSim(strm, mgr.actionTensor(), *buffers++);
         copyToSim(strm, mgr.resetTensor(), *buffers++);
 
-        if (cfg.numPBTPolicies > 0) {
-            copyToSim(strm, mgr.policyAssignmentsTensor(), *buffers++);
-            copyToSim(strm, mgr.rewardHyperParamsTensor(), *buffers++);
-        }
+        copyToSim(strm, mgr.policyAssignmentsTensor(), *buffers++);
+        copyToSim(strm, mgr.rewardHyperParamsTensor(), *buffers++);
 
         gpuExec.runAsync(stepGraph, strm);
 
@@ -374,6 +389,14 @@ struct Manager::CUDAImpl final : Manager::Impl {
         copyFromSim(strm, *buffers, mgr.checkpointTensor());
     }
 #endif
+
+    virtual Tensor simControlTensor() const final
+    {
+        return Tensor(simCtrl, TensorElementType::Int32,
+                      {
+                        sizeof(SimControl) / sizeof(int32_t),
+                      }, cfg.gpuID);
+    }
 
     virtual Tensor rewardHyperParamsTensor() const final
     {
@@ -436,7 +459,8 @@ static void loadRenderObjects(render::RenderManager &render_mgr)
     }
 
     std::array<char, 1024> import_err;
-    auto render_assets = imp::ImportedAssets::importFromDisk(
+    imp::AssetImporter importer;
+    auto render_assets = importer.importFromDisk(
         render_asset_cstrs, Span<char>(import_err.data(), import_err.size()));
 
     if (!render_assets.has_value()) {
@@ -485,14 +509,19 @@ static void loadRenderObjects(render::RenderManager &render_mgr)
 
     render_assets->objects[(CountT)SimObject::Plane].meshes[0].materialIDX = 4;
 
-    render_mgr.loadObjects(render_assets->objects, materials, {
-        { (std::filesystem::path(DATA_DIR) /
-           "green_grid.png").string().c_str() },
-        { (std::filesystem::path(DATA_DIR) /
-           "smile.png").string().c_str() },
-        { (std::filesystem::path(DATA_DIR) /
-           "smile.png").string().c_str() },
+    auto &img_importer = importer.imageImporter();
+
+    StackAlloc tmp_alloc;
+    Span<imp::SourceTexture> src_textures = img_importer.importImages(tmp_alloc, {
+        (std::filesystem::path(DATA_DIR) /
+           "green_grid.png").string().c_str(),
+        (std::filesystem::path(DATA_DIR) /
+           "smile.png").string().c_str(),
+        (std::filesystem::path(DATA_DIR) /
+           "smile.png").string().c_str(),
     });
+
+    render_mgr.loadObjects(render_assets->objects, materials, src_textures);
 
     render_mgr.configureLighting({
         { true, math::Vector3{1.0f, 1.0f, -2.0f}, math::Vector3{1.0f, 1.0f, 1.0f} }
@@ -540,7 +569,8 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
     }
 
     char import_err_buffer[4096];
-    auto imported_src_hulls = imp::ImportedAssets::importFromDisk(
+    imp::AssetImporter importer;
+    auto imported_src_hulls = importer.importFromDisk(
         asset_cstrs, import_err_buffer, true);
 
     if (!imported_src_hulls.has_value()) {
@@ -652,6 +682,7 @@ static void loadPhysicsObjects(PhysicsLoader &loader)
 
     SourceCollisionPrimitive plane_prim {
         .type = CollisionPrimitive::Type::Plane,
+        .plane = {},
     };
 
     src_objs[(CountT)SimObject::Plane] = {
@@ -783,6 +814,13 @@ Manager::Impl * Manager::Impl::init(
         Action *agent_actions_buffer = 
             (Action *)gpu_exec.getExported((uint32_t)ExportID::Action);
 
+        SimControl *sim_ctrl = (SimControl *)cu::allocGPU(sizeof(SimControl));
+        {
+          SimControl staging = {};
+          cudaMemcpy(sim_ctrl, &staging, sizeof(SimControl),
+                     cudaMemcpyHostToDevice);
+        }
+
         return new CUDAImpl {
             mgr_cfg,
             std::move(phys_loader),
@@ -791,6 +829,7 @@ Manager::Impl * Manager::Impl::init(
             checkpoint_load_buffer,
             agent_actions_buffer,
             sim_cfg.rewardHyperParams,
+            sim_ctrl,
             std::move(render_gpu_state),
             std::move(render_mgr),
             std::move(gpu_exec),
@@ -856,6 +895,9 @@ Manager::Impl * Manager::Impl::init(
         Action *agent_actions_buffer = 
             (Action *)cpu_exec.getExported((uint32_t)ExportID::Action);
 
+        SimControl *sim_ctrl = (SimControl *)malloc(sizeof(SimControl));
+        *sim_ctrl = {};
+
         auto cpu_impl = new CPUImpl {
             mgr_cfg,
             std::move(phys_loader),
@@ -864,6 +906,7 @@ Manager::Impl * Manager::Impl::init(
             checkpoint_load_buffer,
             agent_actions_buffer,
             sim_cfg.rewardHyperParams,
+            sim_ctrl,
             std::move(render_gpu_state),
             std::move(render_mgr),
             std::move(cpu_exec),
@@ -1230,6 +1273,11 @@ Tensor Manager::policyAssignmentsTensor() const
                                });
 }
 
+Tensor Manager::simControlTensor() const
+{
+    return impl_->simControlTensor();
+}
+
 Tensor Manager::rewardHyperParamsTensor() const
 {
     return impl_->rewardHyperParamsTensor();
@@ -1237,42 +1285,41 @@ Tensor Manager::rewardHyperParamsTensor() const
 
 TrainInterface Manager::trainInterface() const
 {
-    auto pbt_inputs = std::to_array<NamedTensorInterface>({
-        { "policy_assignments", policyAssignmentsTensor().interface() },
-        { "reward_hyper_params", rewardHyperParamsTensor().interface() },
-    });
-
-    return TrainInterface {
-        {
-            .actions = actionTensor().interface(),
-            .resets = resetTensor().interface(),
-            .pbt = impl_->cfg.numPBTPolicies > 0 ?
-                pbt_inputs : Span<const NamedTensorInterface>(nullptr, 0),
-        },
-        {
-            .observations = {
-                { "agent_txfm", agentTxfmObsTensor().interface() },
-                { "agent_interact", agentInteractObsTensor().interface() },
-                { "agent_level_type", agentLevelTypeObsTensor().interface() },
-                { "agent_exit", agentExitObsTensor().interface() },
-                { "lidar_depth", lidarDepthTensor().interface() },
-                { "lidar_hit_type", lidarHitTypeTensor().interface() },
-                { "steps_remaining", stepsRemainingTensor().interface() },
-                { "entity_physics_states", entityPhysicsStateObsTensor().interface() },
-                { "entity_types", entityTypeObsTensor().interface() },
-                { "entity_attrs", entityAttributesObsTensor().interface() },
-            },
-            .rewards = rewardTensor().interface(),
-            .dones = doneTensor().interface(),
-            .pbt = {
-                { "episode_results", episodeResultTensor().interface() },
-            },
-        },
-        TrainCheckpointingInterface {
-            .triggerLoad = checkpointResetTensor().interface(),
-            .checkpointData =  checkpointTensor().interface(),
-        },
-    };
+  return TrainInterface {
+    {
+      .actions = {
+        { "act", actionTensor() },
+      },
+      .resets = resetTensor(),
+      .simCtrl = simControlTensor(),
+      .pbt = {
+        { "policy_assignments", policyAssignmentsTensor() },
+        //{ "reward_hyper_params", rewardHyperParamsTensor() },
+      },
+    },
+    {
+      .observations = {
+        { "agent_txfm", agentTxfmObsTensor() },
+        { "agent_interact", agentInteractObsTensor() },
+        { "agent_level_type", agentLevelTypeObsTensor() },
+        { "agent_exit", agentExitObsTensor() },
+        { "lidar_depth", lidarDepthTensor() },
+        { "lidar_hit_type", lidarHitTypeTensor() },
+        { "steps_remaining", stepsRemainingTensor() },
+        { "entity_physics_states", entityPhysicsStateObsTensor() },
+        { "entity_types", entityTypeObsTensor() },
+        { "entity_attrs", entityAttributesObsTensor() },
+      },
+      .rewards = rewardTensor(),
+      .dones = doneTensor(),
+      .pbt = {
+        { "episode_results", episodeResultTensor() },
+      },
+    },
+    //TrainCheckpointingInterface {
+    //    .checkpointData =  checkpointTensor(),
+    //},
+  };
 }
 
 }

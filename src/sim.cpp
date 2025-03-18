@@ -1,5 +1,6 @@
 #include <madrona/mw_gpu_entry.hpp>
 #include <iostream>
+#include <algorithm>
 
 #include "sim.hpp"
 #include "level_gen.hpp"
@@ -320,10 +321,9 @@ inline void generateLevelSystem(Engine &ctx, EpisodeState &episode_state)
     episode_state.reachedExit = false;
 
     PhysicsSystem::reset(ctx);
-    LevelType level_type = extractLevelType(ctx.data().simFlags);
     // Printf both level_type and simFlags. Use printf, not cout
     //printf("level_type: %d, simFlags: %d\n", level_type, ctx.data().simFlags);
-    level_type = generateLevel(ctx, level_type);
+    LevelType level_type = generateLevel(ctx, LevelType::SingleBlockButton);
     ctx.get<AgentLevelTypeObs>(ctx.data().agent) = AgentLevelTypeObs {
         .type = level_type,
     };
@@ -1013,7 +1013,7 @@ inline void dense1RewardSystem(Engine &ctx,
         reward += 1.f;
 
         if (episode_state.curLevel == ctx.data().levelsPerEpisode) {
-            reward += 10.f;
+            reward += 100.f;
         }
     }
 

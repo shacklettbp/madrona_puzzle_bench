@@ -3,7 +3,8 @@ from jax import lax, random, numpy as jnp
 from jax.experimental import checkify
 import flax
 from flax import linen as nn
-from flax.core import FrozenDict
+from flax.core import frozen_dict, FrozenDict
+import numpy as np
 
 import argparse
 from functools import partial
@@ -14,6 +15,7 @@ from madrona_learn import (
     Policy, ActorCritic, BackboneShared, BackboneSeparate,
     BackboneEncoder, RecurrentBackboneEncoder,
     ObservationsEMANormalizer, ObservationsCaster,
+    DiscreteActionsConfig, DiscreteActionDistributions,
 )
 
 from madrona_learn.models import (
@@ -22,8 +24,15 @@ from madrona_learn.models import (
     EntitySelfAttentionNet,
     DenseLayerDiscreteActor,
     DenseLayerCritic,
+    HLGaussCritic,
 )
 from madrona_learn.rnn import LSTM
+
+actions_config = {
+    'act': DiscreteActionsConfig(
+        actions_num_buckets = [4, 8, 5, 2],
+    ),
+}
 
 def assert_valid_input(tensor):
     checkify.check(jnp.isnan(tensor).any() == False, "NaN!")
@@ -81,6 +90,7 @@ class PolicyRNN(nn.Module):
 
 class PrefixCommon(nn.Module):
     dtype: jnp.dtype
+    num_embed_channels: int = 128
 
     @nn.compact
     def __call__(
@@ -113,6 +123,16 @@ class PrefixCommon(nn.Module):
             agent_lidar_hit_type,
             steps_remaining,
         ], axis=-1)
+
+        self_ob = nn.Dense(
+            self.num_embed_channels,
+            use_bias = False,
+            kernel_init = jax.nn.initializers.orthogonal(scale=np.sqrt(2)),
+            dtype = self.dtype,
+            name = 'self_embed',
+        )(self_ob)
+        self_ob = LayerNorm(dtype=self.dtype)(self_ob)
+        self_ob = nn.relu(self_ob)
         
         obs, entity_physics_states = obs.pop('entity_physics_states')
         obs, entity_types  = obs.pop('entity_types')
@@ -123,6 +143,18 @@ class PrefixCommon(nn.Module):
             entity_types,
             entity_attrs,
         ], axis=-1)
+
+        entities_ob = nn.Dense(
+            self.num_embed_channels,
+            use_bias = False,
+            kernel_init = jax.nn.initializers.orthogonal(scale=np.sqrt(2)),
+            dtype = self.dtype,
+            name = 'entities_embed',
+        )(entities_ob)
+        entities_ob = LayerNorm(dtype=self.dtype)(entities_ob)
+        entities_ob = nn.relu(entities_ob)
+
+        entities_ob = jnp.max(entities_ob, axis=-2)
 
         assert len(obs) == 0
 
@@ -141,12 +173,14 @@ class SimpleNet(nn.Module):
         obs,
         train,
     ):
-        num_batch_dims = len(obs['self'].shape) - 1
-        obs = jax.tree_map(
-            lambda o: o.reshape(*o.shape[0:num_batch_dims], -1), obs)
+        #num_batch_dims = len(obs['self'].shape) - 1
+        #obs = jax.tree_map(
+        #    lambda o: o.reshape(*o.shape[0:num_batch_dims], -1), obs)
 
-        flattened, _ = jax.tree_util.tree_flatten(obs)
-        flattened = jnp.concatenate(flattened, axis=-1)
+        #flattened, _ = jax.tree_util.tree_flatten(obs)
+        #flattened = jnp.concatenate(flattened, axis=-1)
+        
+        flattened = jnp.concatenate([obs['self'], obs['entities']], axis=-1)
 
         return MLP(
                 num_channels = 256,
@@ -255,10 +289,58 @@ class CriticNet(nn.Module):
                     dtype = self.dtype,
                 )(obs, train=train)
 
+
+class ActorDistributions(flax.struct.PyTreeNode):
+    dist: DiscreteActionDistributions
+
+    def sample(self, prng_key):
+        discrete_rnd, aim_rnd = random.split(prng_key)
+        
+        actions, log_probs = self.dist.sample(discrete_rnd)
+
+        return frozen_dict.freeze({
+            'act': actions,
+        }), frozen_dict.freeze({
+            'act': log_probs,
+        })
+
+    def best(self):
+        return frozen_dict.freeze({
+            'act': self.dist.best(),
+        })
+
+    def action_stats(self, actions):
+        log_probs, entropies = self.dist.action_stats(actions['act'])
+
+        return frozen_dict.freeze({
+            'act': log_probs,
+        }), frozen_dict.freeze({
+            'act': entropies,
+        })
+
+
+class ActorHead(nn.Module):
+    dtype: jnp.dtype
+
+    @nn.compact
+    def __call__(
+        self,
+        features,
+        train=False,
+    ):
+        dist = DenseLayerDiscreteActor(
+            cfg = actions_config['act'],
+            dtype = self.dtype,
+        )(features)
+
+        return ActorDistributions(
+            dist=dist,
+        )
+
 def make_policy(dtype):
     #encoder = RecurrentBackboneEncoder(
     encoder = BackboneEncoder(
-        net = ActorNet(dtype, use_simple=False, use_hash=False),
+        net = ActorNet(dtype, use_simple=True, use_hash=False),
         #rnn = PolicyRNN.create(
         #    num_hidden_channels = 256,
         #    num_layers = 1,
@@ -275,11 +357,13 @@ def make_policy(dtype):
 
     actor_critic = ActorCritic(
         backbone = backbone,
-        actor = DenseLayerDiscreteActor(
-            actions_num_buckets = [4, 8, 5, 2],
-            dtype = dtype,
+        actor = ActorHead(dtype=dtype),
+        critic = HLGaussCritic.create(
+            dtype=dtype,
+            min_bound=-200,
+            max_bound=200,
         ),
-        critic = DenseLayerCritic(dtype=dtype),
+        #critic = DenseLayerCritic(dtype=dtype),
     )
 
     obs_preprocess = ObservationsEMANormalizer.create(

@@ -10,7 +10,7 @@ if [ -z $2 ]; then
     exit
 fi
 
-MADRONA_MWGPU_KERNEL_CACHE=${ROOT_DIR}/build/cache python ${ROOT_DIR}/scripts/jax_infer.py \
+XLA_PYTHON_CLIENT_PREALLOCATE=false MADRONA_MWGPU_KERNEL_CACHE=${ROOT_DIR}/build/cache python ${ROOT_DIR}/scripts/jax_infer.py \
     --gpu-sim \
     --ckpt-path ${ROOT_DIR}/ckpts/$2 \
     --num-steps 3600 \

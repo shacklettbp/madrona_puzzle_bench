@@ -73,6 +73,10 @@ enum class EntityType : uint32_t {
     NumTypes,
 };
 
+struct SimControl {
+  int32_t ctrl = 0;
+};
+
 struct EpisodeState {
     uint32_t curStep;
     uint32_t curLevel;

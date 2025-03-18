@@ -44,6 +44,9 @@ public:
     void init();
     void step();
 
+    inline void cpuStreamInit(void **, void **) {}
+    inline void cpuStreamStep(void **, void **) {}
+
 #ifdef MADRONA_CUDA_SUPPORT
     void gpuStreamInit(cudaStream_t strm, void **buffers);
     void gpuStreamStep(cudaStream_t strm, void **buffers);
@@ -89,6 +92,7 @@ public:
 
     madrona::py::Tensor policyAssignmentsTensor() const;
     madrona::py::Tensor episodeResultTensor() const;
+    madrona::py::Tensor simControlTensor() const;
     madrona::py::Tensor rewardHyperParamsTensor() const;
     madrona::py::TrainInterface trainInterface() const;
 

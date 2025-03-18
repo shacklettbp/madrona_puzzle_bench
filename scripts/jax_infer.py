@@ -14,9 +14,9 @@ from madrona_puzzle_bench.madrona import ExecMode
 
 import madrona_learn
 
-from jax_policy import make_policy
+from jax_policy import make_policy, actions_config
 
-madrona_learn.init(0.4)
+madrona_learn.cfg_jax_mem(0.4)
 
 arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument('--num-worlds', type=int, required=True)
@@ -61,13 +61,13 @@ sim = madrona_puzzle_bench.SimManager(
     exec_mode = ExecMode.CUDA if args.gpu_sim else ExecMode.CPU,
     gpu_id = args.gpu_id,
     num_worlds = args.num_worlds,
-    num_pbt_policies = 0,
+    num_pbt_policies = 16,
     rand_seed = 10,
     sim_flags = SimFlags.Default,
     reward_mode = RewardMode.Dense1,
     episode_len = 200,
     levels_per_episode = 1,
-    button_width = 1.3,
+    button_width = 1.5,
     door_width = 20.0 / 3.,
     reward_per_dist = 0.05,
     slack_reward = -0.005,
@@ -91,13 +91,13 @@ else:
 
 step_idx = 0
 
-def host_cb(obs, actions, action_probs, values, dones, rewards):
+def host_cb():
     global step_idx
 
     if args.print_obs:
         print(obs)
 
-    #print(f"\nStep {step_idx}")
+    print(f"\nStep {step_idx}")
 
     if args.print_action_probs:
         for i in range(actions.shape[0]):
@@ -122,19 +122,24 @@ def host_cb(obs, actions, action_probs, values, dones, rewards):
 def iter_cb(step_data):
     cb = partial(jax.experimental.io_callback, host_cb, ())
 
-    cb(step_data['obs'],
-       step_data['actions'],
-       step_data['action_probs'],
-       step_data['values'],
-       step_data['dones'],
-       step_data['rewards'])
+    cb()
+
+    #cb(step_data['obs'],
+    #   step_data['actions'],
+    #   step_data['action_probs'],
+    #   step_data['values'],
+    #   step_data['dones'],
+    #   step_data['rewards'])
 
 cfg = madrona_learn.EvalConfig(
     num_worlds = args.num_worlds,
     team_size = team_size,
+    actions = actions_config,
     num_teams = num_teams,
     num_eval_steps = args.num_steps,
     eval_competitive = False,
+    use_deterministic_policy = False,
+    reward_gamma = 0.998,
     policy_dtype = dtype,
 )
 
@@ -143,7 +148,8 @@ episode_scores = policy_states.episode_score
 print(episode_scores.mean)
 
 episode_scores = madrona_learn.eval_policies(
-    dev, cfg, sim_fns, policy, policy_states, iter_cb)
+    dev, cfg, sim_fns, policy, jnp.asarray([1], jnp.int32),
+    policy_states, iter_cb)
 
 print(episode_scores.mean)
 
